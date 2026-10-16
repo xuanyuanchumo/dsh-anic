@@ -2,8 +2,9 @@
 /**
  * dsh-anic typecheck — 运行 tsconfig.client.json 与 tsconfig.host.json。
  *
- * tsc 不在 dsh-anic 自己的 node_modules（独立性宪章 TD-A1：当前借用父工程
- * node_modules 是过渡态），所以像 build-client.mjs 的 findTsdown 一样向上查找。
+ * 独立仓库（cycle-99 迁移后）：typescript 是本仓库 devDependency
+ * （package.json ~5.9.3，与验证场地 dsh-codegraph-visualizer 同版本）。
+ * findTsc 先查本地 node_modules，再向上兜底（兼容旧的嵌套布局）。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

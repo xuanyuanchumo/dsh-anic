@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { archiveOldCycles } from '../../src/host/governance/archiver.ts';
@@ -80,8 +80,14 @@ describe('sweep', () => {
   });
 
   it('删过期 .tmp 文件', () => {
-    writeFileSync(join(workDir, 'stale.tmp'), 'old');
-    const result = sweepCycles(workDir, { tmpMaxAgeMs: -1 }); // 立即过期
+    const stale = join(workDir, 'stale.tmp');
+    writeFileSync(stale, 'old');
+    // 不用 tmpMaxAgeMs:-1 —— Windows NTFS 时间戳按 tick 向上量化，文件 mtime 可以比
+    // Date.now() 早至 ~15.6ms（未来），age 会落在阈值边界内造成偶发红（迁移后首跑复现）。
+    // 正确做法：显式把 mtime 钉到过去（utimesSync），再用远离边界的正阈值断言真契约。
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(stale, past, past);
+    const result = sweepCycles(workDir, { tmpMaxAgeMs: 30_000 }); // 60s 前 > 30s 阈值
     expect(result.removedTmpFiles.length).toBe(1);
   });
 

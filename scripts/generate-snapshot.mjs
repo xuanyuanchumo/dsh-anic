@@ -9,14 +9,21 @@
  * Requires Node >= 22.18 (native TS type stripping; profile runtime is Node 24).
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildWorkflowSnapshot } from '../src/shared/snapshotCore.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(here, '..', '..'); // repo root (dsh-anic/scripts/../..)
-const CYCLES = join(ROOT, '.cycles');
-const PLUGIN_DIR = 'dsh-anic'; // 插件目录名 = 包名（DSH 规范）；改名需同步此行
+// 迁移（cycle-99）：本仓库（PLUGIN_ROOT）独立于验证场地。产出物始终写在本仓库内；
+// 数据源 .cycles/ 默认取同级验证场地 dsh-codegraph-visualizer，可用 --workspace 或
+// 环境变量 DSH_ANIC_TEST_WORKSPACE 覆盖（与 start-dsh-test.mjs 同一解析规则）。
+const PLUGIN_ROOT = join(here, '..');
+const WORKSPACE = resolve(
+  (process.argv.indexOf('--workspace') !== -1 && process.argv[process.argv.indexOf('--workspace') + 1])
+    || process.env.DSH_ANIC_TEST_WORKSPACE
+    || join(PLUGIN_ROOT, '..', 'dsh-codegraph-visualizer'),
+);
+const CYCLES = join(WORKSPACE, '.cycles');
 
 const snap = buildWorkflowSnapshot(CYCLES);
 const { generatedAt, counts, autonomy, nodes, edges } = snap;
@@ -60,9 +67,9 @@ export interface WorkflowSnapshot {
 export const WORKFLOW_SNAPSHOT: WorkflowSnapshot = ${JSON.stringify({ nodes, edges, autonomy, counts })};
 `;
 
-mkdirSync(join(ROOT, PLUGIN_DIR, 'src', 'client'), { recursive: true });
-writeFileSync(join(ROOT, PLUGIN_DIR, 'src', 'client', 'workflowGraphData.ts'), ts);
-mkdirSync(join(ROOT, PLUGIN_DIR, 'artifacts'), { recursive: true });
-writeFileSync(join(ROOT, PLUGIN_DIR, 'artifacts', 'workflow-snapshot.json'), JSON.stringify({ generatedAt, autonomy, counts, nodes, edges }, null, 1));
+mkdirSync(join(PLUGIN_ROOT, 'src', 'client'), { recursive: true });
+writeFileSync(join(PLUGIN_ROOT, 'src', 'client', 'workflowGraphData.ts'), ts);
+mkdirSync(join(PLUGIN_ROOT, 'artifacts'), { recursive: true });
+writeFileSync(join(PLUGIN_ROOT, 'artifacts', 'workflow-snapshot.json'), JSON.stringify({ generatedAt, autonomy, counts, nodes, edges }, null, 1));
 
-console.log(`snapshot: ${JSON.stringify(counts)}, autonomy=${autonomy}`);
+console.log(`snapshot: ${JSON.stringify(counts)}, autonomy=${autonomy} (workspace: ${WORKSPACE})`);

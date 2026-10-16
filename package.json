@@ -14,6 +14,17 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.5",
+    "jsdom": "^30.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsdown": "^0.10.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.0.0"
+  },
   "exports": {
     ".": "./dist/host.js",
     "./client": "./dist/client.js",

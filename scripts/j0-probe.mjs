@@ -12,22 +12,44 @@
  *
  * 前置：node scripts/start-dsh-test.mjs start   （本探针绝不启动/杀死宿主进程）
  * 用法：node scripts/j0-probe.mjs [--keep-switch]   （--keep-switch 不恢复 kill-switch）
+ *
+ * 自愈与兜底（cycle-99 实测教训）：
+ *   - 残留 kill-switch 自愈：上轮探针若在 J0-6 中途被杀，localStorage 残留 'off'
+ *     会让标签永不挂载——启动时先摘掉陈旧开关再测。
+ *   - 无会话视图兜底：全新 profile 落在空态，conversation view 不挂载就没有标签条
+ *     ——自动代开侧栏第一个既有会话（不依赖宿主构建哈希类名，走 role=treeitem 结构）。
  */
 import { createRequire } from 'node:module';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const REPO_ROOT = join(PLUGIN_ROOT, '..');
+// 迁移（cycle-99）：dsh-anic 与 dsh-codegraph-visualizer 是同级兄弟目录。
+// @playwright/test 仍借用验证场地的 node_modules（本仓库不引入 playwright 依赖），
+// 解析顺序：本仓库 node_modules → 同级 dsh-codegraph-visualizer → DSH_ANIC_TEST_WORKSPACE。
+const TOOLCHAIN_ROOTS = [
+  PLUGIN_ROOT,
+  join(PLUGIN_ROOT, '..', 'dsh-codegraph-visualizer'),
+  ...(process.env.DSH_ANIC_TEST_WORKSPACE ? [resolve(process.env.DSH_ANIC_TEST_WORKSPACE)] : []),
+];
 const CDP_URL = 'http://127.0.0.1:9222';
 const keepSwitch = process.argv.includes('--keep-switch');
 
-const requireFromRepo = createRequire(join(REPO_ROOT, 'package.json'));
-let chromium;
-try {
-  ({ chromium } = requireFromRepo('@playwright/test'));
-} catch (e) {
-  console.error(`[j0-probe] 无法加载 @playwright/test（经仓库根 node_modules）: ${e.message}`);
+let requireFromRepo = null;
+let chromium = null;
+let loadErr = null;
+for (const root of TOOLCHAIN_ROOTS) {
+  try {
+    const req = createRequire(join(root, 'package.json'));
+    ({ chromium } = req('@playwright/test'));
+    requireFromRepo = req;
+    break;
+  } catch (e) {
+    loadErr = e;
+  }
+}
+if (!chromium) {
+  console.error(`[j0-probe] 无法加载 @playwright/test（尝试过 ${TOOLCHAIN_ROOTS.join(' → ')}）: ${loadErr?.message ?? ''}`);
   process.exit(2);
 }
 
@@ -52,6 +74,56 @@ console.log(`[j0-probe] 目标页面: ${page.url().slice(0, 80)}...`);
 
 // 每条判据独立 try，避免一条崩溃吞掉整份报告
 await page.bringToFront().catch(() => {});
+
+// ── 防御 1：残留 kill-switch 自愈 ─────────────────────────────────────────────
+// 场景（实测）：上一轮探针在 J0-6「写入开关 → reload」之后、恢复之前被中途终止
+// （例如输出管道被 Select-Object -First N 截断杀进程），localStorage 里残留
+// 'anic-workflow-tab' = 'off'。此时 ANIC 标签永不挂载，J0-1/1b/2/4 全部假失败，
+// 且从 FAIL 文本完全看不出是开关问题——必须先摘掉陈旧开关再测。
+// （--keep-switch 模式下不摘：那是故意保留开关观察行为的模式。）
+if (!keepSwitch) {
+  const stale = await page.evaluate(() => window.localStorage.getItem('anic-workflow-tab'));
+  if (stale === 'off') {
+    await page.evaluate(() => window.localStorage.removeItem('anic-workflow-tab'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1500);
+    console.log('  [清理] 检测到残留 kill-switch（上次探针可能被中途终止）——已移除并刷新');
+  }
+}
+
+// ── 防御 2：无会话视图时代开既有会话 ──────────────────────────────────────────
+// 场景（实测）：全新浏览器 profile 落在「新会话」空态——conversation view 不挂载，
+// 标签条（对话/轨迹/代码图谱/ANIC）根本不存在，J0-1 计数为 0 且与插件无关。
+// 侧栏是 role=tree 树：带 aria-expanded 的 treeitem 是工作区/分组行（点它展开），
+// 不带 aria-expanded 的 treeitem 是会话行（点它打开会话视图）。「新会话」占位行
+// 打开的是空输入态（不挂标签条），必须排除、点真实会话行。
+if ((await page.locator('[role="tab"]').count()) === 0) {
+  const opened = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const findSess = () => [...document.querySelectorAll('[role="treeitem"]')]
+      .filter((n) => !n.hasAttribute('aria-expanded') && (n.textContent || '').trim() && !(n.textContent || '').includes('新会话'))
+      .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
+    let sess = findSess();
+    if (!sess) {
+      for (const proj of [...document.querySelectorAll('[role="treeitem"][aria-expanded="false"]')]) {
+        proj.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await sleep(600);
+        sess = findSess();
+        if (sess) break;
+      }
+    }
+    if (!sess) return null;
+    sess.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(1200);
+    return (sess.textContent || '').trim().slice(0, 30);
+  });
+  if (opened) {
+    await page.waitForSelector('[role="tab"]', { timeout: 8000 }).catch(() => {});
+    console.log(`  [兜底] 无打开会话——已代开既有会话「${opened}」以挂载会话视图`);
+  } else {
+    console.log('  [警告] 侧栏没有可打开的既有会话——标签判据可能因无会话视图而失败');
+  }
+}
 
 // J0-1 ANIC 标签可见
 let anicTab = null;
