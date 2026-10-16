@@ -31,7 +31,8 @@ export function parseBody(req: RouteReq): Record<string, unknown> {
 export interface RouteContext {
   ctx: SnapshotCtx;
   send: SendFn;
-  getWorkspaceRoot: () => string | null;
+  /** req 可选：带 X-ANIC-Workspace 头时优先采信（桌面多会话纠偏，见 snapshotRoute P2 注）。 */
+  getWorkspaceRoot: (req?: unknown) => string | null;
   loadFlows: () => { selfInit: boolean };
 }
 
@@ -46,8 +47,8 @@ export function makeSend(): SendFn {
 export function buildRouteContext(ctx: unknown): RouteContext {
   const c = ctx as SnapshotCtx;
   const send = makeSend();
-  const getWorkspaceRoot = (): string | null => {
-    try { return resolveWorkspaceRoots(c); } catch { return null; }
+  const getWorkspaceRoot = (req?: unknown): string | null => {
+    try { return resolveWorkspaceRoots(c, req); } catch { return null; }
   };
   const loadFlows = (): { selfInit: boolean } => {
     try {

@@ -25,6 +25,7 @@ import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
 import { resolveShellTheme, observeShellTheme, token, tokenCssBlock, THEME_ATTRIBUTE, type ShellTheme } from '../shared/tokens.ts';
+import { PANEL_CSS } from '../shared/panelCss.ts';
 import { t } from './i18n.ts';
 
 const SNAPSHOT_URL = '/anic/api/workflow-snapshot';
@@ -34,25 +35,21 @@ const ORG_STATUS_URL = '/anic/org-status';
 
 interface FetchState { source: 'embedded' | 'live'; line: string; }
 
-const BTN: Record<string, unknown> = {
-  fontSize: 12, padding: '2px 10px', cursor: 'pointer', border: `1px solid ${token('anic-border')}`, borderRadius: 4, background: token('anic-surface'),
-};
-
 
 /**
- * 注入面板作用域的设计令牌（P1-TOKENS）。
+ * 注入面板作用域的样式（P1-TOKENS 令牌块 + P1-1 面板 CSS 块）。
  *
- * `var(--x, fallback)` 的 fallback 只在变量未定义时生效——它是兜底，不是主题机制。
- * 令牌块必须真的注入一次，否则全站都走 fallback，"换主题只需改变量"就是空话。
- * 注入挂在 document.head，卸载时移除；同页面多个面板实例不会重复注入（id 去重）。
+ * 令牌块定义 `--anic-*` 变量；面板块消费它们实现交互态（:hover/:focus-visible）
+ * 与响应式（@container）——这两者在内联 style 里表达不了（见 panelCss.ts 头注释）。
+ * 挂在 document.head，卸载时移除；同页面多个面板实例不会重复注入（id 去重）。
  */
 function useTokenCss(): void {
   useEffect(() => {
-    const id = 'anic-design-tokens';
+    const id = 'anic-panel-css';
     if (document.getElementById(id)) return;
     const el = document.createElement('style');
     el.id = id;
-    el.textContent = tokenCssBlock();
+    el.textContent = `${tokenCssBlock()}\n${PANEL_CSS}`;
     document.head.appendChild(el);
     return () => { el.remove(); };
   }, []);
@@ -88,17 +85,28 @@ function useShellTheme(): ShellTheme {
  */
 export function WorkflowGraphPanel(): ReactElement {
   const [data, setData] = useState<GraphData>({ nodes: WORKFLOW_SNAPSHOT.nodes, edges: WORKFLOW_SNAPSHOT.edges });
-  const [state, setState] = useState<FetchState>({ source: 'embedded', line: 'build-time snapshot' });
+  // 初始行文案经 t()：缺省 zh 与既有中文一致（clientI18n 回归红线）。
+  const [state, setState] = useState<FetchState>({ source: 'embedded', line: t('panel.sourceEmbedded') });
   const [trace, setTrace] = useState<StepTraceJson | null>(null);
-  const [traceLine, setTraceLine] = useState<string>('未加载');
+  const [traceLine, setTraceLine] = useState<string>(t('panel.notLoaded'));
   const [check, setCheck] = useState<SelfCheckJson | null>(null);
-  const [checkLine, setCheckLine] = useState<string>('未加载');
+  const [checkLine, setCheckLine] = useState<string>(t('panel.notLoaded'));
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [flowTick, setFlowTick] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
   const [orgStatus, setOrgStatus] = useState<OrgStatusJson | null>(null);
   const inFlight = useRef(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
+  // 响应头），后续所有请求回带 X-ANIC-Workspace 头，让服务端在多会话宿主上
+  // 解析到「本面板的工作区」而不是 sessions.list() 首条。服务端只把它当
+  // 选择器（必须命中宿主已知工作区集或含 .cycles 才采信），不是任意路径入口。
+  const workspaceRef = useRef<string | null>(null);
+  const wsHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = { Accept: 'application/json' };
+    if (workspaceRef.current) h['X-ANIC-Workspace'] = workspaceRef.current;
+    return h;
+  };
 
   // P0-2：自举四态反馈（running 时禁用防双击；失败保留错误信息与重试语义）。
   const { phase: selfInitPhase, note: selfInitNote, onSelfInit } = useSelfInit();
@@ -110,36 +118,41 @@ export function WorkflowGraphPanel(): ReactElement {
     const tasks = [
       (async (): Promise<void> => {
         try {
-          const res = await fetch(SNAPSHOT_URL, { headers: { Accept: 'application/json' } });
-          if (!res.ok) { setState({ source: 'embedded', line: `build-time snapshot (live route ${String(res.status)})` }); return; }
+          const res = await fetch(SNAPSHOT_URL, { headers: wsHeaders() });
+          if (!res.ok) { setState({ source: 'embedded', line: t('panel.sourceEmbeddedWithRoute', { status: String(res.status) }) }); return; }
           const json = (await res.json()) as GraphData & { generatedAt?: string; counts?: { nodes: number; edges: number } };
-          if (!Array.isArray(json.nodes) || !Array.isArray(json.edges)) { setState((s) => ({ source: s.source, line: 'live response malformed — kept previous data' })); return; }
+          if (!Array.isArray(json.nodes) || !Array.isArray(json.edges)) { setState((s) => ({ source: s.source, line: t('panel.sourceMalformed') })); return; }
           setData({ nodes: json.nodes, edges: json.edges });
+          // 学得工作区根（encodeURIComponent 形式）：后续请求回带（见 wsHeaders 注释）。
+          const learned = res.headers?.get?.('X-ANIC-Workspace');
+          if (learned && workspaceRef.current === null) {
+            try { workspaceRef.current = decodeURIComponent(learned); } catch { workspaceRef.current = learned; }
+          }
           const c = json.counts;
-          setState({ source: 'live', line: `live ${json.generatedAt ?? ''} · ${String(c?.nodes ?? json.nodes.length)} nodes / ${String(c?.edges ?? json.edges.length)} edges` });
-        } catch (e) { setState({ source: 'embedded', line: `build-time snapshot (live fetch failed: ${e instanceof Error ? e.message : String(e)})` }); }
+          setState({ source: 'live', line: t('panel.sourceLive', { generatedAt: json.generatedAt ?? '', nodes: String(c?.nodes ?? json.nodes.length), edges: String(c?.edges ?? json.edges.length) }) });
+        } catch (e) { setState({ source: 'embedded', line: t('panel.sourceEmbeddedFetchFailed', { error: e instanceof Error ? e.message : String(e) }) }); }
       })(),
       (async (): Promise<void> => {
         try {
-          const res = await fetch(STEP_TRACE_URL, { headers: { Accept: 'application/json' } });
-          if (!res.ok) { setTrace(null); setTraceLine(`路由不可用 (${String(res.status)})`); return; }
+          const res = await fetch(STEP_TRACE_URL, { headers: wsHeaders() });
+          if (!res.ok) { setTrace(null); setTraceLine(t('panel.routeUnavailable', { status: String(res.status) })); return; }
           const json = (await res.json()) as StepTraceJson;
-          if (!Array.isArray(json.steps)) { setTrace(null); setTraceLine('响应畸形 — 未采用'); return; }
-          setTrace(json); setTraceLine(`${String(json.steps.length)} 步 · 投影 ${json.generatedAt}`);
-        } catch (e) { setTrace(null); setTraceLine(`拉取失败 (${e instanceof Error ? e.message : String(e)})`); }
+          if (!Array.isArray(json.steps)) { setTrace(null); setTraceLine(t('panel.malformedNotUsed')); return; }
+          setTrace(json); setTraceLine(t('panel.traceLine', { steps: String(json.steps.length), generatedAt: json.generatedAt }));
+        } catch (e) { setTrace(null); setTraceLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
       })(),
       (async (): Promise<void> => {
         try {
-          const res = await fetch(SELF_CHECK_URL, { headers: { Accept: 'application/json' } });
-          if (!res.ok) { setCheck(null); setCheckLine(`路由不可用 (${String(res.status)})`); return; }
+          const res = await fetch(SELF_CHECK_URL, { headers: wsHeaders() });
+          if (!res.ok) { setCheck(null); setCheckLine(t('panel.routeUnavailable', { status: String(res.status) })); return; }
           const json = (await res.json()) as SelfCheckJson;
-          if (!Array.isArray(json.checks)) { setCheck(null); setCheckLine('响应畸形 — 未采用'); return; }
-          setCheck(json); setCheckLine(json.allOk ? '全部通过' : '存在失败');
-        } catch (e) { setCheck(null); setCheckLine(`拉取失败 (${e instanceof Error ? e.message : String(e)})`); }
+          if (!Array.isArray(json.checks)) { setCheck(null); setCheckLine(t('panel.malformedNotUsed')); return; }
+          setCheck(json); setCheckLine(json.allOk ? t('panel.allOk') : t('panel.someFailed'));
+        } catch (e) { setCheck(null); setCheckLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
       })(),
       (async (): Promise<void> => {
         try {
-          const res = await fetch(ORG_STATUS_URL, { headers: { Accept: 'application/json' } });
+          const res = await fetch(ORG_STATUS_URL, { headers: wsHeaders() });
           if (!res.ok) { setOrgStatus(null); return; }
           setOrgStatus((await res.json()) as OrgStatusJson);
         } catch { setOrgStatus(null); }
@@ -153,10 +166,14 @@ export function WorkflowGraphPanel(): ReactElement {
   const resolved = resolveFlows({ user: parseRawPrefs(readPrefsRaw()).prefs.flows });
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
   const diagnosticsOn = resolved.flows['flow.diagnostics']?.enabled ?? true;
+  // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
+  // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
+  const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
   useTokenCss();
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。
-  const { data: invocations, pollError: invocationsError } = useInvocations();
+  // 刷新按钮的 reloadKey 同时作为手动刷新信号（autoRefresh 关闭时的唯一更新途径）。
+  const { data: invocations, pollError: invocationsError } = useInvocations(autoRefreshOn ? 2000 : 0, reloadKey, wsHeaders);
 
   return createElement(
     'div',
@@ -175,20 +192,21 @@ export function WorkflowGraphPanel(): ReactElement {
       'div',
       // role="toolbar"：把三个动作声明为一组，AT 才会播报"工具栏"边界；
       // 容器本身**不可聚焦**（工具栏是容器不是控件），焦点留在按钮上。
-      { 'data-anic-toolbar': 'true', role: 'toolbar', 'aria-label': 'ANIC 工作流工具栏', style: { position: 'sticky', top: 0, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', background: token('anic-surface'), borderBottom: `1px solid ${token('anic-border')}`, fontSize: 12, color: token('anic-text') } },
+      { 'data-anic-toolbar': 'true', role: 'toolbar', 'aria-label': t('panel.toolbar'), style: { position: 'sticky', top: 0, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', background: token('anic-surface'), borderBottom: `1px solid ${token('anic-border')}`, fontSize: 12, color: token('anic-text') } },
       // role="status"：拉取结果（成功/失败/降级）是异步反馈，无 live region 时
       // 屏幕阅读器完全感知不到——刷新按钮点了"没反应"。
       createElement('span', { role: 'status', 'aria-live': 'polite' }, `ANIC · ${state.line}`),
-      createElement('button', { type: 'button', 'data-anic-refresh': 'true', onClick: () => { setReloadKey((k) => k + 1); }, style: BTN }, '刷新'),
+      createElement('button', { type: 'button', 'data-anic-refresh': 'true', onClick: () => { setReloadKey((k) => k + 1); }, className: 'anic-btn' }, t('panel.refresh')),
       // 抽屉开关是 disclosure：aria-expanded 报告开合，aria-controls 指向被控容器。
-      createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': PREFS_PANEL_ID, onClick: () => { setPrefsOpen((v) => !v); }, style: BTN }, '⚙ 开关'),
+      createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': PREFS_PANEL_ID, onClick: () => { setPrefsOpen((v) => !v); }, className: 'anic-btn' }, t('panel.prefsToggle')),
       // P0-2：自举按钮四态反馈 —— 执行中禁用 + aria-live 播报结果；失败时
       // 标签改为「重试」传达可重试语义（同一按钮，不加第二个控件）。
       createElement('button', {
         type: 'button', 'data-anic-self-init': 'true', 'data-anic-self-init-phase': selfInitPhase,
         disabled: selfInitPhase === 'running',
         onClick: () => { void onSelfInit(); },
-        style: { ...BTN, opacity: selfInitPhase === 'running' ? 0.6 : 1 },
+        className: 'anic-btn',
+        style: { opacity: selfInitPhase === 'running' ? 0.6 : 1 },
         title: t('panel.selfInitTitle'),
       }, selfInitPhase === 'running' ? t('panel.selfInitRunning') : selfInitPhase === 'failed' ? t('panel.selfInitRetry') : t('panel.selfInit')),
       // 自举结果反馈：与拉取状态同一 aria-live 约定（异步结果必须可感知）。
@@ -200,19 +218,19 @@ export function WorkflowGraphPanel(): ReactElement {
     renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result }); }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
     // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
-    renderInvocations(invocations, invocationsError),
+    renderInvocations(invocations, invocationsError, autoRefreshOn),
     stepTraceOn
       ? createElement('div', { key: `trace-${String(flowTick)}`, 'data-anic-steptrace-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } },
-          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, `步骤流程数据：${traceLine}`),
-          trace ? renderStepTrace(trace) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, '步骤流程投影不可用（见上方数据行 —— 不伪造空数据）'),
+          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, t('panel.traceDataLine', { line: traceLine })),
+          trace ? renderStepTrace(trace) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, t('panel.traceUnavailable')),
         )
-      : createElement('div', { 'data-anic-steptrace-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, '步骤流程分区已按开关关闭（关闭形态契约见 ⚙ 抽屉）'),
+      : createElement('div', { 'data-anic-steptrace-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('panel.traceDisabled')),
     diagnosticsOn
       ? createElement('div', { key: `check-${String(flowTick)}`, 'data-anic-diagnostics-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } },
-          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, `运行时自检：${checkLine}`),
-          check ? renderDiagnostics(check) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, '诊断数据不可用（见上方数据行）'),
+          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, t('panel.diagDataLine', { line: checkLine })),
+          check ? renderDiagnostics(check) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, t('panel.diagUnavailable')),
         )
-      : createElement('div', { 'data-anic-diagnostics-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, '诊断分区已按开关关闭'),
+      : createElement('div', { 'data-anic-diagnostics-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('panel.diagDisabled')),
     orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } }, renderOrgStatus(orgStatus)) : null,
     renderNodeDetail(selectedNode),
   );

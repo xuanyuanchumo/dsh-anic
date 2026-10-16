@@ -20,6 +20,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { t } from '../../i18n.ts';
 
 export interface OrgStatusJson {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
@@ -54,7 +55,7 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
       ? createElement(
           'section',
           { className: 'anic-org-trust' },
-          createElement('h4', { style: H4 }, '信任分'),
+          createElement('h4', { style: H4 }, t('org.trustTitle')),
           createElement(
             'ul',
             { style: UL },
@@ -68,7 +69,7 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
               ),
             ),
           ),
-          createElement('p', { style: P }, '推荐自主级: ', createElement('strong', null, status.trust.recommendedBand)),
+          createElement('p', { style: P }, t('org.recommendedBand'), createElement('strong', null, status.trust.recommendedBand)),
         )
       : null;
 
@@ -78,10 +79,10 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
           'ul',
           { className: 'anic-breakers', style: UL },
           ...status.autonomy.breakers.map((b) =>
-            createElement('li', { key: b, className: 'anic-breaker-tripped', style: P }, `⚠ ${b}`),
+            createElement('li', { key: b, className: 'anic-breaker-tripped', style: P }, t('org.breaker', { breaker: b })),
           ),
         )
-      : createElement('p', { style: P }, '无熔断');
+      : createElement('p', { style: P }, t('org.noBreakers'));
 
   return createElement(
     'div',
@@ -89,54 +90,75 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
     createElement(
       'section',
       { className: 'anic-org-cycles' },
-      createElement('h4', { style: H4 }, 'Cycle 全景'),
+      createElement('h4', { style: H4 }, t('org.cyclesTitle')),
       createElement(
         'p',
         { style: P },
-        `共 ${String(status.cycles.total)} 轮 · 最新 ${status.cycles.latest ?? '—'} · 收敛 ${String(status.cycles.converged)} · 失败 ${String(status.cycles.failed)}`,
+        t('org.cyclesLine', { total: status.cycles.total, latest: status.cycles.latest ?? '—', converged: status.cycles.converged, failed: status.cycles.failed }),
+      ),
+    ),
+    // P1-5：门禁账本两字段此前被丢弃（服务端返回了 entries/valid 但没渲染）——
+    // 账本完整性是自主级升降的信任根基，不可见 = 不可审计。
+    createElement(
+      'section',
+      { className: 'anic-org-ledger' },
+      createElement('h4', { style: H4 }, t('org.ledgerTitle')),
+      createElement(
+        'p',
+        { style: P },
+        t('org.ledgerLine', {
+          entries: status.ledger.entries,
+          validity: status.ledger.valid ? t('org.ledgerValid') : t('org.ledgerInvalid'),
+        }),
+        ' ',
+        createElement('span', { style: { color: status.ledger.valid ? token('anic-pass') : token('anic-fail') } },
+          status.ledger.valid ? '✓' : '✕'),
       ),
     ),
     trustSection,
     createElement(
       'section',
       { className: 'anic-org-autonomy' },
-      createElement('h4', { style: H4 }, '自主级'),
+      createElement('h4', { style: H4 }, t('org.autonomyTitle')),
       createElement(
         'p',
         { style: P },
-        '当前: ',
+        t('org.current'),
         createElement('strong', null, status.autonomy.currentBand),
         // P1（autonomy 双投影矛盾）：配置级与运行级不一致时显式示出，
         // 让「降级中」可观测，而不是让用户看到两个互相矛盾的 L 值。
         status.autonomy.configuredBand !== undefined && status.autonomy.configuredBand !== status.autonomy.currentBand
-          ? `（配置 ${status.autonomy.configuredBand}）`
+          ? t('org.configuredSuffix', { band: status.autonomy.configuredBand })
           : '',
-        ` · 动作: ${status.autonomy.action}`,
+        t('org.action', { action: status.autonomy.action }),
       ),
       breakers,
     ),
     createElement(
       'section',
       { className: 'anic-org-band' },
-      createElement('h4', { style: H4 }, '带检测'),
+      createElement('h4', { style: H4 }, t('org.bandTitle')),
       createElement(
         'p',
         { style: P },
-        '当前: ',
+        t('org.current'),
         createElement('span', { style: { color: bandColor(status.band.current) } }, status.band.current),
-        ` · 趋势: ${status.band.trend}`,
+        t('org.trend', { trend: status.band.trend }),
       ),
     ),
     createElement(
       'section',
       { className: 'anic-org-flows' },
-      createElement('h4', { style: H4 }, '流开关'),
+      createElement('h4', { style: H4 }, t('org.flowsTitle')),
       createElement(
         'ul',
         { style: UL },
-        createElement('li', { style: P }, `自举: ${status.flows.selfInit ? '✅' : '⏹'}`),
-        createElement('li', { style: P }, `多智能体编排: ${status.flows.agentsOrchestration ? '✅' : '⏹'}`),
+        createElement('li', { style: P }, `${t('org.selfInit')}: ${status.flows.selfInit ? t('org.enabledMark') : t('org.disabledMark')}`),
+        createElement('li', { style: P }, `${t('org.orchestration')}: ${status.flows.agentsOrchestration ? t('org.enabledMark') : t('org.disabledMark')}`),
       ),
     ),
+    // P1-5：时间戳——org 全景是"快照"而非"实时"，不带时间戳的快照会让陈旧数据
+    // 被当成现状（与 live 分区的 generatedAt 同一纪律）。
+    createElement('p', { style: { ...P, color: token('anic-text-faint') }, 'data-anic-org-snapshot-at': status.timestamp }, t('org.snapshotAt', { timestamp: status.timestamp })),
   );
 }

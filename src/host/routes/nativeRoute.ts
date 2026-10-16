@@ -23,7 +23,7 @@ interface SendFn { (res: unknown, status: number, body: unknown, requestId?: str
 /** 注册原生实现路由（7 脚本原生等价物）。 */
 export function registerNativeRoute(
   ctx: unknown,
-  deps: { send: SendFn; getWorkspaceRoot: () => string | null; agentCards: Map<string, AgentCard> },
+  deps: { send: SendFn; getWorkspaceRoot: (req?: unknown) => string | null; agentCards: Map<string, AgentCard> },
 ): Array<(() => void) | null> {
   const ws = (ctx as { webServer?: { register: (opts: { kind: 'exact' | 'prefix'; path: string; handler: (req: unknown, res: unknown) => void }) => (() => void) | void } }).webServer;
   if (!ws || typeof ws.register !== 'function') return [];
@@ -57,9 +57,9 @@ export function registerNativeRoute(
   });
 
   // GET /anic/org-status
-  reg('GET', '/anic/org-status', (_req, res) => {
+  reg('GET', '/anic/org-status', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const result = runOrgStatus(root, {});
     deps.send(res, 200, result, rid);

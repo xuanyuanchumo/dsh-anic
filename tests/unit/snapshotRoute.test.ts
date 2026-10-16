@@ -187,6 +187,67 @@ describe('registerSnapshotRoute', () => {
   });
 });
 
+describe('X-ANIC-Workspace 请求头（P2 桌面多会话纠偏）', () => {
+  const reqWith = (ws: string | null): unknown =>
+    ws === null ? {} : { headers: { 'x-anic-workspace': encodeURIComponent(ws) } };
+
+  it('请求头声明的已知工作区被采信（优先于 registry 首条）', () => {
+    const first = workspaceWithCycles(true);
+    const second = workspaceWithCycles(true);
+    const { ctx, registered } = makeCtx({ root: first });
+    // sessions 额外知道第二个工作区 → 头声明的 second 命中合法集
+    (ctx as Record<string, unknown>).sessions = { list: (): { header?: { cwd?: string } }[] => [{ header: { cwd: second } }] };
+    registerSnapshotRoute(ctx);
+    const { res, captured } = makeRes();
+    registered[0]?.handler(reqWith(second), res);
+    expect(captured.status).toBe(200);
+    expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(second);
+  });
+
+  it('头声明未知路径但确实含 .cycles → 采信（单会话宿主 registry 只报一个的场景）', () => {
+    const known = workspaceWithCycles(true);
+    const claimed = workspaceWithCycles(true); // registry/sessions 均不知道它
+    const { ctx, registered } = makeCtx({ root: known });
+    registerSnapshotRoute(ctx);
+    const { res, captured } = makeRes();
+    registered[0]?.handler(reqWith(claimed), res);
+    expect(captured.status).toBe(200);
+    expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(claimed);
+  });
+
+  it('头声明未知路径且无 .cycles → 静默回落 registry（不是任意路径入口）', () => {
+    const known = workspaceWithCycles(true);
+    const { ctx, registered } = makeCtx({ root: known });
+    registerSnapshotRoute(ctx);
+    const { res, captured } = makeRes();
+    registered[0]?.handler(reqWith('Z:\\__anic_nonexistent__'), res);
+    expect(captured.status).toBe(200);
+    expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(known);
+  });
+
+  it('无头 / 空头 → 原解析链不变（向后兼容）', () => {
+    const root = workspaceWithCycles(true);
+    const { ctx, registered } = makeCtx({ root });
+    registerSnapshotRoute(ctx);
+    for (const req of [undefined, {}, { headers: {} }, { headers: { 'x-anic-workspace': '' } }]) {
+      const { res, captured } = makeRes();
+      registered[0]?.handler(req, res);
+      expect(captured.status).toBe(200);
+      expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(root);
+    }
+  });
+
+  it('头值数组形态取首个（Node IncomingMessage 的罕见但合法形态）', () => {
+    const root = workspaceWithCycles(true);
+    const { ctx, registered } = makeCtx({ root });
+    registerSnapshotRoute(ctx);
+    const { res, captured } = makeRes();
+    registered[0]?.handler({ headers: { 'x-anic-workspace': [encodeURIComponent(root)] } }, res);
+    expect(captured.status).toBe(200);
+    expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(root);
+  });
+});
+
 describe('宿主入口 apply', () => {
   /** 全部路由（M1 四条 + M2-a 九条 + M2-b 四条 + M4 一条 + M5 四条 + M5-a 四条 + M7 四条 + M8 四条 + cycle-97 一条）。 */
   const ALL_ROUTES = [

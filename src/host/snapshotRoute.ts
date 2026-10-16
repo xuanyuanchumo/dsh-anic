@@ -46,8 +46,26 @@ export interface SnapshotCtx {
 }
 
 /** 工作区根解析（registry → sessions → cwd；逐请求调用）。转录自父 prerequisites.ts。
- * 导出供 routes/index.ts 复用（工作区解析全插件唯一实现，C 域一致性）。 */
-export function resolveWorkspaceRoots(ctx: SnapshotCtx): string {
+ * 导出供 routes/index.ts 复用（工作区解析全插件唯一实现，C 域一致性）。
+ *
+ * P2（桌面多会话错位）：sessions.list() 首条 cwd 与"当前查看面板的会话"无关——
+ * 桌面宿主多会话并开时，面板可能显示的是会话 B，路由却按首条会话 A 的 cwd 取数
+ * （实测桌面端 404 body 报 Studying 工作区而用户在 dsh-anic 会话）。客户端为此
+ * 可在请求头带 X-ANIC-Workspace（面板从首个成功响应的 X-ANIC-Workspace 头学到
+ * 的根路径）；请求头值必须仍然存在于宿主已知的合法工作区集合（registry/sessions）
+ * 或含 .cycles 目录，才被采信——头是"选择器"不是"任意路径入口"（安全面不变）。
+ */
+export function resolveWorkspaceRoots(ctx: SnapshotCtx, req?: unknown): string {
+  // 0) 客户端声明的工作区（桌面多会话纠偏）；须过合法集校验，失败静默回落。
+  const claimed = workspaceOfReq(req);
+  if (claimed) {
+    const known = knownRoots(ctx);
+    if (known.has(claimed)) return claimed;
+    // 合法集不含时也接受"确实含 .cycles 的路径"（单会话 web 宿主可能只报一个）。
+    try {
+      if (existsSync(join(claimed, '.cycles'))) return claimed;
+    } catch { /* 越权/不存在 → 回落 */ }
+  }
   try {
     const wsr = ctx.workspaceRegistry;
     if (wsr?.list) {
@@ -63,6 +81,31 @@ export function resolveWorkspaceRoots(ctx: SnapshotCtx): string {
     }
   } catch { /* sessions 缺失 → cwd */ }
   return process.cwd();
+}
+
+/** 宿主已知工作区集合（registry ∪ sessions 的 cwd 集合）。 */
+function knownRoots(ctx: SnapshotCtx): Set<string> {
+  const set = new Set<string>();
+  try {
+    for (const w of ctx.workspaceRegistry?.list?.() ?? []) if (w.path) set.add(w.path);
+  } catch { /* ignore */ }
+  try {
+    for (const s of ctx.sessions?.list?.() ?? []) if (s.header?.cwd) set.add(s.header.cwd);
+  } catch { /* ignore */ }
+  return set;
+}
+
+/** 从请求头取 X-ANIC-Workspace（URL 解码；缺失/空白返回 null）。 */
+function workspaceOfReq(req: unknown): string | null {
+  if (req === null || req === undefined) return null;
+  const raw = (req as { headers?: Record<string, string | string[] | undefined> }).headers?.['x-anic-workspace'];
+  const val = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof val !== 'string' || val.trim() === '') return null;
+  try {
+    return decodeURIComponent(val);
+  } catch {
+    return val;
+  }
 }
 
 /**
@@ -103,7 +146,7 @@ export function registerSnapshotRoute(ctx: unknown): (() => void) | null {
     path: SNAPSHOT_ROUTE,
     handler: (req, res) => {
       try {
-        const root = resolveWorkspaceRoots(snapshotCtx);
+        const root = resolveWorkspaceRoots(snapshotCtx, req);
         const cyclesDir = join(root, '.cycles');
         if (!existsSync(cyclesDir)) {
           sendJson(res, 404, { error: 'no .cycles in current workspace', workspace: root });

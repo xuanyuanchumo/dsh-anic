@@ -5,6 +5,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { t } from '../../i18n.ts';
 
 export interface ProbeJson {
   id: string;
@@ -33,8 +34,8 @@ export function renderDiagnostics(check: SelfCheckJson): ReactElement {
     'div',
     { 'data-anic-diagnostics': 'section', style: { padding: '8px 10px', borderTop: `1px solid ${token('anic-border')}` } },
     createElement('div', { style: { fontSize: 12, fontWeight: 600, color: token('anic-text'), marginBottom: 4 } },
-      `运行时自检（Runtime INV Probes）· ${check.allOk ? '全部通过' : '存在失败'}`),
+      `${t('diag.title')} · ${check.allOk ? t('panel.allOk') : t('panel.someFailed')}`),
     ...rows,
-    createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), marginTop: 4 } }, `requestId: ${check.requestId}`),
+    createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), marginTop: 4 } }, t('diag.requestId', { requestId: check.requestId })),
   );
 }

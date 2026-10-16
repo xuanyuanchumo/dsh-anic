@@ -8,6 +8,9 @@ import { createElement, type ReactElement } from 'react';
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import { token } from '../../../shared/tokens.ts';
 import { canonicalVerdict as verdictKey, gateFillOf, FAIL_PULSE_STYLE } from './gateColors.ts';
+import { graphKeyDown } from './graphKeyboard.ts';
+import { renderGraphDataTable } from './graphDataTable.ts';
+import { t } from '../../i18n.ts';
 import type { StepTraceJson } from '../stepTrace/renderStepTrace.ts';
 
 // ── 类型色 ──────────────────────────────────────────────────
@@ -91,6 +94,8 @@ export function renderGraph(
 ): ReactElement {
   const { nodes, edges } = data;
   const byId = new Map<string, WorkflowNode>(nodes.map((n) => [n.id, n]));
+  // 图是否可交互（点击回调存在）——svg 容器与节点两级都要消费，函数级声明。
+  const interactive = onNodeClick !== undefined;
 
   // 包围盒计算（单遍 O(n)）
   let minX = Number.POSITIVE_INFINITY;
@@ -112,6 +117,8 @@ export function renderGraph(
   const height = maxY - minY;
 
   const children: ReactElement[] = [
+    // <desc> 必须先于图形内容（SVG a11y 树按文档顺序取第一个 desc）。
+    createElement('desc', { key: 'graph-desc' }, t('panel.graphDesc')),
     createElement('style', { key: 'fail-pulse' }, FAIL_PULSE_STYLE),
     createElement(
       'defs',
@@ -143,7 +150,6 @@ export function renderGraph(
     const fill = gateFillOf(verdict) ?? colorOf(n.type);
     const key = verdictKey(verdict);
     const shape = key === null ? undefined : VERDICT_SHAPE[key];
-    const interactive = onNodeClick !== undefined;
     const label = `${n.label} [${n.type}]${verdict ? ` · ${verdict}` : ''}`;
     children.push(
       createElement(
@@ -151,17 +157,17 @@ export function renderGraph(
         {
           key: `n${String(i)}`,
           transform: `translate(${String(n.x)},${String(n.y)})`,
-          // 键盘可达性（P2-A11Y-KEY）：改造前节点只挂 onClick，SVG `g` 默认
-          // 不可聚焦 ⇒ Tab 永远到不了、Enter/Space 无反应，键盘用户完全无法
-          // 打开节点详情。只挂 onClick 的图 = 纯鼠标交互面。
-          // role/tabIndex 只在真的可点击时给：不可交互的元素若也进 Tab 序列，
-          // 反而制造一串空的焦点停靠点。
+          // 键盘可达性（P2-A11Y-KEY→P1-2 roving tabindex）：改造前每个节点
+          // tabIndex=0——169 个停靠点，键盘用户要按 169 次 Tab 才能穿过图区。
+          // 现在唯一停靠点在 svg 容器（role=group + tabIndex=0），节点 -1、
+          // 由方向键经 graphKeyDown 聚焦（APG roving tabindex）。role/label
+          // 保留在节点上：AT 焦点到达时仍播报节点身份。
           role: interactive ? 'button' : undefined,
-          tabIndex: interactive ? 0 : undefined,
+          tabIndex: interactive ? -1 : undefined,
           // aria-label 覆盖 <title> 的命名计算，所以它必须**自带全部**信息：
           // 带上 id 是因为 label 不唯一（同名阶段节点存在），只播报 label 时
           // 屏幕阅读器用户无法区分两个同名节点。
-          'aria-label': interactive ? `节点 ${label}（id ${n.id}）` : undefined,
+          'aria-label': interactive ? t('panel.nodeAriaLabel', { label, id: n.id }) : undefined,
           'data-anic-node': n.id,
           'data-anic-verdict': key ?? 'none',
           onClick: onNodeClick ? () => { onNodeClick(n); } : undefined,
@@ -201,11 +207,21 @@ export function renderGraph(
     );
   });
 
-  return createElement('svg', {
+  const svg = createElement('svg', {
     width, height,
     viewBox: `${String(minX)} ${String(minY)} ${String(width)} ${String(height)}`,
+    // P1-2/P1-3：容器是唯一 Tab 停靠点；role=group（可交互组）/ img（纯图）；
+    // aria-label 携带规模信息（节点/边数），键盘操作说明在 <desc>。
+    'data-anic-graph': 'true',
+    role: interactive ? 'group' : 'img',
+    tabIndex: interactive ? 0 : undefined,
+    'aria-label': t('panel.graphLabel', { nodes: nodes.length, edges: edges.length }),
+    onKeyDown: interactive ? graphKeyDown : undefined,
     style: { background: token('anic-surface'), fontFamily: 'monospace', display: 'block' },
   }, children);
+
+  // 等价数据表（P1-3）：屏幕阅读器的全量文本替代，视觉折叠（.anic-sr-only）。
+  return createElement('div', { 'data-anic-graph-wrap': 'true' }, svg, renderGraphDataTable(data, verdicts));
 }
 
 // ── 辅助 ────────────────────────────────────────────────────

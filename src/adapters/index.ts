@@ -26,6 +26,26 @@ export interface ExecAdapter {
   };
 }
 
+/**
+ * 子进程环境变量清洗（KB defensive-patterns R19）。
+ *
+ * spawnSync 默认**继承完整父环境**——宿主进程环境里的 API key、token、
+ * 密码类变量会原样进入每个技能脚本子进程（脚本可读 process.env）。
+ * 技能脚本是外部代码（assets/skill 内联 + .dsh/skills 安装副本），
+ * 泄露面必须按"不可信"处理：键名命中敏感模式的一律剥除。
+ * 命中模式（大小写不敏感）：包含 KEY / SECRET / TOKEN / PASSWORD。
+ * 精确保留 PATH/HOME/APPDATA/TEMP 等运行必需项由"不命中敏感模式即保留"保证。
+ */
+export function sanitizeEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) continue;
+    if (/(KEY|SECRET|TOKEN|PASSWORD)/i.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 // ── 网络/HTTP 适配 ──────────────────────────────────────────
 
 export interface HttpAdapter {
@@ -87,6 +107,8 @@ export function createNodeAdapters(): Adapters {
           cwd: opts.cwd,
           timeout: opts.timeoutMs,
           encoding: 'utf-8',
+          // R19：敏感环境变量不进子进程（见 sanitizeEnv 注释）。
+          env: sanitizeEnv(),
         });
         return {
           stdout: result.stdout ?? '',

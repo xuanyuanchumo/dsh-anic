@@ -1,5 +1,30 @@
 # dsh-anic CHANGELOG
 
+## v0.5.0 — 2026-10-17
+
+前端体验族 P1 全量收口 + 两大 P2 修复。测试 465→485 用例（+2 文件）。全部经真实宿主（网页端 3080）功能级验证。
+
+### P1 修复（前端体验族）
+
+- **P1-1 零响应式**：新建 `shared/panelCss.ts` PANEL_CSS 静态样式块（3442 字符）——容器查询（`@container` 640/420 断点）+ `:hover`/`:active`/`:focus-visible` 交互态 + `prefers-reduced-motion`/`forced-colors` 媒体逃逸 + `.anic-sr-only`；颜色全经 `var(--token, fallback)` 同源回退；与 `tokenCssBlock()` 同一 `<style>` 注入点。工具栏三按钮改 `.anic-btn` 类（smoke 三断言不变）。
+- **P1-2 图键盘可达性（roving tabindex）**：169 个节点从各持 `tabIndex=0`（169 个 Tab 停靠点反模式）改为容器唯一停靠点 + 节点 `tabindex=-1`；新建 `features/graph/graphKeyboard.ts` 纯函数（ArrowRight/Down 前进环绕、Left/Up 后退、Home/End 首尾）；svg 根 `role='group'` + `aria-label`（含节点/边计数）+ `<desc>` 操作说明。真实宿主实测：svg.focus→ArrowRight→wf:plan→ArrowDown→wf:design→End→aux:auto→Home→wf:plan→Enter 打开详情抽屉。
+- **P1-3 图文本替代**：新建 `features/graph/graphDataTable.ts` sr-only 数据表（caption + 174 行节点四列：id/类型/裁决/标签），与图渲染同源数据无第二份排序。
+- **P1-5 org 数据丢失**：`renderOrgStatus` 补齐 ledger 分区（条目数 83 + 完整性校验 ✓/✕）+ 快照时间戳行 + `configuredSuffix`（配置级自主级 ≠ 运行级时显式标注）。
+- **P1-7 autoRefresh 未接线**：面板 `flows['flow.autoRefresh']` → `useInvocations(pollMs=on?2000:0)`；关闭时不排定时器（pollMs<=0 守卫）；manualKey 支持手动重拉；`getHeaders` 函数式传参（对象入 effect 依赖会逐渲染重轮询——useRef 收窄）。
+- **P1（i18n 收尾）**：客户端全部用户面文本经 `t()`——fetchLive 四分支/工具栏/分区标题/renderInvocations 状态文案/renderStepTrace（含死代码删除 `i===steps.length-1?null:null`）/renderDiagnostics/prefsDrawer（SOURCE_LABEL 表改 sourceLabelOf 函数）/renderOrgStatus 全量。
+
+### P2 修复
+
+- **P2 桌面多会话工作区纠偏**：`resolveWorkspaceRoots` 新增第 0 优先级 `X-ANIC-Workspace` 请求头（URL 解码→knownRoots 命中采信→未命中但含 `.cycles` 采信→否则静默回落原链——「选择器」不是「任意路径入口」）；`getWorkspaceRoot: (req?)` 签名贯通 snapshotRoute/stepTraceRoute/selfCheckRoute/nativeRoute；客户端 `workspaceRef` 从首个成功快照响应头学得工作区 + `wsHeaders()` 四 fetch 全带。真实宿主实测：头声明 dsh-anic 自身（registry 不知道它）→ 采信返回 32 节点；声明不存在路径 → 静默回落。
+- **P2 子进程环境清洗（KB R19）**：`adapters/index.ts` 新增 `sanitizeEnv()`（键名命中 `/(KEY|SECRET|TOKEN|PASSWORD)/i` 剥除、undefined 跳过）；`exec.run` 的 spawnSync 传清洗后 env——宿主凭据不进技能脚本子进程。
+
+### 测试与验证
+
+- vitest **39 文件 485/485**（+adapters 8 用例 +snapshotRoute X-ANIC-Workspace 5 用例 +graphRoving 6 用例 +clientI18n 9 用例 等）。
+- 真实宿主（网页端 3080，重启后新 bundle）：P1 全功能面 9 分区全在（toolbar/graphSvg/graphTable/live/stepTrace/diagnostics/org/nodeDetail/ledger 行）+ 键盘导航全链路 PASS + autoRefresh 开关 localStorage 持久化 PASS。
+- **J0 探针 8/8 PASS**（标签可见/标签共存 4/遥测 registerCount=1/图渲染 174 圆 226 线/来源如实/热卸载恢复/kill-switch/开关恢复）。
+- CORS 端到端：同源无 ACAO 头；公网 Origin 拒；回环 Origin 回显具体值 + `Vary: Origin`；任何情况下不出现 `*`。
+
 ## v0.4.0 — 2026-10-17
 
 深度研究驱动的优化迭代：三路研究（docs/anic 差距矩阵 / DSH 官方规范取证 / context7 UI 规划）落地为 10 项 P0 修复 + 7 项 P1 + 文档体系 + 双端真实验证。测试 380→465 用例（+6 文件）。

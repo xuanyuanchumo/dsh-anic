@@ -71,16 +71,40 @@ const nodeGroups = (withClick: boolean) =>
     (t, p) => t === 'g' && typeof p['data-anic-node'] === 'string',
   );
 
-describe('图区键盘可达性（P2-A11Y-KEY）', () => {
-  it('每个可点击节点都是 role=button + tabIndex=0 + aria-label', () => {
+describe('图区键盘可达性（P2-A11Y-KEY → P1-2 roving tabindex）', () => {
+  it('可点击节点 role=button + tabIndex=-1（roving：停靠点只在 svg 容器）+ aria-label', () => {
     const groups = nodeGroups(true);
     expect(groups.length).toBe(DATA.nodes.length);
     for (const g of groups) {
       expect(g.role).toBe('button');
-      expect(g.tabIndex).toBe(0);
+      // P1-2：节点不再各自进 Tab 序列（169 节点 = 169 停靠点的反模式），
+      // 由容器 tabIndex=0 统一停靠、方向键在节点间 roving。
+      expect(g.tabIndex).toBe(-1);
       // aria-label 必须带节点身份，否则屏幕阅读器只播报"按钮"
       expect(String(g['aria-label'])).toContain(String(g['data-anic-node']));
     }
+  });
+
+  it('svg 容器是唯一 Tab 停靠点（role=group + tabIndex=0 + aria-label + onKeyDown + desc）', () => {
+    const svg = collect(renderGraph(DATA, VERDICTS, () => {}), (t, p) => t === 'svg' && p['data-anic-graph'] === 'true')[0];
+    expect(svg).toBeDefined();
+    expect(svg.role).toBe('group');
+    expect(svg.tabIndex).toBe(0);
+    // 规模信息进 aria-label（AT 用户不数节点也知道图有多大）
+    expect(String(svg['aria-label'])).toContain(String(DATA.nodes.length));
+    expect(String(svg['aria-label'])).toContain(String(DATA.edges.length));
+    expect(typeof svg.onKeyDown).toBe('function');
+    // <desc> 先于图形内容（键盘操作说明）
+    const desc = collect(renderGraph(DATA, VERDICTS, () => {}), (t) => t === 'desc')[0];
+    expect(desc).toBeDefined();
+    expect(String(desc?.children)).toContain('方向键');
+  });
+
+  it('不可交互时 svg 是 role=img（纯图语义）且无键盘属性', () => {
+    const svg = collect(renderGraph(DATA, VERDICTS), (t, p) => t === 'svg' && p['data-anic-graph'] === 'true')[0];
+    expect(svg.role).toBe('img');
+    expect(svg.tabIndex).toBeUndefined();
+    expect(svg.onKeyDown).toBeUndefined();
   });
 
   it('Enter 触发节点点击回调', () => {

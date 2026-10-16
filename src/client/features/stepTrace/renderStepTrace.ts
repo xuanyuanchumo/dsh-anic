@@ -5,6 +5,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { t } from '../../i18n.ts';
 
 export interface TraceStepJson {
   nodeId: string;
@@ -36,7 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 /** 纯渲染：StepTrace JSON → 元素树（smoke 可断言）。 */
 export function renderStepTrace(trace: StepTraceJson): ReactElement {
-  const rows = trace.steps.map((s, i) =>
+  const rows = trace.steps.map((s) =>
     createElement(
       'div',
       {
@@ -59,27 +60,26 @@ export function renderStepTrace(trace: StepTraceJson): ReactElement {
       s.basis === 'heuristic'
         ? createElement('span', {
             'data-anic-heuristic': 'true',
-            title: '启发标注（INV-27）：结构化状态缺失，由账本裁决推断',
+            title: t('trace.heuristicTitle'),
             style: { color: token('anic-warn-text'), fontSize: 10 },
-          }, '⚠ heuristic')
-        : createElement('span', { style: { color: token('anic-ok-text'), fontSize: 10 } }, '✓ structured'),
+          }, t('trace.heuristic'))
+        : createElement('span', { style: { color: token('anic-ok-text'), fontSize: 10 } }, t('trace.structured')),
       s.ledgerVerdict
-        ? createElement('span', { style: { color: token('anic-ledger-text'), fontSize: 10 } }, `账本: ${s.ledgerVerdict.result}`)
+        ? createElement('span', { style: { color: token('anic-ledger-text'), fontSize: 10 } }, t('trace.ledger', { result: s.ledgerVerdict.result }))
         : null,
-      i === trace.steps.length - 1 ? null : null,
     ),
   );
 
   return createElement(
     'div',
     { 'data-anic-steptrace': 'section', style: { padding: '8px 10px' } },
-    createElement('div', { style: { fontSize: 12, fontWeight: 600, color: token('anic-text'), marginBottom: 4 } }, '步骤流程（白盒投影）'),
+    createElement('div', { style: { fontSize: 12, fontWeight: 600, color: token('anic-text'), marginBottom: 4 } }, t('trace.title')),
     createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), marginBottom: 6 } },
-      `四源: graph=${trace.sourceStatus.graph} nodeState=${trace.sourceStatus.nodeState} ledger=${trace.sourceStatus.ledger} artifacts=${trace.sourceStatus.cycleArtifacts}`),
+      t('trace.sources', trace.sourceStatus)),
     ...rows,
     trace.warnings.length > 0
       ? createElement('div', { 'data-anic-trace-warnings': 'true', style: { fontSize: 10, color: token('anic-warn-text'), marginTop: 6 } },
-          `投影告警 ${String(trace.warnings.length)} 条（诚实标注，非错误）`)
+          t('trace.warnings', { count: String(trace.warnings.length) }))
       : null,
   );
 }

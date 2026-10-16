@@ -111,15 +111,15 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
 }
 
 /** HTTP 注册（GET /anic/api/self-check）。deps 注入与 selfInit 同形态；只读。 */
-export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown, status: number, body: unknown, requestId?: string) => void; getWorkspaceRoot: () => string | null; agentCardsDir: string }): (() => void) | null {
+export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown, status: number, body: unknown, requestId?: string) => void; getWorkspaceRoot: (req?: unknown) => string | null; agentCardsDir: string }): (() => void) | null {
   const c = ctx as SnapshotCtx;
   const webServer = c.webServer;
   if (!webServer || typeof webServer.register !== 'function') return null;
   const disposer = webServer.register({
     kind: 'exact',
     path: SELF_CHECK_ROUTE,
-    handler: (_req: unknown, res: unknown) => {
-      const root = deps.getWorkspaceRoot();
+    handler: (req: unknown, res: unknown) => {
+      const root = deps.getWorkspaceRoot(req);
       if (!root) {
         deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_CHECK_NO_WORKSPACE', message: 'no workspace resolvable' } });
         return;

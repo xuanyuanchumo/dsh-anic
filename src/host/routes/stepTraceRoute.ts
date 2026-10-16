@@ -20,9 +20,9 @@ export function registerStepTraceRoute(ctx: unknown): (() => void) | null {
   const disposer = webServer.register({
     kind: 'exact',
     path: STEP_TRACE_ROUTE,
-    handler: (_req: unknown, res: unknown) => {
+    handler: (req: unknown, res: unknown) => {
       try {
-        const root = resolveWorkspaceRoots(c);
+        const root = resolveWorkspaceRoots(c, req);
         const cyclesDir = join(root, '.cycles');
         if (!existsSync(cyclesDir)) {
           sendJson(res, 404, { error: 'no .cycles in current workspace', workspace: root });

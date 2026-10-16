@@ -9,6 +9,7 @@
 import { createElement, type ReactElement } from 'react';
 import { FLOWS, PREFS_KEY, parseRawPrefs, resolveFlows, type FlowLayer } from '../../../shared/flows.ts';
 import { token } from '../../../shared/tokens.ts';
+import { t } from '../../i18n.ts';
 
 export interface FlowOverrideInput {
   /** 工作区层（host/config.ts 的 anic 段解析结果，键 = 'flow.xxx'） */
@@ -42,7 +43,13 @@ export function writeUserPrefs(flows: Record<string, boolean>): void {
   } catch { /* 隐私模式写失败：下次读取回默认（诚实降级，不报错打扰） */ }
 }
 
-const SOURCE_LABEL: Record<FlowLayer, string> = { user: '用户', workspace: '工作区', deployment: '部署' };
+/** 来源层标签（经 t()，i18n 单点）。 */
+function sourceLabelOf(layer: FlowLayer | null): string {
+  if (layer === 'user') return t('prefs.sourceUser');
+  if (layer === 'workspace') return t('prefs.sourceWorkspace');
+  if (layer === 'deployment') return t('prefs.sourceDeployment');
+  return t('prefs.sourceDefault');
+}
 
 /**
  * 抽屉容器 id。
@@ -60,7 +67,7 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
 
   const rows = FLOWS.map((f) => {
     const state = resolved.flows[f.id] ?? { enabled: true, source: null as FlowLayer | null };
-    const sourceLabel = state.source ? SOURCE_LABEL[state.source] : '默认';
+    const sourceLabel = sourceLabelOf(state.source);
     return createElement(
       'label',
       { key: f.id, 'data-anic-flow-row': f.id, style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '3px 0', cursor: 'pointer' }, title: f.degradation },
@@ -75,7 +82,7 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
         },
       }),
       createElement('span', { style: { flex: 1, color: token('anic-text') } }, f.label),
-      createElement('span', { style: { fontSize: 10, color: token('anic-text-faint') } }, `${sourceLabel}层 · ${f.layers.join('/')}`),
+      createElement('span', { style: { fontSize: 10, color: token('anic-text-faint') } }, t('prefs.sourceLine', { source: sourceLabel, layers: f.layers.join('/') })),
     );
   });
 
@@ -88,16 +95,16 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
       // 它不是 modal（不做焦点陷阱、不遮挡主体），因此不用 role="dialog"/
       // aria-modal —— 那会谎报"模式化"，让 AT 以为外部内容 inert。
       role: 'region',
-      'aria-label': 'ANIC 功能开关',
+      'aria-label': t('prefs.ariaLabel'),
       style: { padding: '8px 10px', borderTop: `1px solid ${token('anic-border')}`, background: token('anic-surface') },
     },
-    createElement('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 4, color: token('anic-text') } }, '功能开关（三层：用户 > 工作区 > 部署）'),
+    createElement('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 4, color: token('anic-text') } }, t('prefs.title')),
     ...rows,
     resolved.warnings.length > 0
       ? createElement('div', { 'data-anic-flow-warnings': 'true', style: { fontSize: 10, color: token('anic-warn-text'), marginTop: 6 } },
-          `开关告警 ${String(resolved.warnings.length)} 条（未知键/非法值已忽略，详见遥测）`)
+          t('prefs.warnings', { count: String(resolved.warnings.length) }))
       : null,
     createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), marginTop: 6 } },
-      'M1 仅用户层可写；工作区层请编辑 .cycles/config.yml 的 anic 段（唯一规范入口）。'),
+      t('prefs.hint')),
   );
 }
