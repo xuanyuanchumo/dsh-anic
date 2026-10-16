@@ -116,11 +116,22 @@ const NON_TEXT_ROLES: TokenName[] = [
   // renderStepTrace.ts:53 10px 圆点 background
   'anic-status-done', 'anic-status-active', 'anic-status-failed', 'anic-status-skipped',
   'anic-status-pending',
+  // P1-1 焦点环：`outline: 2px solid`，非文本图形。它**没有**暗色档（理由见
+  // tokens.ts 的注释：焦点环画在哪个表面上取决于控件底色，两种主题都会出现，
+  // 所以只能取两表面交集），因此不会触发"非文本令牌不得被暗色覆盖"那条。
+  'anic-focus-ring',
 ];
 
-/** 装饰/背景：不承载信息，不设阈值（残余风险已在文件头登记）。 */
+/**
+ * 装饰/背景：不承载信息，不设阈值（残余风险已在文件头登记）。
+ *
+ * P1-1 交互态面（hover/active）落在这里：它们是 `background`，本身不承载信息，
+ * 而**压在其上的文字**仍在阈值内——由 `tests/unit/panelCss.test.ts` 实测
+ * （浅色 #eef2f7 上 text 9.21 / text-strong 6.74 / text-faint 4.587）。
+ */
 const DECORATIVE: TokenName[] = [
   'anic-surface', 'anic-border', 'anic-border-strong', 'anic-row-border', 'anic-detail-surface',
+  'anic-surface-hover', 'anic-surface-active',
 ];
 
 /** 特殊角色：画在门禁填充之上的字形墨，逐填充单独测量（见下方专用断言）。 */

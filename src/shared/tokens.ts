@@ -104,6 +104,23 @@ export const SEMANTIC = {
   'anic-ledger-text': PALETTE.textLedgerL,
   // 面/边/字
   'anic-surface': PALETTE.surface,
+  /**
+   * 交互态面（P1-1）。角色是**背景**（`:hover` / `:active` 的 background），
+   * 在对比度契约里归 DECORATIVE；但压在其上的文字必须仍在阈值内——
+   * 浅色 `#eef2f7` 上 `--anic-text` 9.21、`--anic-text-strong` 6.74、
+   * `--anic-text-faint` 4.587，全部 ≥4.55（panelCss.test.ts 实测断言）。
+   */
+  'anic-surface-hover': PALETTE.surfaceHover,
+  'anic-surface-active': PALETTE.surfaceActive,
+  /**
+   * 焦点环（P1-1）。角色是**非文本图形**（`outline: 2px solid`）。
+   *
+   * 为什么焦点环没有暗色档：它画在哪个表面上取决于**控件自身底色**，而同一
+   * 个控件在两种主题下都会被聚焦。文本令牌能分 L/D 是因为它永远画在
+   * `--anic-surface` 上；焦点环没有这个前提，所以只能取两个表面都成立的那个
+   * 交集——`#2563eb` 浅色面 4.94、暗色面 3.454，双双越过 3.3 余量线。
+   */
+  'anic-focus-ring': PALETTE.focusRing,
   'anic-border': PALETTE.border,
   'anic-border-strong': PALETTE.borderStrong,
   'anic-row-border': PALETTE.rowBorder,
@@ -134,6 +151,9 @@ export const SEMANTIC = {
  */
 export const SEMANTIC_DARK: Partial<Record<TokenName, string>> = {
   'anic-surface': PALETTE.surfaceD,
+  'anic-surface-hover': PALETTE.surfaceHoverD,
+  'anic-surface-active': PALETTE.surfaceActiveD,
+  // 'anic-focus-ring' 刻意**不覆盖**：见 SEMANTIC 里的注释（它必须是两表面交集）。
   'anic-border': PALETTE.borderD,
   'anic-border-strong': PALETTE.borderStrongD,
   'anic-row-border': PALETTE.rowBorderD,

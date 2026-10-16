@@ -21,15 +21,16 @@ import { renderDiagnostics, type SelfCheckJson } from './features/diagnostics/re
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID } from './features/prefs/prefsDrawer.ts';
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
+import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
 import { resolveShellTheme, observeShellTheme, token, tokenCssBlock, THEME_ATTRIBUTE, type ShellTheme } from '../shared/tokens.ts';
+import { t } from './i18n.ts';
 
 const SNAPSHOT_URL = '/anic/api/workflow-snapshot';
 const STEP_TRACE_URL = '/anic/api/step-trace';
 const SELF_CHECK_URL = '/anic/api/self-check';
 const ORG_STATUS_URL = '/anic/org-status';
-const SELF_INIT_URL = '/anic/self/init';
 
 interface FetchState { source: 'embedded' | 'live'; line: string; }
 
@@ -98,6 +99,9 @@ export function WorkflowGraphPanel(): ReactElement {
   const [orgStatus, setOrgStatus] = useState<OrgStatusJson | null>(null);
   const inFlight = useRef(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // P0-2：自举四态反馈（running 时禁用防双击；失败保留错误信息与重试语义）。
+  const { phase: selfInitPhase, note: selfInitNote, onSelfInit } = useSelfInit();
 
   const fetchLive = useCallback(async (): Promise<void> => {
     if (inFlight.current) return;
@@ -178,7 +182,19 @@ export function WorkflowGraphPanel(): ReactElement {
       createElement('button', { type: 'button', 'data-anic-refresh': 'true', onClick: () => { setReloadKey((k) => k + 1); }, style: BTN }, '刷新'),
       // 抽屉开关是 disclosure：aria-expanded 报告开合，aria-controls 指向被控容器。
       createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': PREFS_PANEL_ID, onClick: () => { setPrefsOpen((v) => !v); }, style: BTN }, '⚙ 开关'),
-      createElement('button', { type: 'button', 'data-anic-self-init': 'true', onClick: () => { void fetch(SELF_INIT_URL, { method: 'POST' }); }, style: BTN, title: '对当前工作区执行技能 init-workflow（幂等）' }, '自举'),
+      // P0-2：自举按钮四态反馈 —— 执行中禁用 + aria-live 播报结果；失败时
+      // 标签改为「重试」传达可重试语义（同一按钮，不加第二个控件）。
+      createElement('button', {
+        type: 'button', 'data-anic-self-init': 'true', 'data-anic-self-init-phase': selfInitPhase,
+        disabled: selfInitPhase === 'running',
+        onClick: () => { void onSelfInit(); },
+        style: { ...BTN, opacity: selfInitPhase === 'running' ? 0.6 : 1 },
+        title: t('panel.selfInitTitle'),
+      }, selfInitPhase === 'running' ? t('panel.selfInitRunning') : selfInitPhase === 'failed' ? t('panel.selfInitRetry') : t('panel.selfInit')),
+      // 自举结果反馈：与拉取状态同一 aria-live 约定（异步结果必须可感知）。
+      selfInitPhase === 'ok' || selfInitPhase === 'failed'
+        ? createElement('span', { role: 'status', 'aria-live': 'polite', 'data-anic-self-init-note': selfInitPhase, style: { fontSize: 11, color: selfInitPhase === 'failed' ? token('anic-fail') : token('anic-pass') } }, selfInitNote)
+        : null,
     ),
     prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }) : null,
     renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result }); }),

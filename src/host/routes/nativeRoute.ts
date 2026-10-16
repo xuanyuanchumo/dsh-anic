@@ -4,15 +4,16 @@
  * GET /anic/fact-base · GET /anic/plan-sync · POST /anic/multi-agent-gate · POST /anic/fix-loop
  */
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 import { createScoped, newRequestId } from '../logger.ts';
 import { runHitlAudit } from '../governance/hitlAudit.ts';
 import { runBandDetection, loadBandHistory } from '../evolution/bandDetector.ts';
 import { runOrgStatus } from '../evolution/orgStatus.ts';
 import { runFactBaseVerify } from '../governance/factBaseVerify.ts';
 import { runPlanSync } from '../governance/planSync.ts';
-import { runAllGates, runGate, type GateName } from '../llm/multiAgentGate.ts';
+import { runAllGates } from '../llm/multiAgentGate.ts';
+import { collectGateEvidence, latestConvergenceVerdicts, CONVERGENCE_GATES } from '../llm/gateEvidence.ts';
 import { runFixLoop } from '../evolution/fixLoop.ts';
+import { verifyLedger } from '../runtime/ledger.ts';
 import type { AgentCard } from '../agents.ts';
 
 const log = createScoped('anic:route:native');
@@ -82,27 +83,53 @@ export function registerNativeRoute(
     deps.send(res, 200, result, rid);
   });
 
-  // POST /anic/multi-agent-gate { gate?: string, evidence?: {content,id}[] }
+  // POST /anic/multi-agent-gate
+  //
+  // P0-2（已修）：此前传 `evidenceByGate = {}` —— 五个门全部零证据，
+  // `heuristicEvaluate` 恒 `doubt`，「多门评审」在真实工作区从未产出过一次
+  // 有效裁决。现改为由 `collectGateEvidence()` 从**真实工件与真实账本**装配
+  // 结构化证据（带 PASS/FAIL 三态）。缺失的工件产出 FAIL 而非静默跳过：
+  // 「门禁要求的东西不存在」是确定的失败事实（INV-23）。
   reg('POST', '/anic/multi-agent-gate', (_req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
-    // 简化：运行全部门禁
-    const evidenceByGate: Record<string, { content: string; id: string }[]> = {};
+    const evidenceByGate = collectGateEvidence(root);
     const results = runAllGates(deps.agentCards, evidenceByGate);
-    deps.send(res, 200, { gates: results, allPassed: results.every((g) => g.passed) }, rid);
+    deps.send(
+      res,
+      200,
+      {
+        gates: results,
+        allPassed: results.every((g) => g.passed),
+        evidenceCounts: Object.fromEntries(Object.entries(evidenceByGate).map(([k, v]) => [k, v.length])),
+      },
+      rid,
+    );
   });
 
   // POST /anic/fix-loop { verifyCommand?: string }
+  //
+  // 验证函数不再用 `existsSync(ledger.json)` 充数（那是「文件在即通过」的伪自信：
+  // 账本被篡改、链断裂、G0-G3 从未记录，都照样报 all checks passed）。
+  // 改为消费真实事实：哈希链校验 + G0-G3 收敛门最新裁决全绿。
   reg('POST', '/anic/fix-loop', (_req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
-    // 验证函数：检查 .cycles/gates/ledger.json 存在性
+    const cyclesDir = join(root, '.cycles');
     const verifyFn = () => {
-      const ledgerPath = join(root, '.cycles', 'gates', 'ledger.json');
-      const ledgerExists = existsSync(ledgerPath);
-      return { passed: ledgerExists, report: ledgerExists ? 'all checks passed' : 'ledger missing' };
+      const chain = verifyLedger(cyclesDir);
+      const verdicts = latestConvergenceVerdicts(cyclesDir);
+      const missing = CONVERGENCE_GATES.filter((g) => verdicts.get(g) !== 'PASS');
+      const passed = chain.ok && missing.length === 0;
+      const parts: string[] = [];
+      if (!chain.ok) parts.push(`账本链断裂：${chain.reason ?? '未知'}（${String(chain.total)} 条）`);
+      if (missing.length > 0) parts.push(`收敛门未全绿，缺失：${missing.join(', ')}`);
+      return {
+        passed,
+        report: passed ? `哈希链校验通过（${String(chain.total)} 条）+ G0-G3 全绿` : parts.join('；'),
+      };
     };
     const result = runFixLoop(root, verifyFn);
     deps.send(res, 200, result, rid);

@@ -1,5 +1,11 @@
 ---
 name: ai-native-iteration-cycle
+whenToUse: >
+  在任何 DSH 开发项目里需要系统化质量保证或迭代驱动开发时使用：开始一个新项目/新功能
+  （初始化 workflow 与 intent）、完成阶段性工作（跑评估与门禁）、准备交付或发版（跑
+  G0-G3 收敛门与四件套）、遇到质量问题需要循环修复（auto-fix-loop）、或需要查看项目
+  组织状态与自主级（org-status）。若用户要求可视化迭代过程/透明化开发流程，配合
+  dsh-anic 插件的 anic_* 工具与 ANIC 标签页使用。
 description: >
   AI-Native 迭代驱动开发流程：将 Anthropic AI-Native SDLC（Plan→Design→Build→
   Test→Deploy→Maintain）与循环驱动验证流程深度融合。AI 自主规划、评估、拆测、

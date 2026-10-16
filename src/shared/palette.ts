@@ -99,6 +99,24 @@ export const PALETTE = {
   // 浅色档在暗底上只有 3.79:1，是本次实测出的真实缺陷之一。
   textFaintD: '#74849c',
 
+  // ── 交互态面（P1-1）──
+  // 内联 style 对象**无法表达** :hover/:active/:focus-visible，所以这三个角色
+  // 在过去根本不存在——按钮没有任何按下/悬停反馈。它们是**面**（背景色），
+  // 不承载信息，故在对比度契约里归 DECORATIVE；但压在它们上面的文字仍按
+  // 表面阈值衡量：浅色 #eef2f7 上 --anic-text 9.21、--anic-text-strong 6.74、
+  // --anic-text-faint 4.587 全部 ≥4.55（实测，见 panelCss.test.ts）。
+  surfaceHover: '#eef2f7',
+  surfaceHoverD: '#1e293b',
+  surfaceActive: '#e2e8f0',
+  surfaceActiveD: '#243044',
+  /**
+   * 焦点环色（P1-1）。角色是**非文本图形**（outline 2px），按"两个表面同时
+   * ≥3.3"校准：浅色面 4.94、暗色面 3.454。它必须是一个定值而不是 L/D 两档——
+   * 焦点环画在**哪个**表面上取决于控件自身底色，而控件底色在两种主题下都会
+   * 出现，所以只能取同时成立的那个交集（这是它不同于文本令牌的根因）。
+   */
+  focusRing: '#2563eb',
+
   // ── 面 / 边 / 墨 ──
   surface: '#f8fafc',
   surfaceD: '#0f172a',

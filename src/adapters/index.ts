@@ -78,30 +78,39 @@ export function createNodeAdapters(): Adapters {
         nodeFs.writeFileSync(p, c, 'utf-8');
       },
     },
-    exec: (cmd, args, opts) => {
-      const result = nodeChild.spawnSync(cmd, args, {
-        cwd: opts.cwd,
-        timeout: opts.timeoutMs,
-        encoding: 'utf-8',
-      });
-      return {
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-        exitCode: result.status ?? -1,
-      };
+    // 方法语法（非箭头简写）：接口 ExecAdapter/HttpAdapter 声明的是**方法签名**，
+    // 只有对象方法语法才触发上下文参数推断；箭头函数简写会让 cmd/args/opts 隐式 any
+    // 且返回类型不参与检查（TS2322 + TS7006 ×6）。
+    exec: {
+      run(cmd: string, args: string[], opts: { cwd: string; timeoutMs: number }) {
+        const result = nodeChild.spawnSync(cmd, args, {
+          cwd: opts.cwd,
+          timeout: opts.timeoutMs,
+          encoding: 'utf-8',
+        });
+        return {
+          stdout: result.stdout ?? '',
+          stderr: result.stderr ?? '',
+          exitCode: result.status ?? -1,
+        };
+      },
     },
-    http: async (url, opts) => {
-      const res = await nodeFetch(url, {
-        method: opts?.method ?? 'GET',
-        headers: opts?.headers,
-        body: opts?.body,
-      });
-      return {
-        ok: res.ok,
-        status: res.status,
-        json: () => res.json(),
-        text: () => res.text(),
-      };
+    http: {
+      async fetch(url: string, opts?: { method?: string; headers?: Record<string, string>; body?: string }) {
+        const res = await nodeFetch(url, {
+          method: opts?.method ?? 'GET',
+          headers: opts?.headers,
+          body: opts?.body,
+        });
+        return {
+          ok: res.ok,
+          status: res.status,
+          // 接口声明 json 是泛型方法 <T>() => Promise<T>；非泛型实现返回 Promise<unknown>
+          // 不满足（TS2322）。断言保留声明 API 的诚实性（调用方显式承担反序列化形状）。
+          json: <T>() => res.json() as Promise<T>,
+          text: () => res.text(),
+        };
+      },
     },
   };
 }

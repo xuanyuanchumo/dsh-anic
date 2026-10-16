@@ -30,41 +30,88 @@ export interface GateResult {
   passed: boolean;
 }
 
-/** 聚合裁决：approve 数 ≥ threshold → approve；否则 reject 优先于 doubt。 */
+/**
+ * 聚合裁决：approve 数 ≥ threshold → approve；否则 reject 优先于 doubt。
+ *
+ * P0-9（已修）：`verdicts.length === 0` 时原式 `approve / 0 * 100` 得 **NaN**，
+ * 而 NaN 会污染 trustModel 的升降级建议（`NaN >= 85` 恒 false → 永远不升级，
+ * 且序列化进账本后 JSON 变成 `null`）。空裁决集必须显式返回 0 分并保持
+ * `doubt` —— 「没有证据 ≠ 通过」（INV-23 同族纪律）。
+ */
 export function aggregateVerdicts(verdicts: AgentVerdict[], threshold: number): { verdict: GateVerdict; trustScore: number; passed: boolean } {
+  if (verdicts.length === 0) return { verdict: 'doubt', trustScore: 0, passed: false };
   const approve = verdicts.filter((v) => v.verdict === 'approve').length;
   const reject = verdicts.filter((v) => v.verdict === 'reject').length;
-  const doubt = verdicts.filter((v) => v.verdict === 'doubt').length;
   const verdict: GateVerdict = approve >= threshold ? 'approve' : reject > 0 ? 'reject' : 'doubt';
   const trustScore = Math.round((approve / verdicts.length) * 100);
   return { verdict, trustScore, passed: verdict === 'approve' };
+}
+
+/**
+ * 证据条目。
+ *
+ * P0-7（已修）：此前 `heuristicEvaluate` 用**中文关键词** `['通过','失败']` 判
+ * PASS/FAIL —— 这正是 docs/anic 02 §N9 明令禁止的「中文假设」。通用版必须
+ * 消费**结构化裁决事实**，而不是解析散文。
+ *
+ * `result` 是首选通道（来自 F36 报告投影 / 门禁裁决）：三态 PASS/FAIL/SKIP。
+ * `content` 仅在无结构化结果时作 Tier-1 兜底，且只认**语言中立**标记
+ * （Unicode 符号与 ASCII 词），不再依赖任何自然语言。
+ */
+export interface EvidenceItem {
+  id: string;
+  content: string;
+  /** 结构化裁决事实（首选）。来自报告投影或门禁账本，不解析散文。 */
+  result?: 'PASS' | 'FAIL' | 'SKIP';
+}
+
+/** 语言中立的失败标记（Unicode 符号 + ASCII，无自然语言依赖）。 */
+const FAIL_MARKERS = ['❌', '✗', 'FAIL'];
+/** 语言中立的通过标记。 */
+const PASS_MARKERS = ['✅', '✓', 'PASS'];
+
+/**
+ * 从证据集中提取结构化裁决（P0-7）。
+ * 任一 FAIL → 'FAIL'；否则有 PASS 且无 FAIL → 'PASS'；全 SKIP/无 → 'SKIP'。
+ * 结构化字段优先；仅在完全没有结构化字段时回落到语言中立标记扫描。
+ */
+export function deriveEvidenceResult(evidence: EvidenceItem[]): 'PASS' | 'FAIL' | 'SKIP' {
+  if (evidence.length === 0) return 'SKIP';
+  const structured = evidence.filter((e) => e.result !== undefined);
+  if (structured.length > 0) {
+    if (structured.some((e) => e.result === 'FAIL')) return 'FAIL';
+    if (structured.some((e) => e.result === 'PASS')) return 'PASS';
+    return 'SKIP';
+  }
+  // 兜底：语言中立标记扫描（无自然语言假设）
+  const text = evidence.map((e) => e.content).join(' ');
+  if (FAIL_MARKERS.some((m) => text.includes(m))) return 'FAIL';
+  if (PASS_MARKERS.some((m) => text.includes(m))) return 'PASS';
+  return 'SKIP';
 }
 
 /** Tier-1 启发式评估（诚实标注「非模型评审」）。 */
 export function heuristicEvaluate(
   role: AgentRole,
   gate: GateName,
-  evidence: { content: string; id: string }[],
+  evidence: EvidenceItem[],
 ): AgentVerdict {
-  // 基于证据数量的启发式评估
   const hasEvidence = evidence.length > 0;
-  const evidenceContent = evidence.map((e) => e.content).join(' ');
-  const wordCount = evidenceContent.split(/\s+/).filter(Boolean).length;
-  const hasKeywords = ['通过', 'PASS', 'complete', 'done', '✓', '✅'].some((k) => evidenceContent.includes(k));
-  const hasFailKeywords = ['失败', 'FAIL', 'error', '❌', '✗'].some((k) => evidenceContent.includes(k));
+  const derived = deriveEvidenceResult(evidence);
 
   let verdict: GateVerdict;
   let confidence: number;
-  if (!hasEvidence || wordCount < 10) {
+  if (!hasEvidence) {
     verdict = 'doubt';
     confidence = 0.3;
-  } else if (hasFailKeywords) {
+  } else if (derived === 'FAIL') {
     verdict = 'reject';
     confidence = 0.7;
-  } else if (hasKeywords && wordCount >= 50) {
+  } else if (derived === 'PASS') {
     verdict = 'approve';
     confidence = 0.6;
   } else {
+    // SKIP 或证据不足 → doubt（没有证据 ≠ 通过）
     verdict = 'doubt';
     confidence = 0.4;
   }
@@ -74,19 +121,35 @@ export function heuristicEvaluate(
     verdict,
     confidence,
     evidenceIds: evidence.map((e) => e.id),
-    notes: `Tier-1 heuristic (wordCount=${wordCount}, hasFail=${hasFailKeywords})`,
+    notes: `Tier-1 heuristic (evidence=${String(evidence.length)}, derived=${derived})`,
     tier: 'Tier-1',
   };
 }
+
+/**
+ * 各门通过阈值。
+ *
+ * P0-8（已修）：原式 `gate === 'release' ? 3 : 2` 把 **pr 门也算成 2**，
+ * 与技能侧 `scripts/multi-agent-gate.mjs:139`（`pr: { threshold: 3 }`，
+ * 注释「3/3 Agent 全部通过则推荐合并PR」）直接冲突。PR 合并门与发布门
+ * 一样是不可逆的高风险动作，必须全票。
+ */
+export const GATE_THRESHOLDS: Readonly<Record<GateName, number>> = {
+  intent: 2,
+  spec: 2,
+  plan: 2,
+  pr: 3,
+  release: 3,
+};
 
 /** 运行单门多代理评估。 */
 export function runGate(
   gate: GateName,
   agentCards: Map<string, AgentCard>,
-  evidence: { content: string; id: string }[],
+  evidence: EvidenceItem[],
   options?: { llmResults?: AgentVerdict[] },
 ): GateResult {
-  const threshold = gate === 'release' ? 3 : 2; // release 门需全票
+  const threshold = GATE_THRESHOLDS[gate];
   const verdicts: AgentVerdict[] = [];
 
   for (const role of AGENT_ROLES) {
@@ -110,7 +173,7 @@ export function runGate(
 /** 运行全部门禁。 */
 export function runAllGates(
   agentCards: Map<string, AgentCard>,
-  evidenceByGate: Record<string, { content: string; id: string }[]>,
+  evidenceByGate: Record<string, EvidenceItem[]>,
 ): GateResult[] {
   return GATE_NAMES.map((gate) => runGate(gate, agentCards, evidenceByGate[gate] ?? []));
 }

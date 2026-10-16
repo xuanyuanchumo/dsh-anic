@@ -11,13 +11,19 @@
  *   ctx.webServer.register({kind:'exact', path, handler}))，effect 返回值即清理。
  *
  * 安全面：只读；路径来自宿主服务（registry/sessions），绝不来自用户输入
- * （与 M0-③ 结论一致：白名单只来自宿主）；响应带 no-store（数据即最新）与 CORS
- * （桌面/远程 UI 跨源可见，父工程 buildCorsHeaders 同因）。
+ * （与 M0-③ 结论一致：白名单只来自宿主）；响应带 no-store（数据即最新）。
+ *
+ * CORS（P0-8 修订）：原文写「CORS（桌面/远程 UI 跨源可见）」并据此发了
+ * `Access-Control-Allow-Origin: '*'` —— 该推理是错的。**桌面端不走本服务器**
+ * （Electron 用 `file://` + IPC），远程 UI 也不是本插件的场景；通配符的实际
+ * 唯一受益者是**任意网页**（跨站读取工作区路径/账本/提示词）。现改为默认拒绝、
+ * 显式放行，见 `src/host/cors.ts`。
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { buildWorkflowSnapshot } from '../shared/snapshotCore.ts';
+import { corsHeaders, originFromRes } from './cors.ts';
 
 export const SNAPSHOT_ROUTE = '/anic/api/workflow-snapshot';
 
@@ -59,7 +65,15 @@ export function resolveWorkspaceRoots(ctx: SnapshotCtx): string {
   return process.cwd();
 }
 
-/** JSON 响应（no-store + CORS）。导出供其余路由复用（头语义全插件唯一实现）。 */
+/**
+ * JSON 响应（no-store + 来源受限 CORS）。导出供其余路由复用（头语义全插件唯一实现）。
+ *
+ * P0-8（已修）：此前无条件写 `Access-Control-Allow-Origin: '*'`，任何网页都能
+ * 跨站读取本插件的全部响应体（工作区绝对路径、账本、agent 卡提示词、信任分）。
+ * 现改为**默认拒绝、显式放行**：同源请求（无 Origin 头）本就不需要 CORS 头，
+ * 面板由宿主同源提供，所以去掉通配符**不影响面板**；仅回环来源与显式配置的
+ * 来源会被回显（回显具体 Origin + `Vary: Origin`，绝不写 `*`）。
+ */
 export function sendJson(res: unknown, status: number, body: unknown, extraHeaders: Record<string, string> = {}): void {
   const r = res as { writeHead?: (code: number, headers: Record<string, string>) => void; end?: (data?: string) => void };
   if (typeof r.writeHead !== 'function' || typeof r.end !== 'function') return;
@@ -67,7 +81,7 @@ export function sendJson(res: unknown, status: number, body: unknown, extraHeade
   r.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': '*',
+    ...corsHeaders(originFromRes(res)),
     ...extraHeaders,
   });
   r.end(payload);

@@ -5,6 +5,7 @@
 import { join } from 'node:path';
 import { resolveWorkspaceRoots, sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { loadWorkspaceConfig } from '../config.ts';
+import { setConfiguredOrigins } from '../cors.ts';
 import { resolveFlows } from '../../shared/flows.ts';
 
 export type SendFn = (res: unknown, status: number, body: unknown, requestId?: string) => void;
@@ -57,5 +58,11 @@ export function buildRouteContext(ctx: unknown): RouteContext {
       return { selfInit: resolved.flows['flow.selfInit']?.enabled ?? true };
     } catch { return { selfInit: true }; }
   };
+  // P0-8：把工作区层 `anic.allowedOrigins` 写进 CORS 允许集（注册期一次）。
+  // 工作区尚未就绪时不写 —— 缺省回环策略仍然生效（fail-safe）。
+  try {
+    const root = getWorkspaceRoot();
+    if (root) setConfiguredOrigins(loadWorkspaceConfig(join(root, '.cycles')).values.allowedOrigins);
+  } catch { /* 配置不可读 → 保持缺省回环策略 */ }
   return { ctx: c, send, getWorkspaceRoot, loadFlows };
 }

@@ -103,7 +103,7 @@ describe('registerSnapshotRoute', () => {
     expect(registerSnapshotRoute({ webServer: {} })).toBeNull();
   });
 
-  it('200：no-store + CORS + 16 位内容指纹 + 快照计数', () => {
+  it('200：no-store + 16 位内容指纹 + 快照计数；无 Origin 时**不发** CORS 头（P0-8）', () => {
     const root = workspaceWithCycles(true);
     const { ctx, registered } = makeCtx({ root });
     registerSnapshotRoute(ctx);
@@ -111,7 +111,8 @@ describe('registerSnapshotRoute', () => {
     registered[0]?.handler({}, res);
     expect(captured.status).toBe(200);
     expect(captured.headers?.['Cache-Control']).toBe('no-store');
-    expect(captured.headers?.['Access-Control-Allow-Origin']).toBe('*');
+    // P0-8：同源请求不需要 CORS 头；通配符 `*` 已被彻底移除（跨站读取面关闭）
+    expect(captured.headers?.['Access-Control-Allow-Origin']).toBeUndefined();
     expect(captured.headers?.['X-ANIC-Snapshot-Digest']).toMatch(/^[0-9a-f]{16}$/);
     const body = JSON.parse(captured.body ?? '{}') as { counts: { nodes: number }; autonomy: string };
     expect(body.counts.nodes).toBeGreaterThan(0);

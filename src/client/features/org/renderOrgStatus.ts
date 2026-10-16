@@ -25,7 +25,8 @@ export interface OrgStatusJson {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
-  autonomy: { currentBand: string; breakers: string[]; action: string };
+  /** configuredBand 为 P1 修复新增的可选字段：配置声明的自主级（与 currentBand 分离，降级时可观测） */
+  autonomy: { currentBand: string; configuredBand?: string; breakers: string[]; action: string };
   band: { current: string; trend: string };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
@@ -105,6 +106,11 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
         { style: P },
         '当前: ',
         createElement('strong', null, status.autonomy.currentBand),
+        // P1（autonomy 双投影矛盾）：配置级与运行级不一致时显式示出，
+        // 让「降级中」可观测，而不是让用户看到两个互相矛盾的 L 值。
+        status.autonomy.configuredBand !== undefined && status.autonomy.configuredBand !== status.autonomy.currentBand
+          ? `（配置 ${status.autonomy.configuredBand}）`
+          : '',
         ` · 动作: ${status.autonomy.action}`,
       ),
       breakers,

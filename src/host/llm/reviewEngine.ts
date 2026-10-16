@@ -17,11 +17,24 @@ export interface LlmRuntime {
   listProviders(): string[];
 }
 
+/**
+ * 宿主 GenerateOptions 的最小契约子集。
+ *
+ * P0-1（已修）：`purpose` 在宿主侧是**闭合枚举**，权威定义见
+ * `@deepseek-ai/dsh-llm/lib/types/types.d.ts:530`：
+ *     purpose?: 'compaction' | 'session-title';
+ * 此前本文件把 `purpose?: string` 并传 `'review'`，既不被宿主承认，又让
+ * 「传错值」在类型层不可拦。现在把它逐字转录为同一闭合枚举 —— 传任何
+ * 枚举外的值都会在 `pnpm run typecheck` 阶段报错。
+ *
+ * 归因策略（R-27）：**不**借用宿主的 purpose 字段做 ANIC 评审归因；
+ * 归因走 ANIC 自己的账本（`{provider, model, promptDigest, evidenceIds}`）。
+ */
 export interface GenerateOptions {
   provider: string;
   model: string;
   messages: { role: 'system' | 'user'; content: string }[];
-  purpose?: string;
+  purpose?: 'compaction' | 'session-title';
 }
 
 export interface LlmChunk {
@@ -42,6 +55,60 @@ export interface ReviewVerdict {
   evidenceIds: string[];
   notes: string;
   tier: 'tier-2-llm' | 'tier-1-heuristic' | 'tier-0-unavailable';
+}
+
+/**
+ * P0-1：ANIC 自己的评审归因留痕（R-27）。
+ * 宿主不提供 purpose='review' 通道，因此归因必须落在 ANIC 侧。
+ * 该结构是「调用前留痕」的载体，由路由写入响应与（未来）账本。
+ */
+export interface ReviewAttribution {
+  provider: string;
+  model: string;
+  /** 提示词摘要（sha256 前 16 位十六进制），用于事后复现而不落原文。 */
+  promptDigest: string;
+  evidenceIds: string[];
+}
+
+/** 计算评审归因：调用**前**即可得到（不依赖 LLM 返回）。 */
+export function buildAttribution(
+  provider: string,
+  model: string,
+  request: ReviewRequest,
+): ReviewAttribution {
+  return {
+    provider,
+    model,
+    promptDigest: digestPrompt(request),
+    evidenceIds: request.evidence.map((e) => e.id),
+  };
+}
+
+/** 提示词摘要：稳定、可复现、不落原文。 */
+function digestPrompt(request: ReviewRequest): string {
+  const material = `${request.gate}\u0000${request.role}\u0000${request.evidence.map((e) => `${e.id}\u0001${e.content}`).join('\u0002')}`;
+  return sha256Hex(material).slice(0, 16);
+}
+
+/** 纯 TS 实现的 sha256（node:crypto 在 client 编译单元不可用，保持零依赖）。 */
+function sha256Hex(input: string): string {
+  // 使用 Web Crypto 之外的纯实现成本过高；此处优先 node:crypto（宿主侧运行）。
+  // 若不可用则退化为稳定的非加密摘要（仅用于归因比对，不做安全承诺）。
+  const req = (globalThis as { process?: { getBuiltinModule?: (n: string) => unknown } }).process?.getBuiltinModule;
+  if (typeof req === 'function') {
+    const mod = req('node:crypto') as { createHash?: (a: string) => { update: (s: string) => { digest: (e: string) => string } } } | undefined;
+    const h = mod?.createHash?.('sha256');
+    if (h) return h.update(input).digest('hex');
+  }
+  // 退化路径：FNV-1a 64 位（稳定、无依赖；明确标注非加密）
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= BigInt(input.charCodeAt(i));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0').repeat(4).slice(0, 64);
 }
 
 // ── 探测 ────────────────────────────────────────────────
@@ -99,63 +166,14 @@ export function validateReviewJson(raw: string): ReviewVerdict | null {
   };
 }
 
-// ── 评审引擎 ────────────────────────────────────────────
-
-const REVIEW_TIMEOUT_MS = 30_000;
+// ── 传输层 ──────────────────────────────────────────────
 
 /**
- * 执行 LLM 评审。
- * fail-closed：任何异常 → doubt（绝不 approve）。
+ * 传输层（调用 / 超时 / 错误码分派 / 缩证据重试）已拆到 `reviewTransport.ts`
+ * —— T3 结构守卫要求单文件 ≤250 行，P0-1 的归因与错误码分派把本文件推过限。
+ * 此处**不** re-export，避免 `reviewEngine ↔ reviewTransport` 的循环导入：
+ * 消费方（`routes/reviewRoute.ts`）直接从 `reviewTransport.ts` 取 `runLlmReview`。
  */
-export async function runLlmReview(
-  runtime: LlmRuntime,
-  card: AgentCard,
-  request: ReviewRequest,
-  provider: string,
-  model: string,
-): Promise<ReviewVerdict> {
-  const evidenceText = request.evidence
-    .map((e) => `[${e.id}] ${e.content}`)
-    .join('\n');
-
-  const messages = [
-    { role: 'system' as const, content: card.systemPrompt },
-    { role: 'user' as const, content: `门：${request.gate}\n角色：${request.role}\n\n证据材料：\n${evidenceText}` },
-  ];
-
-  let rawText = '';
-  try {
-    const iter = runtime.stream({ provider, model, messages, purpose: 'review' });
-    const chunks = await Promise.race([
-      collectStream(iter),
-      new Promise<LlmChunk[]>((_, reject) =>
-        setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), REVIEW_TIMEOUT_MS),
-      ),
-    ]);
-    for (const chunk of chunks) {
-      if (chunk.error) {
-        return { verdict: 'doubt', evidenceIds: [], notes: `LLM error: ${chunk.error.code}`, tier: 'tier-2-llm' };
-      }
-      if (chunk.text) rawText += chunk.text;
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { verdict: 'doubt', evidenceIds: [], notes: `LLM 调用失败：${msg}`, tier: 'tier-2-llm' };
-  }
-
-  const validated = validateReviewJson(rawText);
-  if (validated !== null) return validated;
-
-  // fail-closed：无法解析 → doubt
-  return { verdict: 'doubt', evidenceIds: [], notes: 'LLM 返回不符合闭合 JSON 协议（fail-closed → doubt）', tier: 'tier-2-llm' };
-}
-
-/** 辅助：将 AsyncIterable 收集为数组（与 timeout race） */
-async function collectStream(iter: AsyncIterable<LlmChunk>): Promise<LlmChunk[]> {
-  const chunks: LlmChunk[] = [];
-  for await (const chunk of iter) chunks.push(chunk);
-  return chunks;
-}
 
 // ── Tier-1 降级 ─────────────────────────────────────────
 

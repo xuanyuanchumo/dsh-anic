@@ -6,7 +6,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { probeLlm, runLlmReview, heuristicReview, type ReviewRequest, type ReviewVerdict } from '../llm/reviewEngine.ts';
+import { probeLlm, heuristicReview, type ReviewRequest, type ReviewVerdict } from '../llm/reviewEngine.ts';
+import { runLlmReview } from '../llm/reviewTransport.ts';
 import type { AgentCard } from '../agents.ts';
 import { t } from '../i18n.ts';
 

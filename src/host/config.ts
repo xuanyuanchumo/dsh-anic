@@ -26,6 +26,13 @@ export interface WorkspaceConfig {
     autonomyLevel: 'L1' | 'L2' | 'L3' | 'L4';
     /** anic 段的开关覆盖（F 族 workspace 层数据源；键为 flow.* 全量 id） */
     flowOverrides: Record<string, boolean>;
+    /**
+     * 允许跨源读取本插件 HTTP 面的来源白名单（P0-8）。
+     *
+     * 缺省为空 → 仅回环来源被放行（见 `host/cors.ts`）。写成 `'*'` **不会**
+     * 重新打开通配符（配置错误必须是安全的）。
+     */
+    allowedOrigins: string[];
   };
 }
 
@@ -56,9 +63,10 @@ export function getAutonomyLevel(content: string, fallback: 'L1' | 'L2' | 'L3' |
   return v ? (v.toUpperCase() as 'L1' | 'L2' | 'L3' | 'L4') : fallback;
 }
 
-/** anic 段解析：只接受布尔 flow.* 键；其余键 warning（刻意不拦截） */
-function parseAnicSection(content: string, warnings: string[]): Record<string, boolean> {
+/** anic 段解析：接受布尔 `flow.*` 键与 `allowedOrigins`；其余键 warning（刻意不拦截） */
+function parseAnicSection(content: string, warnings: string[]): { flows: Record<string, boolean>; allowedOrigins: string[] } {
   const overrides: Record<string, boolean> = {};
+  const origins: string[] = [];
   const lines = content.split(/\r?\n/);
   let inSection = false;
   for (const line of lines) {
@@ -70,12 +78,24 @@ function parseAnicSection(content: string, warnings: string[]): Record<string, b
       if (/^\S/.test(line)) inSection = false; // 顶层键 = 段结束
       const m = line.match(/^\s+(flow\.[A-Za-z]+):\s*(true|false)\s*(?:#.*)?$/);
       if (m && m[1] !== undefined && m[2] !== undefined) overrides[m[1]] = m[2] === 'true';
-      else if (/^\s+[A-Za-z]/.test(line) && line.trim().length > 0) {
-        warnings.push(`config anic section: unrecognized key '${line.trim().split(':')[0]}' (warn-only, ignored)`);
+      else {
+        // P0-8：allowedOrigins 是逗号分隔列表（可带引号），不是布尔
+        const o = line.match(/^\s+allowedOrigins:\s*(.*)$/);
+        if (o && o[1] !== undefined) {
+          const raw = o[1].split(' #')[0] ?? '';
+          for (const part of raw.split(',')) {
+            let v = part.trim();
+            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+            v = v.replace(/\/+$/, '');
+            if (v.length > 0) origins.push(v);
+          }
+        } else if (/^\s+[A-Za-z]/.test(line) && line.trim().length > 0) {
+          warnings.push(`config anic section: unrecognized key '${line.trim().split(':')[0]}' (warn-only, ignored)`);
+        }
       }
     }
   }
-  return overrides;
+  return { flows: overrides, allowedOrigins: origins };
 }
 
 /**
@@ -93,7 +113,7 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
     return {
       source: 'missing',
       warnings: [`workspace config not found (expected ${CANONICAL_CONFIG}); run skill init-workflow first`],
-      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {} },
+      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {}, allowedOrigins: [] },
     };
   }
 
@@ -112,6 +132,7 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
   }
 
   const autonomy = getAutonomyLevel(content, 'L2');
+  const anicSection = parseAnicSection(content, warnings);
   return {
     source,
     warnings,
@@ -120,7 +141,8 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
       testCmd: getYamlString(content, 'test_cmd'),
       lintCmd: getYamlString(content, 'lint_cmd'),
       autonomyLevel: autonomy,
-      flowOverrides: parseAnicSection(content, warnings),
+      flowOverrides: anicSection.flows,
+      allowedOrigins: anicSection.allowedOrigins,
     },
   };
 }

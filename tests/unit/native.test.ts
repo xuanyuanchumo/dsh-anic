@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync, mkdtempSync } from 'node:fs';
+import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { classifyBand, detectTrend, runBandDetection } from '../../src/host/evolution/bandDetector.ts';
@@ -170,6 +170,39 @@ describe('orgStatus', () => {
     expect(result).toHaveProperty('band');
     expect(result).toHaveProperty('flows');
     expect(result).toHaveProperty('timestamp');
+  });
+
+  it('P1 回归：currentBand 缺省时读配置 autonomy_level，而非硬编码 L2', () => {
+    // 修复前：`options.currentBand ?? 'L2'` —— 配置声明 L4 时 org-status
+    // 仍报 L2，与 snapshotCore 读同一配置得到的 L4 同屏矛盾（双真相源）。
+    mkdirSync(join(TMP, '.cycles'), { recursive: true });
+    writeFileSync(
+      join(TMP, '.cycles', 'config.yml'),
+      'project:\n  name: t\nmacro_cycle:\n  autonomy_level: L4\n',
+      'utf-8',
+    );
+    const result = runOrgStatus(TMP, {});
+    expect(result.autonomy.currentBand).toBe('L4');
+    expect(result.autonomy.configuredBand).toBe('L4');
+  });
+
+  it('显式 currentBand 优先于配置（降级路径覆盖）', () => {
+    mkdirSync(join(TMP, '.cycles'), { recursive: true });
+    writeFileSync(
+      join(TMP, '.cycles', 'config.yml'),
+      'project:\n  name: t\nmacro_cycle:\n  autonomy_level: L4\n',
+      'utf-8',
+    );
+    const result = runOrgStatus(TMP, { currentBand: 'L3' });
+    expect(result.autonomy.currentBand).toBe('L3');
+    expect(result.autonomy.configuredBand).toBe('L4');
+  });
+
+  it('配置缺失时兜底可观测（configuredBand 反映 loader 缺省）', () => {
+    const result = runOrgStatus(TMP, {});
+    // 无 .cycles/config.yml → loadWorkspaceConfig 走 missing 分支（L2 缺省）
+    expect(['L1', 'L2', 'L3', 'L4']).toContain(result.autonomy.configuredBand);
+    expect(result.autonomy.currentBand).toBe(result.autonomy.configuredBand);
   });
 });
 

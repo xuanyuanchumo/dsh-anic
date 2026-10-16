@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadWorkspaceConfig } from '../config.ts';
 import { loadLedger } from '../runtime/ledger.ts';
 import { buildTrustScores, recommendBand, type AutonomyBand, type LedgerEntryForTrust } from './trustModel.ts';
 import { checkBreakers, decideAction, type BreakerInput } from './autonomyGovernor.ts';
@@ -13,7 +14,7 @@ export interface OrgStatus {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
-  autonomy: { currentBand: string; breakers: string[]; action: string };
+  autonomy: { currentBand: string; configuredBand: string; breakers: string[]; action: string };
   band: { current: string; trend: string };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
@@ -68,7 +69,13 @@ export function runOrgStatus(workspaceRoot: string, options: {
   const avgTrust = ledger.length > 0
     ? Math.round(ledger.filter((e) => e.result.toLowerCase() === 'pass' || e.result.toLowerCase() === 'approve').length / ledger.length * 100)
     : 0;
-  const band = (options.currentBand ?? 'L2') as AutonomyBand;
+  // P1（autonomy 双投影矛盾）：currentBand 缺省时经 INV-25 唯一 loader 读
+  // `.cycles/config.yml` 的 `macro_cycle.autonomy_level`，而不是静默兜底 'L2'。
+  // 此前同页两个投影会同时显示「autonomy L4」（snapshotCore 读配置）与
+  // 「当前: L2」（本函数硬编码）—— 同一工作区、同一时刻、两个真相。
+  // 显式传入 currentBand 的调用方（测试/降级路径）仍然优先。
+  const configuredBand = loadWorkspaceConfig(cyclesDir).values.autonomyLevel;
+  const band = (options.currentBand ?? configuredBand) as AutonomyBand;
   const recommendedBand = recommendBand(band, avgTrust);
 
   // Autonomy
@@ -85,7 +92,7 @@ export function runOrgStatus(workspaceRoot: string, options: {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
     trust: { scores: trustScores, recommendedBand },
-    autonomy: { currentBand: band, breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id), action },
+    autonomy: { currentBand: band, configuredBand, breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id), action },
     band: { current: bandCurrent, trend: bandTrend },
     flows: options.flows ?? { selfInit: true, agentsOrchestration: true },
     timestamp: new Date().toISOString(),
