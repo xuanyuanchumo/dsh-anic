@@ -18,10 +18,13 @@
 | [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit，14 端点 | 调用或修改自举、技能网关、安装、双自举时 |
 | [测试指南.md](测试指南.md) | 四层金字塔的实际配置、每层能看/看不到什么、守卫测试三条纪律、变更探针纪律 | 新增测试、判断缺陷该由哪层拦、写守卫测试时 |
 | [设计令牌与主题.md](设计令牌与主题.md) | `src/shared/tokens.ts` 的 PALETTE→SEMANTIC 两层模型、`token()`、`tokenCssBlock()`、注入点、守卫与**当前落地程度** | 新增颜色、新增内联样式、暗色适配时 |
+| [DSH多代兼容与双端适配.md](DSH多代兼容与双端适配.md) | 兼容性门真实现（peerDependencies 白名单 + semver）、多代能力探测矩阵 D1-D8、网页端/桌面端差异实测、B1-B6 破坏性变更、已知限制 | 改 package.json 版本范围、适配新宿主版本、排查桌面端差异时 |
+| [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md) | 三条白盒通道（轨迹/面板/feed API）、session/event + tools/result 双相配对接线、诊断计数语义、验证记录 | 改 invocationFeed、排查「调用没显示」、验证轨迹可见时 |
+| [质量属性与全生命周期评审体系.md](质量属性与全生命周期评审体系.md) | E1-E8/Q1-Q8 维度分派、G0-G3 收敛门判据、六项质量属性承诺、五层测试金字塔、四件套交付纪律 | 判断某质量维度归属、跑门禁、写评估报告时 |
 
 ## 三条必读前提
 
-1. **这是独立工程**（`dsh-anic/CLAUDE.md:3`）：源码零依赖父项目 `src/`（G-IND 守卫），当前借用父工程 `node_modules` 是过渡态 TD-A1。**但 G-IND 目前没有机械守卫**，只有散文注释 —— 详见 [开发规范-守卫与约束.md](开发规范-守卫与约束.md) §8。
+1. **这是独立工程**（`dsh-anic/CLAUDE.md:3`）：源码零依赖父项目 `src/`，机械守卫为 `tests/contract/independenceGuard.test.ts`（G-IND，8 用例），当前借用父工程 `node_modules` 是过渡态 TD-A1。
 2. **`dist/` 惰性**：第 1 层（`validate-dsh.mjs`）与第 3 层（`offline-smoke.mjs`）都读 `dist/`，改了 `src/` 必须**先 build** 才能观察到变化。
 3. **文档与代码的落差是记录项，不是缺陷声明**：本族文档如实标注了若干「规范写了但实践未完全遵守」之处（i18n、CSS 前缀、令牌迁移范围、G-IND）。每处都给出了具体证据与行号，**不代为辩解**。
 

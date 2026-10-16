@@ -45,7 +45,7 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 - **M5-a 规模治理**：`host/governance/` Archiver（移动不删除）+ Budget（三级阈值）+ Sweep（删空+过期 .tmp）+ Prune（孤儿检测）；4 路由。
 - **M6 通用性收口 v0.1.0**：i18n 双语（zh + en，panel/flows/gate 三域）+ CHANGELOG.md + private:false。
 - **M7 自举闭环**：`host/selfBootstrap.ts` 状态机 IDLE→EVALUATING→GATE_CHECKING→FIXING→VERIFYING→CONVERGED/EXHAUSTED + `host/skillInvoker.ts` 15 脚本白名单 + 路径遍历防护；4 路由。
-- **M8 跨项目+DSH 工具**：`host/tools.ts` 9 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status）+ skillRoute 4 路由；inject=['tools','webServer','sessions']。
+- **M8 跨项目+DSH 工具**：`host/tools.ts` + `toolsPointerGateway.ts` + `toolsSkillGateway.ts` 共 12 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status/skill/bootstrap_cycle/bootstrap_analyze）+ skillRoute 4 路由；inject=['tools','webServer','sessions','skills']。
 - **M9 结构优化**：`host/routes/routeContext.ts` 提取共享依赖 + `routes/index.ts` 瘦身至 ~75 行纯组合 + 六域分区（data/cycle/review/evolution/governance/self）。
 - **M10 发布 v0.2.0**：CHANGELOG + README + package.json 0.2.0。
 - **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 63 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
@@ -205,9 +205,9 @@ dsh-anic/
 - `advanceDualBootstrap`：推进一轮，失败时产跨向提案（不互相改码，R-31）。
 - 3 路由：`POST /anic/self/dual-evaluate` / `POST /anic/self/dual-advance` / `GET /anic/self/dual-status`。
 
-### 9 DSH 工具
+### 12 DSH 工具
 
-`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / **`anic_hitl`** / **`anic_install`** / **`anic_status`**（粗体为 M11 新增）。
+`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）。工具计数守卫见 `truthAuditChecks.ts`（扫描 `src/host/tools*.ts` glob，不硬编码单文件）。
 
 ### 透明性 + 连通性增强
 
