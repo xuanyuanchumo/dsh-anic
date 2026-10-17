@@ -19,7 +19,10 @@ export function registerPointerTools(
   // Tool: anic_snapshot — get workflow snapshot
   disposers.push(register({
     name: 'anic_snapshot',
-    description: 'Get the workflow snapshot (nodes, edges, cycles, ledger) for a project',
+    // SDO：触发条件 = 要看工作流图数据；只读。
+    description: 'Use when the workflow-graph data (nodes, edges, cycles, ledger events) of an ANIC-managed project '
+      + 'is needed for rendering or inspection. Read-only. Triggers: 快照 / workflow snapshot / '
+      + '工作流图 / graph data.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -38,7 +41,10 @@ export function registerPointerTools(
   // Tool: anic_self_check — runtime INV probes
   disposers.push(register({
     name: 'anic_self_check',
-    description: 'Run runtime invariant probes (INV-13/18/21/25/26) on a project',
+    // SDO：触发条件 = 怀疑插件运行时不变量被破坏/要健康探针。
+    description: 'Use when the plugin runtime invariants of an ANIC-managed project need probing — '
+      + 'suspecting a broken invariant, or a routine health check of the anic runtime. '
+      + 'Triggers: 自检 / self-check / 不变量 / INV probes / 运行时健康.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -55,7 +61,10 @@ export function registerPointerTools(
   // Tool: anic_hitl — run HITL audit (native, no skill dependency)
   disposers.push(register({
     name: 'anic_hitl',
-    description: 'Run HITL audit (H1 sensitive files / H2 gitignore / H3 destructive / H4 ledger integrity) on a project',
+    // SDO：触发条件 = 需要 HITL 审计入口（人类在环审计，与 flows_hitl 三段修复区分：本工具是路由指针）。
+    description: 'Use when a human-in-the-loop audit entry point is needed for an ANIC-managed project — '
+      + 'auditing sensitive-data protection, rollback safety, gate-green state, ledger integrity (H1-H4). '
+      + 'Triggers: HITL / 人类在环审计 / human-in-the-loop audit.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

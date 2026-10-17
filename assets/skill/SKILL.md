@@ -7,14 +7,18 @@ whenToUse: >
   组织状态与自主级（org-status）。若用户要求可视化迭代过程/透明化开发流程，配合
   dsh-anic 插件的 anic_* 工具与 ANIC 标签页使用。
 description: >
-  AI-Native 迭代驱动开发流程：将 Anthropic AI-Native SDLC（Plan→Design→Build→
-  Test→Deploy→Maintain）与循环驱动验证流程深度融合。AI 自主规划、评估、拆测、
-  验证、修复、交付，人类在门禁处保留判断权。适用于任何需要系统性质量保证的
-  软件项目。当用户提到"迭代验证"、"质量门禁"、"循环开发"、"AI自主开发"、
-  "评估驱动开发"、"intent"、"SDLC"、"AI-Native"、"迭代循环"、"收敛门禁"、
-  "自主开发流程"时触发。也适用于用户希望建立结构化开发流程、需要分层测试策略、
-  或希望 AI 以全自主模式执行开发的场景。即使用户只是提到想要一个系统化的开发
-  流程或质量保证框架，也应考虑使用此 skill。
+  Use when a software project needs systematic quality assurance or AI-native
+  iterative development — starting a new project or feature (workflow + intent
+  initialization), finishing phase work (evaluation + gates), preparing
+  delivery or release (G0-G3 convergence gates), fixing quality issues in a
+  loop (auto-fix), or checking project organization status and autonomy level.
+  Also use when the user wants structured development process, layered test
+  strategy, or full-autonomy (L4) AI development — even if they only mention
+  wanting a systematic development flow or QA framework. Triggers on: 迭代验证、
+  质量门禁、循环开发、AI 自主开发、评估驱动开发、intent、SDLC、AI-Native、
+  迭代循环、收敛门禁、自主开发流程、AI-Native iteration、convergence gate、
+  eval-driven development. 是 AI-Native 迭代循环技能（AI-Native iteration
+  cycle skill），人类在门禁处保留判断权。
 ---
 
 # AI-Native Iteration Cycle

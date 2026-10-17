@@ -1,7 +1,7 @@
 # dsh-anic — AI-Native Iteration Cycle（DSH 插件）
 
 ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工程**。可行性研究、
-需求分析、架构与里程碑见 [`docs/anic/`](../docs/anic/)（README + 01–15 + spike 报告）。
+需求分析、架构与里程碑见 [`docs/anic/`](../docs/anic/)（README + 01–17 + spike 报告）。
 
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
@@ -217,9 +217,9 @@ dsh-anic/
 - `advanceDualBootstrap`：推进一轮，失败时产跨向提案（不互相改码，R-31）。
 - 3 路由：`POST /anic/self/dual-evaluate` / `POST /anic/self/dual-advance` / `GET /anic/self/dual-status`。
 
-### 16 DSH 工具
+### 18 DSH 工具
 
-`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）。工具计数守卫见 `truthAuditChecks.ts`（扫描 `src/host/tools*.ts` glob，不硬编码单文件）。
+`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）/ **`anic_flows_auto_fix`**（R3 阶段 5：自动修复循环流程——test→失败识别→retest→判定主循环，maxRetries 1-10；报告计数双格式解析 D-1103；ITERATING 自环轨迹进投影可回放）。工具计数守卫见 `truthAuditChecks.ts`（扫描 `src/host/tools*.ts` glob，不硬编码单文件——**新增工具后必须同步本清单与计数**，cycle-16 审计 P2-3 教训）。
 
 ### 透明性 + 连通性增强
 

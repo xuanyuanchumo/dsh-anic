@@ -6,6 +6,7 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
+import { DataRow, toneColor } from '../../components/dataRow.ts';
 
 export interface ProbeJson {
   id: string;
@@ -21,14 +22,20 @@ export interface SelfCheckJson {
 }
 
 export function renderDiagnostics(check: SelfCheckJson): ReactElement {
+  // B4：flex 基线行收敛到 components/dataRow（原为域内联 style 的重复形状）。
   const rows = check.checks.map((p) =>
-    createElement(
-      'div',
-      { key: p.id, 'data-anic-probe': p.id, style: { display: 'flex', gap: 8, fontSize: 11, padding: '2px 4px', alignItems: 'baseline' } },
-      createElement('span', { style: { color: p.ok ? token('anic-ok-text') : token('anic-bad-text'), fontWeight: 600 } }, p.ok ? 'PASS' : 'FAIL'),
-      createElement('span', { style: { color: token('anic-text'), minWidth: 210 } }, p.inv ? `${p.id} (${p.inv})` : p.id),
-      createElement('span', { style: { color: token('anic-text-dim') } }, p.detail),
-    ),
+    DataRow({
+      key: p.id, anchorKey: 'data-anic-probe', anchor: p.id,
+      style: { fontSize: 11, padding: '2px 4px' },
+      children: [
+        // B6.1：PASS/FAIL 走 locale（diag.pass / diag.fail 双侧键已有，此前是
+        // 本文件唯一的用户面硬编码字面量）。en 侧文案同为 PASS/FAIL，
+        // 缺省 zh 侧输出不变（回归红线）。
+        createElement('span', { style: { color: toneColor(p.ok ? 'ok' : 'bad'), fontWeight: 600 } }, p.ok ? t('diag.pass') : t('diag.fail')),
+        createElement('span', { style: { color: token('anic-text'), minWidth: 210 } }, p.inv ? `${p.id} (${p.inv})` : p.id),
+        createElement('span', { style: { color: toneColor('dim') } }, p.detail),
+      ],
+    }),
   );
   return createElement(
     'div',

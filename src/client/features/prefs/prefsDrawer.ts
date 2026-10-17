@@ -52,16 +52,28 @@ function sourceLabelOf(layer: FlowLayer | null): string {
 }
 
 /**
- * 抽屉容器 id。
+ * 抽屉容器 id 的**基础名**（B5.1 修因：多实例碰撞）。
  *
- * 与工具栏开关的 `aria-controls` 是**同一契约的两半**，因此必须同源：
- * 两处各写一份字面量，改名时必然只改一边，`aria-controls` 就指向一个不存在的
- * id —— 而这是**静默失效**，AT 只会读不出关联，没有任何报错。
+ * 历史形态是固定字符串 'anic-prefs-drawer'：同一页面挂两个 ANIC 面板实例时，
+ * 两个抽屉容器同 id，工具栏的 `aria-controls` 只能解析到其一——AT 读出的
+ * 关联**静默错位**，没有任何报错。
+ *
+ * 现改为「基础名 + 面板实例序号」：调用方（WorkflowGraphPanel）同步生成实例
+ * 唯一 id 传入，抽屉渲染器只消费。为什么不用 React 的 useId()：offline-smoke
+ * 的 stub React 只提供 useState/useRef/useCallback/useEffect（scripts 层的
+ * 宿主契约），useId 会让 smoke 的函数组件展开直接 TypeError。useRef 惰性
+ * 初始化在首渲染同步求值，与 useId 同样满足「实例唯一、同源两用」：
+ * 同一个 id 值同时写进 aria-controls（工具栏）与容器 id（抽屉）。
  */
-export const PREFS_PANEL_ID = 'anic-prefs-drawer';
+export const PREFS_PANEL_ID_BASE = 'anic-prefs-drawer';
 
-/** 纯渲染 + 回调：抽屉（smoke 可断言 data-anic-prefs 抽屉结构）。 */
-export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Record<string, boolean>) => void): ReactElement {
+/** 实例 id：基础名 + 面板实例序号（面板组件首渲染时生成一次）。 */
+export function prefsPanelIdOf(instanceSeq: number): string {
+  return `${PREFS_PANEL_ID_BASE}-${String(instanceSeq)}`;
+}
+
+/** 纯渲染 + 回调：抽屉（smoke 可断言 data-anic-prefs 抽屉结构）。panelId 由面板实例生成（B5.1）。 */
+export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Record<string, boolean>) => void, panelId: string): ReactElement {
   const user = readUserPrefsRaw();
   const resolved = resolveFlows({ user, workspace: input.workspace, deployment: input.deployment });
 
@@ -81,7 +93,7 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
           onChange(next);
         },
       }),
-      createElement('span', { style: { flex: 1, color: token('anic-text') } }, f.label),
+      createElement('span', { style: { flex: 1, color: token('anic-text') } }, t(f.labelKey)),
       createElement('span', { style: { fontSize: 10, color: token('anic-text-faint') } }, t('prefs.sourceLine', { source: sourceLabel, layers: f.layers.join('/') })),
     );
   });
@@ -90,7 +102,7 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
     'div',
     {
       'data-anic-prefs': 'drawer',
-      id: PREFS_PANEL_ID,
+      id: panelId,
       // role="region" + aria-label：抽屉是一块有名字的地标，AT 可直接跳入。
       // 它不是 modal（不做焦点陷阱、不遮挡主体），因此不用 role="dialog"/
       // aria-modal —— 那会谎报"模式化"，让 AT 以为外部内容 inert。

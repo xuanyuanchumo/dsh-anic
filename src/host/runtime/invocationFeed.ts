@@ -75,9 +75,18 @@ export interface FeedDiagnostics {
 /** 判定一次调用是否属于本插件的能力面（工具 or 官方 skill 通道）。 */
 export function isAnicInvocation(name: string, rawArguments: string): boolean {
   if (name.startsWith('anic_')) return true;
-  // 官方 skill 工具的参数是 {"name":"ai-native-iteration-cycle",...}；
-  // 原始串是模型产出的未解析 JSON，直接子串匹配（解析失败不丢事件）。
-  if (name === 'skill' && rawArguments.includes('ai-native-iteration-cycle')) return true;
+  // 官方 skill 工具的参数形态是 {"name":"ai-native-iteration-cycle",...}。
+  // 优先 JSON 解析后精确匹配 name 字段（kb-researcher cycle-16 P2：原始串
+  // 子串匹配会被「参数里恰好提到技能名」的其他技能调用误命中）；解析失败
+  // （模型产出非法 JSON）才回退子串匹配——事件不丢，误报优先于漏报。
+  if (name === 'skill') {
+    try {
+      const parsed = JSON.parse(rawArguments) as { name?: unknown };
+      return parsed?.name === 'ai-native-iteration-cycle';
+    } catch {
+      return rawArguments.includes('ai-native-iteration-cycle');
+    }
+  }
   return false;
 }
 

@@ -90,9 +90,11 @@ export interface ToolRegistration {
   /**
    * 工具体（DSH 契约字段名是 `execute`，不是 handler）。
    * 宿主 `dispatchToolBody` 调 `tool.execute(exec.arguments, exec)` ——
-   * 第二个参数是执行上下文（signal/deferContext 等），本插件工具只取 args 故忽略。
+   * 第二个参数是执行上下文。P1-EXEC-SIGNAL（cycle-16）：官方 adding-a-tool.md
+   * 契约「遵守 exec.signal —— 信号触发时取消进行中的工作」——长时脚本类工具
+   * 必须读取 exec.signal 并传播给子进程；不接取消的同步查询工具可忽略。
    */
-  execute: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  execute: (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>>;
   /** DSH tools.register 必需：输出声明（schema + render）。 */
   output: ToolOutput;
   /** M10-d: pending 状态呈现（DSH UI 工具卡片标题/图标）。 */
@@ -120,15 +122,24 @@ export interface ToolsSlot {
 }
 
 /**
+ * 工具执行上下文（DSH dispatch 第二参的最小契约面）。
+ * 宿主保证 signal 必需且由调用方持有（adding-a-tool.md：exec.signal 不可移除）。
+ */
+export interface ToolExecContext {
+  signal?: AbortSignal;
+}
+
+/**
  * 包装 async execute 添加错误兜底（P1-4：11 个 async execute 无 try/catch）。
  * 若 execute 抛异常，返回 { error: message } 而非未处理 Promise 拒绝。
+ * P1-EXEC-SIGNAL：签名透传 exec（第二参），调用方可读 exec.signal 取消子进程。
  */
 export function safeHandler(
-  fn: (args: Record<string, unknown>) => Promise<Record<string, unknown>>,
-): (args: Record<string, unknown>) => Promise<Record<string, unknown>> {
-  return async (args) => {
+  fn: (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>>,
+): (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>> {
+  return async (args, exec) => {
     try {
-      return await fn(args);
+      return await fn(args, exec);
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }

@@ -8,6 +8,9 @@
  * 用户需求契约：**所有 15 个功能业务内容脚本必须能在 DSH 里原生调用** ——
  * anic_skill 的 script 枚举在运行时取自 listSkillScripts()（单一事实源），
  * 由 tests/unit/skillToolNative.test.ts 钉死（白名单 ⇄ 内联底座集合恰好相等）。
+ *
+ * SDO 纪律（superpowers writing-skills）：全部工具 description 只写触发条件
+ * （Use when + 症状 + 触发词），不总结内部工作流——防 agent 抄 description 捷径。
  */
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -15,7 +18,7 @@ import type { ToolRegistration, ToolsSlot } from './toolsSlot.ts';
 import { safeHandler, makeToolOutput } from './toolsSlot.ts';
 import {
   resolveSkillScriptsDir,
-  invokeSkillScript,
+  invokeSkillScriptAsync,
   validateWorkspace,
   isAllowedScript,
   listSkillScripts,
@@ -27,17 +30,10 @@ import {
   startFlow,
   markRunning,
   finishFlow,
-  recentFlows,
-  flowStats,
-  type FlowTrackerState,
 } from './runtime/flowTracker.ts';
-import { runSelfBootstrapCycle } from './runtime/bootstrapOrchestrator.ts';
-import { runBootstrapWithEngines } from './runtime/bootstrapEngineIntegration.ts';
 import {
   skillPresentCall,
   skillPresentResult,
-  bootstrapCyclePresentCall,
-  bootstrapAnalyzePresentCall,
   terminalResult,
   genericCall,
 } from './presentation.ts';
@@ -55,7 +51,9 @@ export function registerSkillGatewayTools(
   //   前置：先把技能装进工作区；installUrl 保留作浏览器入口兼容。）
   disposers.push(register({
     name: 'anic_install',
-    description: 'Install or update the ai-native-iteration-cycle skill from the plugin bundle into the workspace .dsh/skills/ (idempotent by version)',
+    description: 'Use when a workspace lacks the ai-native-iteration-cycle skill or has an outdated version — '
+      + 'before first use in a fresh project, or when skill scripts are not found. '
+      + 'Triggers: 安装技能 / install skill / 初始化 anic / skill not found / 技能版本.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -91,8 +89,9 @@ export function registerSkillGatewayTools(
   // 超时上限；stdout/stderr 截断防超大响应。
   disposers.push(register({
     name: 'anic_skill',
-    description: 'Natively invoke any whitelisted ai-native-iteration-cycle skill script '
-      + `(${listSkillScripts().join(', ')}). Project dir is passed as the first positional arg per script convention.`,
+    description: 'Use when a specific whitelisted ai-native-iteration-cycle skill script must be invoked natively — '
+      + 'e.g. init-workflow, org-status, band-detector, multi-agent-gate, quick-validate, fact-base-verify, '
+      + 'or any script needing custom CLI args. Triggers: 调用技能脚本 / run skill script / 技能脚本名.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -114,7 +113,7 @@ export function registerSkillGatewayTools(
     },
     presentCall: skillPresentCall,
     presentResult: skillPresentResult,
-    execute: safeHandler(async (args) => {
+    execute: safeHandler(async (args, exec) => {
       const script = String(args.script ?? '');
       if (!isAllowedScript(script)) {
         return { error: `script not whitelisted: ${script}`, allowed: listSkillScripts() };
@@ -140,7 +139,8 @@ export function registerSkillGatewayTools(
       // P3：INVOKING → RUNNING 的真实分界——脚本目录已解析、spawn 即将发生。
       trackerState = markRunning(cyclesDir, trackerState, flowId);
 
-      const result = invokeSkillScript(scriptsDir, script, extraArgs, ws, timeout);
+      // P1-EXEC-SIGNAL：异步调用 + exec.signal 传播（不阻塞宿主事件循环；可取消）。
+      const result = await invokeSkillScriptAsync(scriptsDir, script, extraArgs, ws, timeout, { signal: exec?.signal });
 
       trackerState = finishFlow(cyclesDir, trackerState, flowId, result);
 
@@ -149,6 +149,7 @@ export function registerSkillGatewayTools(
         script: result.script,
         exitCode: result.exitCode,
         timedOut: result.timedOut,
+        ...(result.aborted ? { aborted: true } : {}),
         durationMs: result.durationMs,
         stdout: result.stdout.slice(0, 8000),
         stderr: result.stderr.slice(0, 4000),
@@ -156,86 +157,8 @@ export function registerSkillGatewayTools(
     }),
   }) ?? null);
 
-  // Tool: anic_bootstrap_cycle — M10-b 自举链编排：eval → gate → fix 自动驱动循环。
-  // 大模型可调用此工具驱动完整自举循环，无需手动逐步调用 eval/gate/fix。
-  // 每步通过 FlowTracker 记录，供 anic_status 查询审计。
-  disposers.push(register({
-    name: 'anic_bootstrap_cycle',
-    description: 'Run a full self-bootstrap cycle (eval → gate → fix → repeat) on the workspace. '
-      + 'Each step is tracked by FlowTracker. Returns final state, per-round details, and convergence status.',
-    output: makeToolOutput(),
-    parameters: {
-      type: 'object',
-      properties: {
-        workspace: { type: 'string', description: 'Target project directory' },
-        maxRounds: { type: 'number', description: 'Maximum bootstrap rounds (default 3, max 10)' },
-        timeout: { type: 'number', description: 'Per-step timeout ms (default 60000)' },
-      },
-    },
-    presentCall: bootstrapCyclePresentCall,
-    presentResult: () => ({ card: 'generic' as const, title: 'anic_bootstrap_cycle ✓' }),
-    execute: safeHandler(async (args) => {
-      const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
-      if (!ws) return { error: 'no workspace' };
-      if (ws.includes('..')) return { error: 'path traversal not allowed' };
-      const maxRounds = Math.min(Math.max(typeof args.maxRounds === 'number' ? args.maxRounds : 3, 1), 10);
-      const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
-
-      const result = runSelfBootstrapCycle(ws, maxRounds, timeout);
-      return {
-        status: result.state.status,
-        round: result.state.round,
-        converged: result.converged,
-        lastEvalScore: result.state.lastEvalScore,
-        lastGateVerdict: result.state.lastGateVerdict,
-        rounds: result.rounds,
-      };
-    }),
-  }) ?? null);
-
-  // Tool: anic_bootstrap_analyze — M10-c 模块引擎接入：编排器 + 引擎深度分析。
-  // 大模型可调用此工具获取 tech-debt + HITL 审计 + fact-base 验证 + 风险评分。
-  disposers.push(register({
-    name: 'anic_bootstrap_analyze',
-    description: 'Run a full self-bootstrap cycle with module engine analysis (tech-debt + HITL + fact-base + risk score). '
-      + 'Returns cycle results plus engine insights for developer review.',
-    output: makeToolOutput(),
-    parameters: {
-      type: 'object',
-      properties: {
-        workspace: { type: 'string', description: 'Target project directory' },
-        maxRounds: { type: 'number', description: 'Maximum bootstrap rounds (default 3, max 10)' },
-        timeout: { type: 'number', description: 'Per-step timeout ms (default 60000)' },
-      },
-    },
-    presentCall: bootstrapAnalyzePresentCall,
-    presentResult: () => ({ card: 'generic' as const, title: 'anic_bootstrap_analyze ✓' }),
-    execute: safeHandler(async (args) => {
-      const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
-      if (!ws) return { error: 'no workspace' };
-      if (ws.includes('..')) return { error: 'path traversal not allowed' };
-      const maxRounds = Math.min(Math.max(typeof args.maxRounds === 'number' ? args.maxRounds : 3, 1), 10);
-      const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
-
-      const { cycle, insights } = runBootstrapWithEngines(ws, maxRounds, timeout);
-      return {
-        cycle: {
-          status: cycle.state.status,
-          round: cycle.state.round,
-          converged: cycle.converged,
-          rounds: cycle.rounds,
-        },
-        insights: {
-          techDebtCount: insights.techDebt.length,
-          techDebtFiles: insights.techDebtFiles,
-          hitlAllPassed: insights.hitlAllPassed,
-          hitlChecks: insights.hitlChecks,
-          factBase: insights.factBase,
-          riskScore: insights.riskScore,
-        },
-      };
-    }),
-  }) ?? null);
+  // Tool: anic_bootstrap_cycle + anic_bootstrap_analyze（M10-b/c 自举编排）
+  // 已拆分至 toolsBootstrapGateway.ts（T3 254→169 行）。
 
   return disposers;
 }

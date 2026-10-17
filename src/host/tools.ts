@@ -5,8 +5,9 @@
  */
 import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
+import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
 import type { ToolsSlot } from './toolsSlot.ts';
-import { resolveSkillScriptsDir, invokeSkillScript, validateWorkspace } from './skillInvoker.ts';
+import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace } from './skillInvoker.ts';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
@@ -55,7 +56,11 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_evaluate — evaluate a project
   disposers.push(tools.register({
     name: 'anic_evaluate',
-    description: 'Evaluate a project using the ai-native-iteration-cycle skill (eval-runner)',
+    // SDO 纪律（superpowers writing-skills）：description 只写触发条件与症状，不总结工作流，
+    // 防 agent 抄 description 捷径而不读工具/技能正文。触发词双语覆盖中英文查询。
+    description: 'Use when an ANIC-managed project needs its quality evaluation report — e.g. starting a cycle, '
+      + 'refreshing a stale baseline, or gates need fresh evidence. '
+      + 'Triggers: 评估 / evaluation / eval report / E1-E8 / Q1-Q8 / 质量基线.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -66,19 +71,22 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     },
     presentCall: evaluatePresentCall,
     presentResult: (_args, result) => terminalResult(result, 'anic_evaluate ✓'),
-    execute: async (args) => {
+    // P1-EXEC-SIGNAL：execute 第二参 exec 携带宿主 AbortSignal（官方契约「遵守
+    // exec.signal」）——异步调用 + signal 传播，用户取消即 kill 子进程。
+    execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
       if (!check.ok) return { error: check.error };
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
       const dimArgs = args.dimensions ? ['--dimensions', args.dimensions as string] : [];
-      const result = invokeSkillScript(scriptsDir, 'eval-runner', dimArgs, ws, 60000);
+      const result = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', dimArgs, ws, 60000, { signal: exec?.signal });
       return {
         exitCode: result.exitCode,
         stdout: result.stdout.slice(0, 8000),
         stderr: result.stderr.slice(0, 4000),
         timedOut: result.timedOut,
+        ...(result.aborted ? { aborted: true } : {}),
       };
     },
   }) ?? null);
@@ -86,7 +94,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_iterate — run one iteration cycle on a project
   disposers.push(tools.register({
     name: 'anic_iterate',
-    description: 'Run one iteration cycle (eval + gate-check) on a project',
+    // SDO：触发条件 = 已有基线、要走一轮完整迭代；症状 = 用户说「跑一轮迭代/一轮循环」。
+    description: 'Use when an ANIC-managed project should run one full iteration round (evaluation + gate check together). '
+      + 'Triggers: 跑一轮迭代 / run one iteration / one cycle / 迭代一轮.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -96,14 +106,14 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     },
     presentCall: iteratePresentCall,
     presentResult: () => ({ card: 'generic' as const, title: 'anic_iterate ✓' }),
-    execute: async (args) => {
+    execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
       if (!check.ok) return { error: check.error };
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
-      const evalResult = invokeSkillScript(scriptsDir, 'eval-runner', [], ws, 60000);
-      const gateResult = invokeSkillScript(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], ws, 60000);
+      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], ws, 60000, { signal: exec?.signal });
+      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], ws, 60000, { signal: exec?.signal });
       return {
         eval: { exitCode: evalResult.exitCode, stdout: evalResult.stdout.slice(0, 4000) },
         gate: { exitCode: gateResult.exitCode, stdout: gateResult.stdout.slice(0, 4000) },
@@ -114,7 +124,10 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_gate_check — run gate checks on a project
   disposers.push(tools.register({
     name: 'anic_gate_check',
-    description: 'Run gate checks (gate-check --gate all --quality --record) on a project',
+    // SDO：触发条件 = 需要收敛门判定/判定已产出（进阶段、发版、登记账本）。
+    description: 'Use when convergence-gate verdicts are needed for an ANIC-managed project — before advancing a phase, '
+      + 'before delivery/release, or to record gate results to the ledger. '
+      + 'Triggers: 门禁 / gate check / G0-G3 / 收敛门 / gate verdict.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -123,14 +136,14 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
         gate: { type: 'string', description: 'Specific gate (default: all)' },
       },
     },
-    execute: async (args) => {
+    execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
       if (!check.ok) return { error: check.error };
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
       const gate = (args.gate as string) ?? 'all';
-      const result = invokeSkillScript(scriptsDir, 'gate-check', ['--gate', gate, '--quality', '--record'], ws, 60000);
+      const result = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', gate, '--quality', '--record'], ws, 60000, { signal: exec?.signal });
       return {
         exitCode: result.exitCode,
         stdout: result.stdout.slice(0, 8000),
@@ -142,7 +155,10 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_bootstrap — self-bootstrap (evaluate dsh-anic itself)
   disposers.push(tools.register({
     name: 'anic_bootstrap',
-    description: 'Self-bootstrap: evaluate dsh-anic itself using the skill (produces tech-debt proposals, does NOT self-modify code)',
+    // SDO：触发条件 = 评估 dsh-anic 插件自身（自举）；症状 = 用户问「插件自己健康吗/自举一次」。
+    description: 'Use when the dsh-anic plugin ITSELF needs evaluation (self-bootstrap) — checking plugin health, '
+      + 'producing tech-debt proposals from its own codebase. Triggers: 自举 / self-bootstrap / '
+      + '插件自检评估 / evaluate dsh-anic itself.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -150,14 +166,14 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
         maxRounds: { type: 'number', description: 'Max bootstrap rounds (default 3)' },
       },
     },
-    execute: async (args) => {
+    execute: async (args, exec) => {
       const root = getRoot();
       if (!root) return { error: 'no workspace' };
       const scriptsDir = resolveSkillScriptsDir(root);
       if (!scriptsDir) return { error: 'skill scripts not found' };
       // Run eval + gate on dsh-anic's own workspace
-      const evalResult = invokeSkillScript(scriptsDir, 'eval-runner', [], root, 60000);
-      const gateResult = invokeSkillScript(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], root, 60000);
+      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], root, 60000, { signal: exec?.signal });
+      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], root, 60000, { signal: exec?.signal });
       return {
         selfBootstrap: true,
         eval: { exitCode: evalResult.exitCode, stdout: evalResult.stdout.slice(0, 4000) },
@@ -185,7 +201,10 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_status — get full org status panorama + recent flow tracker records
   disposers.push(tools.register({
     name: 'anic_status',
-    description: 'Get full org status panorama (cycles + ledger + trust + autonomy + band + flows) for a project, plus recent skill invocation flow records',
+    // SDO：触发条件 = 要看项目全景/调用历史/技能健康；只读查询，无副作用。
+    description: 'Use when an ANIC-managed project needs a status panorama — cycles, ledger, trust/autonomy level, '
+      + 'band violations, recent skill-invocation flows, or skill health report. Read-only. '
+      + 'Triggers: 项目状态 / org status / 自主级 / 技能健康 / flow records / 全景.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -212,9 +231,11 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     },
   }) ?? null);
 
-  // 技能调用域工具（anic_install + anic_skill 通用网关）拆分至 toolsSkillGateway.ts
-  // （T3 ≤250 行模块化纪律）；disposer 一并纳入本聚合器的清理面。
+  // 技能调用域工具（anic_install + anic_skill 通用网关）拆分至 toolsSkillGateway.ts；
+  // 自举域工具（anic_bootstrap_cycle + anic_bootstrap_analyze）拆分至 toolsBootstrapGateway.ts
+  // （T3 ≤250 行模块化纪律，cycle-16）；disposer 一并纳入本聚合器的清理面。
   disposers.push(...registerSkillGatewayTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  disposers.push(...registerBootstrapGatewayTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;

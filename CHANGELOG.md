@@ -1,5 +1,186 @@
 # dsh-anic CHANGELOG
 
+## v0.18.0 — 2026-10-18
+
+cycle-16：**深度研究驱动的全量收口轮**——4 份研究报告（docs 审计 / DSH kb 合规 / 技能生态 / UI 功能域）→ 23 任务：P0-P3 问题全清 + 动态白盒闭环真机验证。测试 71→74 文件 863→888 用例 + trigger-eval 第 4 测试层（新增，recall 80%/FPR 0%）。真机验证：J0 8/8 + DevTools 用户旅程 12 项 + **DSH 模型真调 anic 工具双通道可见**（实时调用流 + 宿主轨迹页）。
+
+### P0 真机暴露与部署修复
+
+- **P0-CYCLE-LIST**：cycleRunner.listCycles 只扫 `.cycles` 根，而正典布局是 `.cycles/cycles/`（gateEngine:55/orgStatus:33/macroPhaseEngine:82 全是双跳）→ `cycle/list` 路由在**任何真实工作区永远空列表**（cycle/init 同病写错位置）。B1 时间线是第一个消费者才暴露——65 cycle 数据一根时间线全数复活（真机实测）。双布局兼容 + initCycle 对齐正典 + runtime.test 2 回归钉。
+- **P1 部署阻断**：双端 profile 的 dsh-anic junction 均指向已不存在的旧路径（独立化迁移后未重装）——当前安装态两端都加载不了插件。双端 pnpm install 修复，junction 指向新工程验证。
+- **semver 上界泄漏**：`<0.4.0` 在 includePrerelease 下放行 `0.4.0-rc.*`（实测）；上界改 `<0.4.0-0` 全拦（engines.dsh + peer 双声明；下限 >=0.2.0-rc.2 保持精确——kb 报告确认 0.2.1-rc.2 已实装 engines 门）。
+
+### P1 工具执行契约对齐（kb 合规审计）
+
+- **P1-EXEC-SIGNAL**：全部工具 execute 丢弃第二参 exec（不遵守官方 adding-a-tool「遵守 exec.signal」）→ 新 `skillInvokerAsync.ts`（async spawn + signal 三路终止 + aborted 字段区分取消/超时）+ `ToolExecContext` 契约（toolsSlot.ts）+ 6 个长时工具接线（anic_evaluate/iterate/gate_check/bootstrap + anic_skill 网关 + bootstrap_cycle）。用户取消即 kill 子进程，60-120s 脚本不再失控跑满。
+- **P1-EVENT-LOOP**：spawnSync 同步阻塞宿主事件循环（脚本冻结所有会话+UI）→ 同上异步化 + `runSelfBootstrapCycleAsync`（轮边界协作取消，已完成轮次状态/账本/flow 记录如实保留绝不回滚）。invokeSkillAsync.test.ts 6 用例钉死（含事件循环不阻塞探针）。
+- **P2 isAnicInvocation**：skill 参数子串匹配 → JSON 解析精确 name 匹配（他人 prompt 提到技能名不误命中；解析失败回退子串，事件不丢——误报优先于漏报）。
+
+### 缺口闭环（G-C3/G-C5/G-T5）
+
+- **G-C3 tech-debt 消费链**（半闭环→闭环）：`techDebtQueue.ts` + `GET /anic/api/tech-debt/list`（open/resolved/skipped 三分流；fix-loop 数组展开、自由形态如实跳过）+ `POST /anic/api/tech-debt/consume`（记账不执行修复——R-31 红线不破；consumedAt/consumedBy 审计字段；幂等；原文件形态保持：数组写回数组）。
+- **G-C5 跨项目→自举回写**：`crossProjectHistory.ts`——/anic/evaluate、/anic/iterate 摘要写插件自身 self-bootstrap.json 的 crossProjectHistory 段（与 history 并列**不混入**——跨项目调用不是自举轮次，混入会污染 CONVERGED 判定；滚动 50 条；失败响亮降级 bootstrapSync:'failed' 不阻断主结果）。
+- **G-T5 产出者标注**：TraceStep.producedBy——结构化前缀映射表（wf:micro-eval→eval-runner 等 10 条），不可判定 null 诚实留空（INV-21 同款纪律不猜）；客户端「产出:」行内渲染 + tooltip（真机 step-trace 实测）。
+
+### 生态吸收（skill集合.md 35 项研究 → 落地）
+
+- **A1 SDO 描述纪律**：18 个 anic_* 工具 description + SKILL.md frontmatter 从「工作流总结型」（superpowers 实证反模式：agent 抄 description 捷径不读正文）重写为「Use when + 症状 + 双语触发词」。SKILL.md 789 字符 ≤1024（Agent Skills 规范合规）。
+- **A3 trigger-eval 闭环**：`scripts/trigger-eval.mjs` 确定性代理评分器（description 触发词面 × 20 条查询数据集，12train/8test 60-40 分离、4 区分度对）挂入 run-tests 第 4 层——每次 description 改动可复跑抓回归。数据集稳定副本 tests/fixtures/trigger-eval-dataset.json。已知 3 MISS 为代理评分器词面区分度极限，真模型采样是后续完全体。
+
+### UI 功能域（ui-planner 全量实施）
+
+- **B1 Cycle 时间线**（P0 缺口）：features/cycles/renderCyclesTimeline——每 cycle 一格、当前 ▶ 高亮、历史格不加裁决（诚实边界：state 端点是全局单份状态机，不伪造历史 PASS/FAIL）；4s 轮询；真机「Cycle 时间线（65 轮）· 最新 cycle-99 · 下一轮 cycle-100」实渲染。
+- **B5 a11y 高危**：PREFS_PANEL_ID 固定串多实例碰撞 → 基础名+实例序号（useId 因 offline-smoke stub React 只提供 4 hooks 不可用，模块计数+useRef 惰性初始化等价实现——首渲染同步求值）；节点详情抽屉关闭按钮（复活死键 panel.detailClose）+ Esc + autoFocus + 关闭后焦点还原图区。
+- **B4 组件整合**：components/ 五件（sectionShell 64/statusDot 69/dataRow 79/usePanelFetch 88/sectionIds 35）——7 处分区壳、2 份脉冲 keyframes、5 处语义色三元、双套轮询（useInvocations 2s/usePolledSection 4s）全部收敛为 usePanelFetch；usePolledSection 删除。主面板 249→239 行。
+- **B6 i18n**：flows labelKey（FLOWS 表加 labelKey 字段 + prefsDrawer/renderFlows 两条渲染路径统一走 t()）+ renderDiagnostics PASS/FAIL 字面量 → 现成 diag.pass/fail 键 + 11 死键清理（prefs 分组抽屉组，双侧同步）。
+
+### 文档债务清偿（P1-1/P1-2 全收口）
+
+- CHANGELOG 补 v0.12.0-v0.17.0 六条（git show 逐提交核实版本号/日期，内容从各 cycle 交付清单转录）。
+- docs/agents/API参考.md 端点总索引 47→60（与源码 pwsh 去重实测 BIDIRECTIONAL MATCH）+ 四分册补全（flows 域 9 端点/invocations/autonomy-downgrade/tech-debt list+consume）+ fix-loop 过时描述修正（旧文「只查文件存在」vs 现源码 verifyLedger 哈希链校验）。
+- README 18 工具对齐 + docs/anic/04 补 §8b M11-M15 对照表与 §8c R3 阶段 1-5 完整表 + docs/anic README 地图补 17 号 + 16 时点快照声明 + 17 双 §8 编号修复 + 质量属性文档动态措辞 + docs/agents/README 登记四份 cycle-16 研究报告索引。
+
+### 结构守卫
+
+- 250 行三连拆：skillInvoker(272→163+91 skillInvokerAsync) / toolsSkillGateway(254→154+104 toolsBootstrapGateway) / WorkflowGraphPanel(249→239)。truthAudit T3 全绿。
+
+### 验证
+
+- typecheck exit 0；**run-tests ALL GREEN（validate 12/12 · vitest 74 文件 888 用例 · smoke 21/21 · trigger-eval PASS）**。
+- 真机网页端（3080）：J0 8/8；DevTools 用户旅程 12 项：ANIC 面板 179 节点/Cycle 时间线 65 轮/producedBy 标注/org 全景（账本 84 条 ✓ 信任分 G2 95% → L4）/5 流程状态机卡/**DSH 模型真调 anic_status(21ms)+anic_snapshot(6ms)——实时调用流 2 条即时捕获 + 宿主轨迹页完整记录**（动态白盒双通道闭环，「轨迹要有插件调用」核心要求验证）。
+- 桌面端：junction 修复+dist 构建+lock 刷新；宿主承载当前会话不可重启（与 cycle-15 P2-4 同款结构约束，下次自然重启生效后补 J0）。
+
+## v0.17.0 — 2026-10-17
+
+cycle-15：**P0-DIR-ROOT 布局根解析统一**（pluginRoot 标记驱动向上查找）+ **两枚潜伏缺陷根除**（band-detector 越界变量 / eval-runner fail-open）+ E1/E2 自举诚实化。测试 71 文件 863/863 全绿。真实宿主复验：truth-audit overallScore 17→**100**（修复前审计的是仓库父目录）、dual-evaluate 双向真实数据、J0 8/8。
+
+### P0-DIR-ROOT：truthAudit/dualBootstrap 双布局从未正确工作（cycle-15 发现并修复）
+
+- **根因**：truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下解析到**仓库父目录** `D:\Projects\TraeProjects\`（T1 42 findings 全 MISSING、T2 version `vunknown`、agent card 0、overallScore≈17）；源码布局下也错（落到 `src/`）。同病：routes/index.ts 双向自举 `new URL('../../../')`。旧测试只断言路由注册，故恒绿。
+- **修复**：新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic，MAX_WALK_UP=10，损坏 package.json 容错）；truthAuditRoute/dualBootstrapRoute/routes/index/agents/skillRegistration 四处调用点统一；根未解析时双路由显式 500（`ANIC_PLUGIN_ROOT_UNRESOLVED`），绝不静默审计错误目录。
+- **回归钉死**：pluginRoot.test.ts 9 用例（dist/src 双布局 + junction + 深嵌套 + 损坏 pkg 容错 + 无标记 + name 不匹配）+ truthAuditRouteBehavior.test.ts 2 用例行为级（修复前必红：T2 version=真实版本、15 cards）。
+
+### D-1415：两枚同型漏网（收口期发现）
+
+- **band-detector.mjs:141 越界变量**：规则 2 的 push 引用规则 1 循环的 `v` → ReferenceError，仅规则 2 真触发时崩（历史快照统计量漂移使其「时好时坏」）。修复：`value: dataPoints[i]`，3 跑全确定性。
+- **eval-runner checkComplexity `|| true` fail-open**（D-1404 漏网同型）：band-detector 非零退出（真发现 WE 违例——最需报警时）在 cmd.exe 无 `true` → execSync 抛 → SKIP。修复：execFileSync 直跑非零取 stdout，WE 信号归类 pass+advisory。
+
+### E1/E2 自举诚实化
+
+intent.md 真实意图（替换 init-workflow 模板桩）+ spec.md（docs/anic 八文档索引 + 六面符合判定基准）+ plan.md（12 里程碑索引 + 活跃工作项 + 风险登记）。自举评估 **15 PASS + 1 结构性 SKIP（E5）**——历史最佳。
+
+### 验证
+
+- typecheck exit 0；run-tests ALL GREEN（71 文件 863 用例）；build 成功。
+- 真实宿主（3080）：truth-audit **T1-T4 全 100 failCount=0**；dual-evaluate plugin=73（srcFiles=125 testFiles=73 truthAudit=99）/ skill=100；J0 8/8；flows/status 200；Chrome DevTools 面板三断言。
+- 桌面宿主 v0.17.0 复验移交下轮（19387 旧进程承载会话，待自然重启）。
+
+## v0.16.0 — 2026-10-17
+
+cycle-14：**自举评估链主平台复活**（D-1401~D-1408）+ **供应链审计修复**（critical×2 + high×1 清零）+ **首次真实环检测自证**。测试 69 文件 852/852 全绿；自举审计 16 维度 14 PASS + 2 SKIP（历史最佳）。
+
+### 自举评估链 Windows 主平台复活（D-1401~D-1406）
+
+eval-runner 质量门在 Windows（DSH 宿主主平台）系统性失明，全部根治：
+
+- **D-1401**：`.cycles/config.yml` 四命令指向 `../node_modules/...`（cycle-1 时代父级布局假设）→ typecheck/test/coverage/e2e 统一改本仓 wrapper 脚本。
+- **D-1403/1404**：scanSourceLines 纯 Node 行扫描替换 `grep|wc` shell-ism（恒 SKIP → 真实裁决）；locale/.ts 生态适配。
+- **D-1405**：秘钥扫描 138 命中全假阳性（design-token 惯用形态误伤）→ 两段式精筛（pre 粗筛 + 紧邻赋值精筛）。
+- **D-1406**：依赖审计 npm audit 无 true 命令恒 SKIP → pnpm audit 回退链（npmmirror 无 bulk 端点 → registry.npmjs.org）。
+- **D-1408**：环检测 madge 恒 SKIP 且真环被 `|| true` 吞掉（fail-open）→ importGraph.mjs 纯 Node 相对 import 图 + DFS 三色环检测（零外部依赖）。
+
+### 供应链修复 + 真实环检测自证
+
+- pnpm-workspace.yaml 重写（pnpm 11 不读 package.json pnpm 字段）：tinypool critical×2 + valibot high（全 dev 链）经 overrides 清零，824 包污染锁 → 239 包。
+- **自证闭环**：修复后首次真实环检测在自家仓抓到 truthAudit↔truthAuditChecks 真环（type 回边），类型下沉 truthAuditTypes.ts 断环复验 PASS。
+
+### 验证
+
+- typecheck exit 0；run-tests ALL GREEN（69 文件 852 用例）。
+- pnpm audit {critical:0, high:0}；G-IND 守卫持续绿（auto-install-peers=false 后 node_modules 无 @deepseek-ai/*）。
+- gate-check --record All gates PASSED（G0-G3）；Q4/Q5/Q6/Q7 首次真实裁决全绿。
+
+## v0.15.0 — 2026-10-17
+
+cycle-13：**D-1103 auto-fix 报告双格式解析**（正典管道表 vs 旧键值两套互不相交解析器）+ **F-T1/F-T2 抖动加固**。测试 69 文件 849/849 全绿。
+
+### D-1103：auto-fix 报告计数通道假绿（fail-open 家族）
+
+- **缺陷**：auto-fix 报告计数只认旧键值「失败：N」，而正典模板与 G2 门禁规定的是 §2 汇总管道表「| 失败 | N |」——两套正典解析器互不相交，正典报告被读成 0（fail-open 假绿）。
+- **修复（双侧同步）**：技能脚本 auto-fix-loop.mjs（v1.8.5-fork）与原生引擎（autoFixAnalyze.parseReportContent）均支持管道表优先 + 键值回退；引擎侧重复解析器消重为单一源。
+- **实证**：差分第 4 场景红→绿（命令过 + 正典报告 3 失败 → 双侧 circuit/exit 2/repeating）；真实宿主（3080）script 模式端到端 409 circuit。
+
+### F-T1/F-T2 抖动加固
+
+- **F-T1**：atomicWriteFileSync rename 瞬时错误（EPERM/EACCES/ENOTEMPTY/EEXIST）1/5/25ms 同步退避重试；非瞬时立即抛。
+- **F-T2**：macroPhaseDifferential 等 6 个测试文件补 afterEach/afterAll rmSync（原先每轮泄漏 ~20 个 anic-macro-diff-* 等临时目录）。
+
+### 验证
+
+- typecheck exit 0；run-tests ALL GREEN（69 文件 849 用例）；build 成功。
+- fsSafe.test.ts 新增 6 用例（rename-over-existing 60 次连续覆盖 / 无 .tmp 残留）。
+
+## v0.14.0 — 2026-10-17
+
+cycle-12：**终态重入四流程修复**（D-1101）+ **桌面端宿主实证**（D-1102）。测试 67 文件 837/837 全绿。
+
+### D-1101：task 型流程终态后不可重新入轮
+
+- gate-check（PASSED/FAILED→RUNNING）、archive（DONE→RUNNING）、hitl（PASSED/FAILED→RUNNING）三流程补 run 边——下一 cycle 的同名流程是**新的一跑**，不是同一跑的恢复；macro-phase 经正典比对排除（maintain 是末相无 reset 语义，phase 型流程无重入）。
+- flowTerminalReentry.test.ts 四层 9 用例：描述子齐全性 / 机器层放行 / 集成层二轮 / 排除钉。
+
+### D-1102：桌面端宿主实证
+
+plugin_manager list_plugins fiberPhase active；anic_snapshot/anic_status 工具真实执行（FlowTracker 历史返回）；org-status/workflow-snapshot 路由 200；plugin_manager 禁用→启用往返无 duplicate-route（R12 HMR 安全性真机实证）。限制项：桌面宿主 10-17 07:50 启动早于当日构建，v0.13.0+ 新面需宿主自然重启生效。
+
+### 验证
+
+- typecheck exit 0；run-tests ALL GREEN（67 文件 837 用例）；桌面端真机五项验证记录见 cycle-12 交付清单。
+
+## v0.13.0 — 2026-10-17
+
+cycle-11：**auto-fix 自动修复循环流程**（R3 阶段 5，第 5 个专属流程状态机）+ **H3 per-gate-latest 双侧修复**。测试 68 文件 813 用例（素材：cycle-11 交付清单；用例总数见该轮 test-report）。真实宿主：flows/auto-fix.json 19 条事件投影完整轨迹 + 真机恒败场景 incident 落盘。
+
+### R3 阶段 5：auto-fix 流程（第 5 流程状态机）
+
+- **autoFixAnalyze.ts**（纯函数层）：报告计数解析 / 失败识别 / repeating-cascading-transient 三模式（技能 mjs:57-140 逐字）。
+- **autoFixEngine.ts**（IO+编排）：test→失败识别→retest→判定主循环 + onProgress 逐轮回调。
+- **autoFixReport.ts**：落盘三件（审计行 / incident / 修复报告，技能 mjs:142-200 逐字）。
+- **autoFixFlow.ts**：IDLE→RUNNING→ITERATING↺→CONVERGED/CIRCUIT；ITERATING 自环轨迹进投影 history（迭代过程可回放）；终态重入边；**第 17 工具 anic_flows_auto_fix** + 路由 POST /anic/flows/auto-fix/run（pass 200 / circuit 409 / 前置错误 400）。
+- **差分孪生契约** autoFixDifferential 3 用例（native vs script 逐字段对账）。
+- **面板轮询修复**（usePolledSection.ts）：org/flows 分区从静态单拉改 4s 轮询——POST 后 6s 内卡片 CIRCUIT→CONVERGED 实时更新。
+
+### 双 fork 修复（上游技能缺陷，双侧同步）
+
+- **H3 per-gate-latest**：gate-check 去重 × 末 4 条窗口互斥——cycle-10 发现的结构性误熔断（同门多次 PASS 记录互相吞掉），hitl-audit.mjs 与 hitlAudit.ts 双侧同步修。
+- **auto-fix-loop readdirSync 未 import**：test-reports 目录存在时 ReferenceError，真机复现修复。
+
+### 验证
+
+- typecheck exit 0；run-tests 全绿；build 成功。
+- 真实宿主（验证场）：.cycles/flows/auto-fix.json 19 条事件投影（终态重入 + 恢复路径完整轨迹）；incident ×2（真机恒败场景）；审计行落盘。
+
+## v0.12.0 — 2026-10-17
+
+cycle-10：**HITL 三段修复流程**（R3 阶段 4 后半，第 4 个专属流程状态机）+ 双存量缺陷修复。测试 62 文件 786 用例。真实宿主双模式实证：409 circuit / H3 真实熔断 / BLOCKED→RUNNING 重试恢复边现场触发 / J0 8/8。
+
+### R3 阶段 4 后半：HITL 三段修复流程
+
+- **hitlFix.ts**（177 行）：H1-H4 修复器纯函数逐字对齐技能 hitl-audit.mjs:190-284（H1 .gitignore 模式族追加 / H2 git init 基线或拒绝 / H3 指向 gate-check 或建审计日志 / H4 append-only 永拒——改历史毁哈希链）+ writeHitlIncident（诚实化：不声称 L4→L3）。
+- **hitlThreePhase.ts**：Phase0 全审计落审计行 → 无熔断二元判定 → Phase1 仅熔断门修复 → Phase2 全修复成功才重审；fix 失败不重审不落 incident。
+- **hitlFlow.ts**（第 4 流程状态机）：IDLE→RUNNING→PASSED/FAILED/BLOCKED + BLOCKED→RUNNING 重试恢复边；投影 flows/hitl.json；**第 16 工具 anic_flows_hitl** + 路由 POST /anic/flows/hitl/run（状态码语义 pass→200 / fail→422 / circuit→409——exit 2 = 需要人类介入）。
+- **差分孪生契约** hitlDifferential 4 用例（native vs script 孪生夹具逐字段对账）。
+
+### 存量 P1 连带修复
+
+- `latestCycleDir` 绝对路径 bug（join 碎路径恒 false——H3 审计日志检查自 cycle-5 起从未工作过）。
+- J0-2 遥测陈旧（syncTelemetryCounts：live 到达后遥测如实反映渲染面，「渲染=遥测」强不变量）。
+
+### 验证
+
+- typecheck exit 0；run-tests ALL GREEN（62 文件 786 用例）。
+- 真实宿主（3080）：native/script 双模式裁决一致（409 circuit / exit 2 / suggestedNextStep=autonomy-fallback / 审计行 4 条落盘）；面板 HITL 卡片实时态；J0-2 circles=50=遥测 nodes=50。
+
 ## v0.11.0 — 2026-10-17
 
 R3 路线图阶段 4 前半：**multiAgentTier2 LLM 评审通道**（15 角色真模型评审）+ **流程状态机面板可视化**（flows 分区第 10 开关）+ **Tier-2 真机排障三连环**（桩宿主假绿系列第三批）。测试 713→744 用例（55→58 文件）。真实宿主验证：Tier-2 15 角色全走真 LLM 通道（deepseek-official/deepseek-flash，MISSING_CREDENTIAL 诚实终态）、flows/status 一站式、DevTools 面板三分区实渲染、J0 8/8。

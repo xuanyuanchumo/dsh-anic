@@ -38,6 +38,16 @@ describe('isAnicInvocation（过滤面）', () => {
     expect(isAnicInvocation('read', '{"path":"x"}')).toBe(false);
     expect(isAnicInvocation('anic', '{}')).toBe(false); // 前缀必须是 anic_ 带下划线
   });
+  it('cycle-16 P2：其他技能参数里恰好提到本技能名不误命中（精确 name 字段匹配）', () => {
+    // 反例：skill-creator 正在为别的项目生成技能，prompt 参数里提到 ai-native-iteration-cycle
+    expect(isAnicInvocation('skill', '{"name":"skill-creator","prompt":"please clone ai-native-iteration-cycle structure"}')).toBe(false);
+    // 但 name 字段确实是本技能 → 命中
+    expect(isAnicInvocation('skill', '{"name":"ai-native-iteration-cycle","args":{"task":"clone for skill-creator"}}')).toBe(true);
+  });
+  it('解析失败（非法 JSON）回退子串匹配——事件不丢，误报优先于漏报', () => {
+    expect(isAnicInvocation('skill', 'ai-native-iteration-cycle')).toBe(true);
+    expect(isAnicInvocation('skill', '{malformed json')).toBe(false);
+  });
 });
 
 describe('createInvocationFeed（环回缓冲）', () => {

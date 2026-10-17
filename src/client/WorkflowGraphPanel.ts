@@ -18,24 +18,22 @@ import { WORKFLOW_SNAPSHOT } from './workflowGraphData.ts';
 import { renderGraph, buildVerdicts, type GraphData } from './features/graph/renderGraph.ts';
 import { renderStepTrace, type StepTraceJson } from './features/stepTrace/renderStepTrace.ts';
 import { renderDiagnostics, type SelfCheckJson } from './features/diagnostics/renderDiagnostics.ts';
-import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID } from './features/prefs/prefsDrawer.ts';
+import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
-import { usePolledSection } from './features/live/usePolledSection.ts';
-import { fetchJsonGuarded, isObjectLike, isFlowStatus, syncTelemetryCounts } from './features/live/fetchJson.ts';
+import { usePanelFetch } from './components/usePanelFetch.ts';
+import { panelLiveTargets, ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
+import { renderCyclesTimeline, isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleListJson, type CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
+import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
+import { renderSectionWrap, renderSectionDisabled } from './components/sectionShell.ts';
+import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
 import { resolveShellTheme, observeShellTheme, token, tokenCssBlock, THEME_ATTRIBUTE, type ShellTheme } from '../shared/tokens.ts';
 import { PANEL_CSS } from '../shared/panelCss.ts';
 import { t } from './i18n.ts';
-
-const SNAPSHOT_URL = '/anic/api/workflow-snapshot';
-const STEP_TRACE_URL = '/anic/api/step-trace';
-const SELF_CHECK_URL = '/anic/api/self-check';
-const ORG_STATUS_URL = '/anic/org-status';
-const FLOWS_STATUS_URL = '/anic/flows/status';
 
 interface FetchState { source: 'embedded' | 'live'; line: string; }
 
@@ -101,7 +99,12 @@ export function WorkflowGraphPanel(): ReactElement {
   const [orgStatus, setOrgStatus] = useState<OrgStatusJson | null>(null);
   // D10 宿主域接线（cycle-9）：流程状态机面板的数据源（null = 未拉取，不伪造空态）
   const [flowsStatus, setFlowsStatus] = useState<FlowStatusJson | null>(null);
-  const inFlight = useRef(false);
+  // B1：cycle 时间线数据源（list 拉不到 → 整区不渲染；state 只服务当前格摘要）。
+  const [cycleList, setCycleList] = useState<CycleListJson | null>(null);
+  const [cycleState, setCycleState] = useState<CycleStateJson | null>(null);
+  // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
+  // 机制见 components/sectionIds.ts（模块计数 + useRef 惰性初始化，不用 useId）。
+  const prefsPanelId = idOf(PREFS_PANEL_ID_BASE, usePanelInstanceSeq());
   const [reloadKey, setReloadKey] = useState(0);
   // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
   // 响应头），后续所有请求回带 X-ANIC-Workspace 头，让服务端在多会话宿主上
@@ -117,52 +120,26 @@ export function WorkflowGraphPanel(): ReactElement {
   // P0-2：自举四态反馈（running 时禁用防双击；失败保留错误信息与重试语义）。
   const { phase: selfInitPhase, note: selfInitNote, onSelfInit } = useSelfInit();
 
-  const fetchLive = useCallback(async (): Promise<void> => {
-    if (inFlight.current) return;
-    if (typeof fetch !== 'function') return;
-    inFlight.current = true;
-    const tasks = [
-      (async (): Promise<void> => {
-        try {
-          const res = await fetch(SNAPSHOT_URL, { headers: wsHeaders() });
-          if (!res.ok) { setState({ source: 'embedded', line: t('panel.sourceEmbeddedWithRoute', { status: String(res.status) }) }); return; }
-          const json = (await res.json()) as GraphData & { generatedAt?: string; counts?: { nodes: number; edges: number } };
-          if (!Array.isArray(json.nodes) || !Array.isArray(json.edges)) { setState((s) => ({ source: s.source, line: t('panel.sourceMalformed') })); return; }
-          setData({ nodes: json.nodes, edges: json.edges });
-          syncTelemetryCounts(json.nodes.length, json.edges.length);
-          // 学得工作区根（encodeURIComponent 形式）：后续请求回带（见 wsHeaders 注释）。
-          const learned = res.headers?.get?.('X-ANIC-Workspace');
-          if (learned && workspaceRef.current === null) {
-            try { workspaceRef.current = decodeURIComponent(learned); } catch { workspaceRef.current = learned; }
-          }
-          const c = json.counts;
-          setState({ source: 'live', line: t('panel.sourceLive', { generatedAt: json.generatedAt ?? '', nodes: String(c?.nodes ?? json.nodes.length), edges: String(c?.edges ?? json.edges.length) }) });
-        } catch (e) { setState({ source: 'embedded', line: t('panel.sourceEmbeddedFetchFailed', { error: e instanceof Error ? e.message : String(e) }) }); }
-      })(),
-      (async (): Promise<void> => {
-        try {
-          const res = await fetch(STEP_TRACE_URL, { headers: wsHeaders() });
-          if (!res.ok) { setTrace(null); setTraceLine(t('panel.routeUnavailable', { status: String(res.status) })); return; }
-          const json = (await res.json()) as StepTraceJson;
-          if (!Array.isArray(json.steps)) { setTrace(null); setTraceLine(t('panel.malformedNotUsed')); return; }
-          setTrace(json); setTraceLine(t('panel.traceLine', { steps: String(json.steps.length), generatedAt: json.generatedAt }));
-        } catch (e) { setTrace(null); setTraceLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
-      })(),
-      (async (): Promise<void> => {
-        try {
-          const res = await fetch(SELF_CHECK_URL, { headers: wsHeaders() });
-          if (!res.ok) { setCheck(null); setCheckLine(t('panel.routeUnavailable', { status: String(res.status) })); return; }
-          const json = (await res.json()) as SelfCheckJson;
-          if (!Array.isArray(json.checks)) { setCheck(null); setCheckLine(t('panel.malformedNotUsed')); return; }
-          setCheck(json); setCheckLine(json.allOk ? t('panel.allOk') : t('panel.someFailed'));
-        } catch (e) { setCheck(null); setCheckLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
-      })(),
-      // org/flows 分区已移交 usePolledSection（P2 真机修复：随轮询刷新）
-    ];
-    try { await Promise.all(tasks); } finally { inFlight.current = false; }
+  // B5.2：关闭节点详情抽屉。焦点还原给图区 svg——不引 focus-trap，关闭后键盘
+  // 用户落回可感知的停靠点（roving tabindex 容器，方向键可继续浏览）。
+  const closeNodeDetail = useCallback((): void => {
+    setSelectedNode(null);
+    try {
+      (document.querySelector('svg[data-anic-graph]') as { focus?: () => void } | null)?.focus?.();
+    } catch { /* 无 DOM（测试/沙盒）静默 */ }
   }, []);
 
-  useEffect(() => { void fetchLive(); }, [fetchLive, reloadKey]);
+
+  // 数据热更新（B4）：一次性拉取的 targets 与降级文案抽至 panelLiveTargets.ts
+  //（T3 行数纪律；快照学头副作用经 setters 接口回流 workspaceRef）。
+  usePanelFetch(panelLiveTargets({
+    setData,
+    setState,
+    setTrace, setTraceLine,
+    setCheck, setCheckLine,
+    learnWorkspace: (root) => { workspaceRef.current = root; },
+    workspaceKnown: () => workspaceRef.current,
+  }), 0, reloadKey, wsHeaders);
 
   const resolved = resolveFlows({ user: parseRawPrefs(readPrefsRaw()).prefs.flows });
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
@@ -171,10 +148,15 @@ export function WorkflowGraphPanel(): ReactElement {
   // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
   // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
-  // org/flows 分区轮询（P2 真机修复）：autoRefresh 开 → 4s；关 → 仅首拍
-  usePolledSection([
+  // org/flows 分区轮询（P2 真机修复）：autoRefresh 开 → 4s；关 → 仅首拍。
+  // B4：轮询/暂停/降级语义统一至 components/usePanelFetch（静默降级形态——
+  // guard 不过/失败 → 不 apply，分区不渲染，不伪造空态）。
+  // B1：cycle 时间线两个端点（list/state）并进同一 4s 档（旅程排序：宏观节奏条）。
+  usePanelFetch([
     { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => setOrgStatus(v as OrgStatusJson) },
     { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => setFlowsStatus(v as FlowStatusJson) },
+    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => setCycleList(v as CycleListJson) },
+    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => setCycleState(v as CycleStateJson) },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
@@ -205,7 +187,7 @@ export function WorkflowGraphPanel(): ReactElement {
       createElement('span', { role: 'status', 'aria-live': 'polite' }, `ANIC · ${state.line}`),
       createElement('button', { type: 'button', 'data-anic-refresh': 'true', onClick: () => { setReloadKey((k) => k + 1); }, className: 'anic-btn' }, t('panel.refresh')),
       // 抽屉开关是 disclosure：aria-expanded 报告开合，aria-controls 指向被控容器。
-      createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': PREFS_PANEL_ID, onClick: () => { setPrefsOpen((v) => !v); }, className: 'anic-btn' }, t('panel.prefsToggle')),
+      createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': prefsPanelId, onClick: () => { setPrefsOpen((v) => !v); }, className: 'anic-btn' }, t('panel.prefsToggle')),
       // P0-2：自举按钮四态反馈 —— 执行中禁用 + aria-live 播报结果；失败时
       // 标签改为「重试」传达可重试语义（同一按钮，不加第二个控件）。
       createElement('button', {
@@ -221,29 +203,36 @@ export function WorkflowGraphPanel(): ReactElement {
         ? createElement('span', { role: 'status', 'aria-live': 'polite', 'data-anic-self-init-note': selfInitPhase, style: { fontSize: 11, color: selfInitPhase === 'failed' ? token('anic-fail') : token('anic-pass') } }, selfInitNote)
         : null,
     ),
-    prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }) : null,
+    prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
     renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result }); }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
     // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
     renderInvocations(invocations, invocationsError, autoRefreshOn),
+    // Cycle 时间线（B1 · P0 缺口）：宏观节奏条，旅程排序在实时调用之后、
+    // 静态投影之前——「正在发生的调用」与「循环走到哪了」相邻呈现。
+    renderCyclesTimeline({ list: cycleList, state: cycleState }),
     stepTraceOn
-      ? createElement('div', { key: `trace-${String(flowTick)}`, 'data-anic-steptrace-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } },
-          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, t('panel.traceDataLine', { line: traceLine })),
-          trace ? renderStepTrace(trace) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, t('panel.traceUnavailable')),
-        )
-      : createElement('div', { 'data-anic-steptrace-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('panel.traceDisabled')),
+      ? renderSectionWrap({
+          key: `trace-${String(flowTick)}`, anchorKey: 'data-anic-steptrace-wrap',
+          dataLine: t('panel.traceDataLine', { line: traceLine }),
+          body: trace === null ? null : renderStepTrace(trace),
+          unavailableText: t('panel.traceUnavailable'),
+        })
+      : renderSectionDisabled({ anchorKey: 'data-anic-steptrace-disabled', text: t('panel.traceDisabled') }),
     diagnosticsOn
-      ? createElement('div', { key: `check-${String(flowTick)}`, 'data-anic-diagnostics-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } },
-          createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } }, t('panel.diagDataLine', { line: checkLine })),
-          check ? renderDiagnostics(check) : createElement('div', { style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, t('panel.diagUnavailable')),
-        )
-      : createElement('div', { 'data-anic-diagnostics-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('panel.diagDisabled')),
+      ? renderSectionWrap({
+          key: `check-${String(flowTick)}`, anchorKey: 'data-anic-diagnostics-wrap',
+          dataLine: t('panel.diagDataLine', { line: checkLine }),
+          body: check === null ? null : renderDiagnostics(check),
+          unavailableText: t('panel.diagUnavailable'),
+        })
+      : renderSectionDisabled({ anchorKey: 'data-anic-diagnostics-disabled', text: t('panel.diagDisabled') }),
     orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } }, renderOrgStatus(orgStatus)) : null,
     // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
     // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
     flowsViewOn
       ? renderFlows(flowsStatus)
-      : createElement('div', { 'data-anic-flowsview-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('flows.disabled')),
-    renderNodeDetail(selectedNode),
+      : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }),
+    renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

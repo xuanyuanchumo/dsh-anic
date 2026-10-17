@@ -1,8 +1,8 @@
 # dsh-anic API 参考 · 评审、进化与治理
 
-> 本册覆盖 **review**（条件性 LLM 接入）、**evolution**（trust / autonomy / breakers / tech-debt）、**governance**（archive / budget / sweep / prune）、**native**（7 个脚本的原生等价物），共 16 个端点。
+> 本册覆盖 **review**（条件性 LLM 接入）、**evolution**（trust / autonomy / breakers / tech-debt 生成与消费 / 自主级回退）、**governance**（archive / budget / sweep / prune）、**native**（7 个脚本的原生等价物）与 **flows**（流程状态机观测面 + 运行面），共 28 个端点（另：invocations/live 的端点定义写在本册 §6，总索引归属数据面行）。
 >
-> 公共约定见 [API参考.md](API参考.md)。读取本文件的时机：调用或修改评审、自主级别、熔断、治理与原生脚本端点时。
+> 公共约定见 [API参考.md](API参考.md)。读取本文件的时机：调用或修改评审、自主级别、熔断、治理、原生脚本与流程状态机端点时。
 
 ## 1. review 域
 
@@ -95,10 +95,50 @@ totalRetries, totalBreakerTrips
 
 **注意布尔强制转换的后果**：`Boolean(parsed.hasDoubt)` 意味着字符串 `'false'` 会被转成 `true`。传参时必须用真正的 JSON 布尔值。
 
-### 2.4 POST `/anic/api/tech-debt`（`evolutionRoute.ts:86`）
+### 2.4 POST `/anic/api/tech-debt`（`evolutionRoute.ts:114`）
 
 **Body**：`results` —— `EvalResult[]`。
 **响应 200**：`{ techDebt: entries, count: entries.length }`。
+
+**注意**：本端点只从请求体**生成**提案并返回，**不落盘**。
+
+### 2.5 GET `/anic/api/tech-debt/list`（`evolutionRoute.ts:97`，cycle-16 G-C3 消费侧读面）
+
+**列出 `.cycles/tech-debt/` 全部提案**。读面用独立子路径而非与 POST 生成面共用 `/anic/api/tech-debt`：webServer 的 exact 表对同 path 双注册（GET+POST 各一条）的覆盖语义未在官方文档钉死，分路径零歧义（源码头注）。
+
+**响应 200**：`{ open: TechDebtFile[], openCount, resolvedCount, skipped: [{file,reason}] }`——open = 未消费提案（人/上游 agent 执行修复的工作队列）；resolved = 已消费（带 consumedAt/consumedBy 审计字段）；skipped = 非 TechDebtEntry 形态文件（fix-loop 数组已展开，自由形态如实跳过）。
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 500 | 无工作区 | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE' } }` |
+| 200 | 正常 | 三分流列表 |
+
+### 2.6 POST `/anic/api/tech-debt/consume`（`evolutionRoute.ts:123`，cycle-16 G-C3 消费侧写面）
+
+**语义**：标记 `.cycles/tech-debt/` 下的提案已消费——**只做记账（resolved=true + consumedAt/consumedBy 审计字段），绝不执行修复**（R-31 红线：自动执行队列是 15 号文档建议的原始形态，本工程裁决为「提案→人工/上游执行→记账」闭环，见 `src/host/evolution/techDebtQueue.ts` 头注）。
+
+**Body**：`{ ids: string[]（必填，提案 id 列表）, consumedBy?: string（≤200 字符，缺省 'unknown'） }`。
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 400 | `ids` 缺失/空数组 | `{ error: { code: 'ANIC_ROUTE_BAD_REQUEST', message: 'ids[] required...' } }` |
+| 500 | 无工作区 | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE' } }` |
+| 200 | 正常 | `markTechDebtConsumed` 结果（逐 id 消费/未找到计数） |
+
+**配套读取面**：`GET /anic/api/tech-debt/list`（§2.5）。
+
+### 2.7 POST `/anic/autonomy/downgrade`（`evolutionRoute.ts:149`）
+
+**证据化自主级回退**（R3 阶段 1 余量）——与 2.3 breakers 的纯决策视图不同，这是技能 `cmdAutoFallback` 的插件等价物，**真正写入 config.yml**。
+
+**执行链**：`runAutonomyFallback(root)`（`src/host/evolution/autonomyActions.ts`）——breakerSignals 从真实工件采集八熔断信号（`.cycles/incidents/` 文件名 / 账本 / band-history / config.yml）→ `decideAction` → 降级时写 config.yml + **Post-Verify 回读断言** + 事故留痕 incident（技能 S-7「效果即记录」纪律）。
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 500 | 无工作区（`resolveWorkspaceRoots` 抛） | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE' } }` |
+| 200 | 全部路径（含拒绝） | `runAutonomyFallback` 结果 |
+
+**拒绝一律 200 + action 字段区分**——「无熔断证据」「已在 L1/L2 地板」「config 缺失」的结局是**维持不动**，不是 HTTP 层错误；调用本身被正确执行了（头部注释即契约）。DSH 工具面等价物：`anic_autonomy_downgrade`（`toolsEvolutionGateway.ts:27`）。
 
 ---
 
@@ -191,20 +231,88 @@ send(res, 200, { gates: results, allPassed: results.every((g) => g.passed) });
 
 **响应 200**：`{ gates, allPassed }`。
 
-### 4.7 POST `/anic/fix-loop`（`nativeRoute.ts:97`）
+### 4.7 POST `/anic/fix-loop`（`nativeRoute.ts:128`）
 
-**Body 也被忽略**（同样 `_req`）。头部注释里写的 `verifyCommand` 参数**未实现**。
-
-**实际校验函数只做一件事**：
+**Body 被忽略**（`_req`）。验证函数消费真实事实（cycle-16 前的旧文档描述「只检查账本文件存在」已过时）：
 
 ```ts
-const ledgerExists = existsSync(join(root, '.cycles', 'gates', 'ledger.json'));
-{ passed: ledgerExists, report: ledgerExists ? 'all checks passed' : 'ledger missing' }
+const chain = verifyLedger(cyclesDir);                 // 哈希链校验
+const verdicts = latestConvergenceVerdicts(cyclesDir); // G0-G3 最新裁决
+const passed = chain.ok && missing.length === 0;
 ```
 
-**响应 200**：`runFixLoop(root, verifyFn)` 的结果。
+**响应 200**：`runFixLoop(root, verifyFn)` 的结果——验证报告含「哈希链校验通过（N 条）+ G0-G3 全绿」或失败明细（链断裂原因 / 缺失门名单）。
 
-**这是全项目最弱的验证**：它只检查账本文件**存在**，不校验内容、不运行任何命令、不比对哈希。`report: 'all checks passed'` 的实际含义仅是「文件在」。把它当作「修复已验证」会得到错误结论。
+---
+
+## 5. flows 域 · 流程状态机
+
+`src/host/routes/flowsRoute.ts`（R3 阶段 2-5）。注册签名 `registerFlowsRoute(ctx, send, deps)`，`deps = { getWorkspaceRoot }`。头部注释记录设计裁决：运行入口按流程 id **静态分派**（第 4 个流程实例到达后仍维持——各流程参数域差异大，抽象的参数税大于分派税）。
+
+**观测面三端点**（无工作区时 `/anic/flows` 与 `/anic/flows/status` 仍可用，`state` 返回 500）：
+
+### 5.1 GET `/anic/flows`（`flowsRoute.ts:66`）
+
+**响应 200**：`{ flows: [...listFlows().map(descriptorView)], total }`。descriptorView 是描述子的可序列化投影（id / labelKey / states / initial / transitions[{from,to,trigger,guard}] / persistence / engine / scriptFallback）。
+
+### 5.2 GET `/anic/flows/status`（`flowsRoute.ts:74`）
+
+**一站式观测面**（客户端面板 `FLOWS_STATUS_URL` 消费的端点，`src/client/WorkflowGraphPanel.ts:38`）：全部注册流程 + 各自当前投影。**无投影 = 从未运行过，如实为 null，不伪造 IDLE**（IDLE 的默认态不落盘——投影只记已发生的事实）。
+
+**响应 200**：`{ flows, total, running, terminal, neverRun }`。
+
+### 5.3 GET `/anic/flows/state?flow=<id>`（`flowsRoute.ts:93`）
+
+**Query**：`flow`（缺省 `'gate-check'`）。未知 flow → 404 `ANIC_ROUTE_UNKNOWN_FLOW:<id>`。
+**响应 200**：`{ flowId, projection, descriptor }`——projection 形状见 `src/host/flows/persistence.ts`（`{ flowId, current, history, updatedAt, ledgerHead }`，投影文件 `.cycles/flows/<id>.json` 可丢弃可重算，INV-13 replay === online）。
+
+**运行面四端点**（全部无工作区 500 `ANIC_ROUTE_NO_WORKSPACE`；`readBody` 流式兼容）：
+
+### 5.4 POST `/anic/flows/gate-check/run`（`flowsRoute.ts:109`）
+
+**Body**：`{ mode?: 'script'|'native'|'diff'（缺省 script）, gate?: 'all'|'G0'-'G3'（非法 400 ANIC_ROUTE_BAD_GATE）, quality?: boolean（缺省 true）, record?: boolean, timeoutMs?: number }`。
+
+**三模式**：script 正典（技能脚本是账本正典写入者）/ native 原生判定（record 时按同一去重语义入账）/ diff 双跑对账（**观测专用永不写账本**，防双写）。执行错误（技能目录缺失等）不推进状态机，500 `ANIC_ROUTE_FLOW_ERROR:<原因>`。
+
+**响应 200**：`GateFlowRunResult`（`src/host/flows/gateCheckFlow.ts:67-84`）——含 gates/quality 逐门裁决、allPass、exitCode、drift（diff 模式分叉面，null=语义全等）、stdout（script 模式观测）、recorded（native+record 实际入账门）。差分契约：`tests/contract/flowDifferential.test.ts`。
+
+### 5.5 GET `/anic/flows/macro-phase/status`（`flowsRoute.ts:133`）
+
+**只读**：宏观六相视图（plan/design/build/test/deploy/maintain）。**不落盘、不 inferPhase 回写**——技能 workflow-state 的 inferPhase 回写对 deploy/maintain 永远推不出来，是技能侧缺陷不复制（`macroPhaseFlow.ts` 头注）。
+
+### 5.6 POST `/anic/flows/macro-phase/advance`（`flowsRoute.ts:140`）
+
+**Body**：`{ mode?: 'script'|'native'（缺省 script）, target?: 相位名（非法 400 带有效相位名单）, dryRun?: boolean }`。`dryRun + script` 组合 → 400 `ANIC_ROUTE_DRYRUN_NATIVE_ONLY`（dryRun 只算不写是 native 引擎能力）。
+
+**响应**：守卫拒绝（门未过等）→ 422；成功 → 200。6 相 15 条前向边全带 phase-gates-passed 守卫；**禁回退由图形状承载**（全部 from 序 < to 序）。差分契约：`tests/contract/macroPhaseDifferential.test.ts`。
+
+### 5.7 POST `/anic/flows/archive/run`（`flowsRoute.ts:166`）
+
+**Body**：`{ mode?: 'native'（缺省）|'script', cycle?: number（非法 400）, clean?: boolean, keep?: number, timeoutMs?: number }`。**无参缺省 list**（只读安全缺省）；archive 需显式 cycle，clean 需显式 `clean:true`。
+
+**响应**：ok→200 / 拒绝→422。归档是写动作：isCycleComplete **与 G1 共用 parseTaskRows**（「G1 说完成、归档说没完成」分叉的根治面）；拒绝路径零文件系统写入；账本逐字节不变（INV-9）；clean 只删 archive/ 子树，active 循环永不触碰。差分契约：`tests/contract/archiveDifferential.test.ts`（孪生夹具——归档不能同目录双跑）。
+
+### 5.8 POST `/anic/flows/hitl/run`（`flowsRoute.ts:191`）
+
+**Body**：`{ mode?: 'native'（缺省）|'script', gate?: 'all'|'H1'-'H4'（非法 400）, timeoutMs?: number }`。
+
+**状态码语义**：pass→200 / fail→422 / **circuit→409**（exit 2 = 需要人类介入，BLOCKED）。三段编排：Phase0 全审计落审计行 → 无熔断二元判定 → Phase1 仅熔断门修复 → Phase2 全修复成功才重审；fix 失败不重审不落 incident（`hitlThreePhase.ts`）。差分契约：`tests/contract/hitlDifferential.test.ts`。
+
+### 5.9 POST `/anic/flows/auto-fix/run`（`flowsRoute.ts:213`）
+
+**Body**：`{ mode?: 'native'（缺省）|'script', maxRetries?: 1-10 整数, testCmd?: string, timeoutMs?: number }`。
+
+**状态码语义**：pass→200 / **circuit→409**（重试耗尽需人类介入）/ 前置错误→400。流程状态机 IDLE→RUNNING→ITERATING↺→CONVERGED/CIRCUIT，ITERATING 自环轨迹进投影 history（迭代过程可回放）。报告计数双格式解析（正典管道表优先 + 旧键值回退，D-1103）。差分契约：`tests/contract/autoFixDifferential.test.ts`。
+
+**DSH 工具面等价物**：`anic_flows_gate_check` / `anic_flows_advance` / `anic_flows_archive` / `anic_flows_hitl` / `anic_flows_auto_fix`（toolsFlowsGateway.ts / toolsHitlGateway.ts / toolsAutoFixGateway.ts）。
+
+---
+
+## 6. invocations · 实时调用流
+
+### GET `/anic/api/invocations/live`（`invocationRoute.ts:27`）
+
+动态白盒数据面（cycle-97）：`InvocationFeed` 实时调用环回缓冲（drop-oldest，limit 50）的只读快照。**无工作区依赖**；feed 缺失时**显式 500**（诚实失败，不伪造空列表）。注册位置 `routes/index.ts:68`（data 域内，端点总索引也归数据面行）。
 
 ---
 
@@ -214,3 +322,4 @@ const ledgerExists = existsSync(join(root, '.cycles', 'gates', 'ledger.json'));
 - 数据面 → [API参考-数据面.md](API参考-数据面.md)
 - 周期面 → [API参考-周期面.md](API参考-周期面.md)
 - 自举 / 技能 / 安装 / 双自举面 → [API参考-自举与技能.md](API参考-自举与技能.md)
+- 轨迹可见性与 invocationFeed 接线 → [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md)

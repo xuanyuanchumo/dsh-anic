@@ -35,12 +35,12 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
   // Tool: anic_flows_gate_check — 状态机化收敛门运行
   disposers.push(deps.register({
     name: 'anic_flows_gate_check',
-    description:
-      'Run G0-G3 convergence gates through the ANIC flow state machine. '
-      + 'mode=script runs the canonical skill script (ledger of record); '
-      + 'mode=native runs the native TypeScript engine (records to plugin ledger with same dedup semantics); '
-      + 'mode=diff runs BOTH and reports any verdict drift between them (dual-source-of-truth guard). '
-      + 'Returns per-gate verdicts, quality-gate verdicts, final flow state (IDLE/RUNNING/PASSED/FAILED) and transition events.',
+    // SDO：触发条件 = 需要「流程状态机视角」的门禁运行（含 script/native/diff 模式选择、
+    // 状态投影查询）。与 anic_gate_check 区分：本工具面向流程状态与双实现对账。
+    description: 'Use when convergence gates should run THROUGH the flow state machine — needing flow state '
+      + '(IDLE/RUNNING/PASSED/FAILED), transition events, or a script-vs-native verdict comparison (diff mode, '
+      + 'dual-source-of-truth guard). Triggers: 流程门禁 / flow gate / 状态机门禁 / '
+      + 'diff 对账 / drift check.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -96,12 +96,10 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
   // Tool: anic_flows_advance — 宏观六相推进（R3 阶段 3）
   disposers.push(deps.register({
     name: 'anic_flows_advance',
-    description:
-      'Advance the ANIC macro phase state machine (plan -> design -> build -> test -> deploy -> maintain, forward-only). '
-      + 'The guard requires the current phase convergence gate(s) to have PASS entries in the gate ledger (G0 for plan/design, G1 for build, G2 for test, G3 for deploy). '
-      + 'mode=script runs the canonical skill workflow-state script (default); mode=native runs the TypeScript engine + flow machine. '
-      + 'dryRun=true (native only) reports the would-be transition without writing. '
-      + 'Returns from/to phase, next gates, and transition events.',
+    // SDO：触发条件 = 阶段工作完成、要推进到下一宏观阶段；症状 = 「进入 Design/Build 阶段」。
+    description: 'Use when an ANIC-managed project has finished its current macro phase and should advance '
+      + 'to the next one (plan→design→build→test→deploy→maintain, forward-only, gate-ledger PASS required). '
+      + 'Triggers: 推进阶段 / advance phase / 进入下一阶段 / phase transition.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -154,13 +152,10 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
   // Tool: anic_flows_archive — 归档流程（R3 阶段 3 后半）
   disposers.push(deps.register({
     name: 'anic_flows_archive',
-    description:
-      'Run the ANIC archive flow: archive a completed cycle (cycle=N), clean old archives (clean=true, keep=<N> default 5), '
-      + 'or list the cycle inventory (list=true / no arguments). '
-      + 'Completeness uses the SAME task-row parser as gate G1 (no G1-says-done-but-archive-disagrees fork). '
-      + 'The gate ledger is never touched (append-only hash chain). '
-      + 'mode=native (default) runs the TypeScript engine; mode=script runs the canonical skill archive-cycle script. '
-      + 'Returns ok, affected cycles, flow state (IDLE/RUNNING/DONE/BLOCKED) and the human-readable refusal message on failure.',
+    // SDO：触发条件 = 循环收尾归档/清理归档/查循环清单。
+    description: 'Use when completed ANIC cycles should be archived, old archives cleaned up, '
+      + 'or the cycle inventory listed. Triggers: 归档 / archive cycle / 清理归档 / '
+      + '循环清单 / cycle inventory.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

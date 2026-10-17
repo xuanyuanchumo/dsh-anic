@@ -29,15 +29,11 @@ export function registerAutoFixTools(_tools: ToolsSlot, deps: AutoFixGatewayDeps
   // Tool: anic_flows_auto_fix — 自动修复循环流程（R3 阶段 5，第 17 工具）
   disposers.push(deps.register({
     name: 'anic_flows_auto_fix',
-    description:
-      'Run the ANIC auto-fix loop flow: run the test command, identify failures (command failure + test-report failures), '
-      + 'retest, and judge; retry up to maxRetries (default 3). On exhaustion: failure-pattern analysis '
-      + '(repeating / cascading / transient with root-cause hypothesis), circuit-breaker incident file, and suggestedNextStep=autonomy-fallback. '
-      + 'Core principle: never degrade autonomy directly — analyze root cause first. '
-      + 'mode=native (default) advances the flow state machine per attempt (ITERATING trail in the projection); '
-      + 'mode=script runs the canonical skill auto-fix-loop script. '
-      + 'testCmd overrides the workspace test_cmd from .cycles/config.yml (missing config is loud but non-fatal). '
-      + 'Returns attempts, pattern analysis, flow state (IDLE/RUNNING/ITERATING/CONVERGED/CIRCUIT) and events.',
+    // SDO：触发条件 = 验证/测试失败需要自动修复循环；症状 = 测试红了、修复反复失败要失败模式分析。
+    description: 'Use when tests or verification keep failing and an auto-fix loop should run — '
+      + 'retrying the test command, analyzing failure patterns (repeating/cascading/transient) on exhaustion, '
+      + 'and circuit-breaking with an incident when repair fails. Triggers: 自动修复 / auto-fix / '
+      + '测试一直红 / 修复循环 / fix loop.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

@@ -2,7 +2,7 @@
  * M2-a 运行时模块测试：ledger + stateMachine + stackProbe + cycleRunner。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { computeHash, loadLedger, appendEntry, verifyLedger, isDuplicate, type LedgerEntry } from '../../src/host/runtime/ledger.ts';
@@ -359,5 +359,22 @@ describe('cycleRunner', () => {
     initCycle(cyclesDir);
     initCycle(cyclesDir);
     expect(nextCycleNumber(cyclesDir)).toBe(3);
+  });
+
+  it('cycle-16 回归钉：正典技能布局 .cycles/cycles/cycle-N 被 listCycles 读到（修复前恒空）', () => {
+    // 真实工作区形态：技能 init-cycle.mjs 写 .cycles/cycles/cycle-N。
+    // 旧 listCycles 只扫 .cycles 根 → cycle/list 路由在任何真实工作区永远空
+    // （真机 2026-10-18 暴露；B1 时间线是第一个消费者）。
+    const cyclesDir = join(tmpDir, '.cycles-canonical');
+    mkdirSync(join(cyclesDir, 'cycles', 'cycle-7'), { recursive: true });
+    mkdirSync(join(cyclesDir, 'cycles', 'cycle-12'), { recursive: true });
+    expect(listCycles(cyclesDir)).toEqual([7, 12]);
+    expect(nextCycleNumber(cyclesDir)).toBe(13);
+  });
+
+  it('initCycle 写正典双跳布局（.cycles/cycles/cycle-N，与技能对齐）', () => {
+    const cyclesDir = join(tmpDir, '.cycles-init-layout');
+    initCycle(cyclesDir);
+    expect(existsSync(join(cyclesDir, 'cycles', 'cycle-1', 'cycle-meta.json'))).toBe(true);
   });
 });

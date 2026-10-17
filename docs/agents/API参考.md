@@ -4,9 +4,9 @@
 >
 > | 分册 | 覆盖域 | 端点数 |
 > | --- | --- | --- |
-> | [API参考-数据面.md](API参考-数据面.md) | data（snapshot / step-trace / self-check / self-init） | 4 |
+> | [API参考-数据面.md](API参考-数据面.md) | data（snapshot / step-trace / self-check / self-init）+ invocations（实时调用流） | 5 |
 > | [API参考-周期面.md](API参考-周期面.md) | cycle（cycle / ledger / stack-probe / seg-ledger） | 13 |
-> | [API参考-评审进化与治理.md](API参考-评审进化与治理.md) | review + evolution + governance + native | 16 |
+> | [API参考-评审进化与治理.md](API参考-评审进化与治理.md) | review + evolution + governance + native + flows（流程状态机） | 28 |
 > | [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit | 14 |
 >
 > 读取本文件的时机：需要知道某个端点属于哪一册、公共响应形状、或公共状态码语义时。
@@ -117,6 +117,7 @@ Access-Control-Allow-Origin: *
 | GET | `/anic/api/step-trace` | 数据面 |
 | GET | `/anic/api/self-check` | 数据面 |
 | POST | `/anic/self/init` | 数据面 |
+| GET | `/anic/api/invocations/live` | 数据面 |
 | POST | `/anic/cycle/init` | 周期面 |
 | POST | `/anic/cycle/advance` | 周期面 |
 | POST | `/anic/cycle/close` | 周期面 |
@@ -135,6 +136,9 @@ Access-Control-Allow-Origin: *
 | GET | `/anic/api/autonomy` | 评审进化与治理 |
 | POST | `/anic/api/breakers` | 评审进化与治理 |
 | POST | `/anic/api/tech-debt` | 评审进化与治理 |
+| GET | `/anic/api/tech-debt/list` | 评审进化与治理 |
+| POST | `/anic/api/tech-debt/consume` | 评审进化与治理 |
+| POST | `/anic/autonomy/downgrade` | 评审进化与治理 |
 | POST | `/anic/governance/archive` | 评审进化与治理 |
 | GET | `/anic/governance/budget` | 评审进化与治理 |
 | POST | `/anic/governance/sweep` | 评审进化与治理 |
@@ -146,6 +150,15 @@ Access-Control-Allow-Origin: *
 | GET | `/anic/plan-sync` | 评审进化与治理 |
 | POST | `/anic/multi-agent-gate` | 评审进化与治理 |
 | POST | `/anic/fix-loop` | 评审进化与治理 |
+| GET | `/anic/flows` | 评审进化与治理 |
+| GET | `/anic/flows/status` | 评审进化与治理 |
+| GET | `/anic/flows/state` | 评审进化与治理 |
+| POST | `/anic/flows/gate-check/run` | 评审进化与治理 |
+| GET | `/anic/flows/macro-phase/status` | 评审进化与治理 |
+| POST | `/anic/flows/macro-phase/advance` | 评审进化与治理 |
+| POST | `/anic/flows/archive/run` | 评审进化与治理 |
+| POST | `/anic/flows/hitl/run` | 评审进化与治理 |
+| POST | `/anic/flows/auto-fix/run` | 评审进化与治理 |
 | POST | `/anic/self/evaluate` | 自举与技能 |
 | POST | `/anic/self/gate-check` | 自举与技能 |
 | POST | `/anic/self/iterate` | 自举与技能 |
@@ -161,7 +174,9 @@ Access-Control-Allow-Origin: *
 | GET | `/anic/self/dual-status` | 自举与技能 |
 | GET | `/anic/api/truth-audit` | 自举与技能 |
 
-共 47 个端点（与源码中 `'/anic/...'` 路径字面量的去重计数一致，已用脚本比对，双向零差异）。
+共 60 个端点（与源码中 `'/anic/...'` 路径字面量的去重计数一致；复验命令：`Select-String -Path "src\host\routes\*.ts","src\host\snapshotRoute.ts" -Pattern "'(/anic/[^']+)'" -AllMatches` 去重）。
+
+> **计数纪律**：本索引曾于 cycle-16 前失同步（47 vs 58，flows 域 10 条与 invocations/autonomy 3 条未登记；cycle-16 收口时又追认了并行新增的 tech-debt/list + consume 至 60）。修改路由的提交若不同步本表，即为文档债务复发——建议后续把「本表 ⇄ 源码路径字面量」比对固化为契约测试（cycle-16 审计报告 anic-docs-audit.md §5 结构性根因）。
 
 ## 8. 客户端消费的端点
 

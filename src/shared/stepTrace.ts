@@ -30,6 +30,13 @@ export interface TraceStep {
   ledgerVerdict: { result: string; timestamp: string } | null;
   /** 已存在的周期目录（位置法枚举，不做归属推断） */
   cyclesSeen: string[];
+  /**
+   * 产出者标注（G-T5）：该步工件由哪个脚本/流程产出。
+   * 结构化映射（NodeId 前缀 → 产出者）尽在 PRODUCED_BY 表；无法结构化确定时为
+   * null —— 绝不从自由文本猜（INV-21 同款纪律）。15 号建议的 producedBy 逐字段
+   * 形态：可结构化判定的标注，不可判定的诚实留空。
+   */
+  producedBy: string | null;
   warnings: string[];
 }
 
@@ -111,6 +118,35 @@ const STATUS_ALIASES: Record<string, StepStatus> = {
 };
 
 /**
+ * 产出者结构化映射（G-T5）：NodeId 前缀 → 脚本/流程名。
+ * 只收录图 schema 里前缀可判定的映射（workflowGraphData 的 id 命名约定）：
+ * - cycle:* 目录由 init-cycle/技能正典脚本产出
+ * - wf:micro-* 微观七步由 eval-runner/gate-check/auto-fix-loop 等各自脚本产出
+ * - wf:macro-* 六相由 workflow-state.mjs（macroPhaseFlow 正典写入者）产出
+ * - 其余（含 gate 节点 an-*）无唯一产出者（多脚本共写）→ null 诚实留空
+ */
+const PRODUCED_BY: ReadonlyArray<readonly [prefix: string, producer: string]> = [
+  ['cycle:', 'init-cycle / cycleRunner'],
+  ['wf:micro-plan', 'plan（人工/上游 agent）'],
+  ['wf:micro-eval', 'eval-runner'],
+  ['wf:micro-split', 'plan（拆测，人工/上游 agent）'],
+  ['wf:micro-implement', 'build（人工/上游 agent）'],
+  ['wf:micro-verify', 'gate-check'],
+  ['wf:micro-fix', 'auto-fix-loop'],
+  ['wf:micro-gate', 'gate-check'],
+  ['wf:micro-retro', 'org-status（复盘聚合）'],
+  ['wf:macro-', 'workflow-state / macroPhaseFlow'],
+];
+
+/** 前缀表查产出者；无结构化依据返回 null（不猜）。 */
+function producerOf(nodeId: string): string | null {
+  for (const [prefix, producer] of PRODUCED_BY) {
+    if (nodeId.startsWith(prefix)) return producer;
+  }
+  return null;
+}
+
+/**
  * 构建 StepTrace（纯函数：同输入同输出；INV-18/INV-13 的投影侧兑现）。
  * @param snapshot buildWorkflowSnapshot 的结构化输出（声明图来源）
  */
@@ -162,6 +198,7 @@ export function buildStepTrace(snapshot: SnapshotLike, opts: { cyclesDir: string
       sources,
       ledgerVerdict: verdictOf(ledger.map, n),
       cyclesSeen,
+      producedBy: producerOf(n.id),
       warnings: [],
     };
   });

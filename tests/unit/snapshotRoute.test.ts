@@ -261,6 +261,8 @@ describe('宿主入口 apply', () => {
     '/anic/api/seg-ledger', '/anic/api/seg-ledger/append', '/anic/api/seg-ledger/verify', '/anic/api/seg-ledger/init',
     '/anic/review',
     '/anic/api/trust', '/anic/api/autonomy', '/anic/api/breakers', '/anic/api/tech-debt',
+    // cycle-16 G-C3：tech-debt 消费侧（GET list 读面 + consume 记账写面）
+    '/anic/api/tech-debt/list', '/anic/api/tech-debt/consume',
     // R3 阶段 1 余量：证据化自主级回退（技能 cmdAutoFallback 插件等价物）
     '/anic/autonomy/downgrade',
     '/anic/governance/archive', '/anic/governance/budget', '/anic/governance/sweep', '/anic/governance/prune',
@@ -275,6 +277,7 @@ describe('宿主入口 apply', () => {
     '/anic/self/dual-evaluate', '/anic/self/dual-advance', '/anic/self/dual-status',
     // M11 真实性审计
     '/anic/api/truth-audit',
+    // cycle-16 G-C5：跨项目路由响应新增 bootstrapSync 字段（路由本身既有，此注释标记行为变化）
     // R3 阶段 2：flows 域（流程状态流转机观测面 + 运行面）
     '/anic/flows', '/anic/flows/status', '/anic/flows/state', '/anic/flows/gate-check/run',
     '/anic/flows/macro-phase/status', '/anic/flows/macro-phase/advance',

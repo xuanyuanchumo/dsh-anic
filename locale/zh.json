@@ -52,7 +52,8 @@
     "colType": "类型",
     "colVerdict": "裁决",
     "colLabel": "名称",
-    "detailClose": "关闭详情"
+    "detailClose": "关闭详情",
+    "nodeDetailLabel": "节点详情：{label}"
   },
   "state": {
     "loading": "加载中…",
@@ -87,6 +88,8 @@
     "heuristicTitle": "启发标注（INV-27）：结构化状态缺失，由账本裁决推断",
     "structured": "✓ structured",
     "ledger": "账本: {result}",
+    "producedBy": "产出: {producer}",
+    "producedByTitle": "产出者标注（G-T5 结构化映射）：该步工件由哪个脚本/流程产出；无法结构化判定时不标注（不猜）",
     "line": "{count} 步 · 投影 {generatedAt}",
     "warnings": "投影告警 {count} 条（诚实标注，非错误）",
     "statusDone": "完成",
@@ -94,6 +97,18 @@
     "statusFailed": "失败",
     "statusSkipped": "跳过",
     "statusPending": "待定"
+  },
+  "flows": {
+    "workflowTab": "ANIC 可视化标签",
+    "stepTrace": "白盒流程分区",
+    "diagnostics": "诊断面板",
+    "approvals": "批准卡/HITL 队列",
+    "autoRefresh": "live 轮询/刷新",
+    "gateRecord": "门禁结果自动入账本",
+    "budgetEnforce": "预算熔断",
+    "selfInit": "自举命令",
+    "agentsOrchestration": "子代理编排流",
+    "flowsView": "流程状态机面板"
   },
   "diag": {
     "title": "运行时自检（Runtime INV Probes）",
@@ -137,23 +152,19 @@
     "sourceDeployment": "部署",
     "sourceDefault": "默认",
     "sourceLine": "{source}层 · {layers}",
-    "contractLabel": "关闭形态：",
-    "reserved": "预留",
-    "reservedTitle": "该开关在宿主侧生效，本面板暂无 UI 效果（诚实标注，不假装已接线）",
-    "layerLocked": "本层不可写",
-    "layerLockedTitle": "该开关不支持用户层：请改工作区层 .cycles/config.yml 的 anic 段",
     "warnings": "开关告警 {count} 条（未知键/非法值已忽略，详见遥测）",
-    "hint": "M1 仅用户层可写；工作区层请编辑 .cycles/config.yml 的 anic 段（唯一规范入口）。",
-    "allOn": "全开",
-    "allOff": "全关",
-    "reset": "恢复默认",
-    "groupUser": "用户层开关（可写）",
-    "groupLocked": "工作区/部署层开关（只读展示）",
-    "close": "收起抽屉"
+    "hint": "M1 仅用户层可写；工作区层请编辑 .cycles/config.yml 的 anic 段（唯一规范入口）。"
+  },
+  "cycles": {
+    "title": "Cycle 时间线（{total} 轮）",
+    "summary": "最新 cycle-{latest} · 下一轮 cycle-{next} · 当前已推进 {advanced} 节点",
+    "noLatest": "（无 cycle）",
+    "currentTitle": "cycle-{num}（当前，已推进 {advanced} 节点）",
+    "pastTitle": "cycle-{num}",
+    "ariaLabel": "Cycle 时间线：共 {total} 轮，最新 cycle-{latest}"
   },
   "flows": {
-    "workflowTab": "工作流标签",
-    "stepTrace": "步骤追踪",
+    "workflowTab": "工作流标签",    "stepTrace": "步骤追踪",
     "diagnostics": "诊断",
     "approvals": "批准",
     "autoRefresh": "自动刷新",

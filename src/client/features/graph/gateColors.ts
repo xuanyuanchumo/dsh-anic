@@ -8,6 +8,7 @@
 
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { t } from '../../i18n.ts';
 
 // ── 三态色 ──────────────────────────────────────────────
 
@@ -78,22 +79,10 @@ export function gateTextColorOf(verdict: string | undefined): string | null {
   return token('anic-text-dim');
 }
 
-// ── FAIL 脉冲 CSS ───────────────────────────────────────
+// ── FAIL 脉冲 CSS（B4：本体迁移至 components/statusDot.ts，此处转出保 import 面）──
 
-export const FAIL_PULSE_STYLE = `
-@keyframes anic-fail-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-.anic-fail-node {
-  animation: anic-fail-pulse 1.5s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .anic-fail-node {
-    animation: none;
-  }
-}
-`;
+import { FAIL_PULSE_STYLE as FAIL_PULSE_STYLE_SRC } from '../../components/statusDot.ts';
+export const FAIL_PULSE_STYLE = FAIL_PULSE_STYLE_SRC;
 
 // ── 控制带（2σ/3σ） ─────────────────────────────────────
 
@@ -146,18 +135,53 @@ export interface NodeDetail {
   previousHash?: string;
 }
 
-export function renderNodeDetail(node: NodeDetail | null): ReactElement | null {
+/**
+ * 抽屉可交互选项（B5.2 焦点管理）。
+ *
+ * - `detailId`：容器 id（面板实例生成，与关闭后焦点还原的 querySelector 同源）；
+ * - `onClose`：关闭回调。存在时抽屉升级为可关闭 + 键盘可达：
+ *   ① 关闭按钮（消费 locale 键 panel.detailClose，此前为死键）；
+ *   ② 容器 onKeyDown：Esc 触发 onClose（non-passive 语义：preventDefault 防止
+ *      Esc 同时折叠宿主侧其他 UI）；
+ *   ③ 关闭按钮 autoFocus：打开时焦点落在抽屉内的第一个控件（APG disclosure
+ *      实践），键盘用户立即可 Esc 关闭；
+ *   ④ 容器 role="region" + aria-label：AT 可跳入的地标。
+ * 焦点还原（关闭后回触发元素）在面板层实现：onClose 里把焦点还给图区 svg
+ * （document.querySelector('svg[data-anic-graph]')），不引 focus-trap。
+ */
+export interface NodeDetailOptions {
+  detailId: string;
+  onClose: () => void;
+}
+
+export function renderNodeDetail(node: NodeDetail | null, opts?: NodeDetailOptions): ReactElement | null {
   if (node === null) return null;
+  const closable = opts !== undefined;
   return createElement(
     'div',
     {
       'data-anic-node-detail': 'true',
+      id: opts?.detailId,
+      role: closable ? 'region' : undefined,
+      'aria-label': closable ? t('panel.nodeDetailLabel', { label: node.label }) : undefined,
+      onKeyDown: closable
+        ? (ev: { key: string; preventDefault: () => void }) => {
+            if (ev.key === 'Escape') { ev.preventDefault(); opts.onClose(); }
+          }
+        : undefined,
       style: {
         position: 'sticky', bottom: 0, background: token('anic-detail-surface'),
         borderTop: `2px solid ${token('anic-border')}`, padding: '8px 12px', fontSize: 11,
         fontFamily: 'monospace', maxHeight: 200, overflow: 'auto',
       },
     },
+    closable
+      ? createElement('button', {
+          type: 'button', 'data-anic-node-detail-close': 'true', className: 'anic-btn',
+          autoFocus: true, onClick: opts.onClose,
+          style: { float: 'right', fontSize: 11, padding: '1px 8px', margin: '-2px 0 4px 8px' },
+        }, t('panel.detailClose'))
+      : null,
     createElement('div', { style: { fontWeight: 'bold', marginBottom: 4 } }, `${node.label} [${node.type}]`),
     createElement('div', { style: { color: token('anic-text-strong') } }, `id: ${node.id}`),
     node.result !== undefined

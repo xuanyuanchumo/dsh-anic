@@ -8,7 +8,7 @@
 
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
-import { invokeSkillScript, resolveSkillScriptsDir } from '../skillInvoker.ts';
+import { invokeSkillScript, invokeSkillScriptAsync, resolveSkillScriptsDir, type InvokeResult } from '../skillInvoker.ts';
 import {
   type BootstrapState,
   initialBootstrapState,
@@ -132,5 +132,79 @@ export function runSelfBootstrapCycle(
     state,
     rounds,
     converged: state.status === 'CONVERGED',
+  };
+}
+
+/**
+ * 异步版自举循环（P1-EVENT-LOOP / P1-EXEC-SIGNAL，cycle-16）。
+ *
+ * 语义与同步版逐字相同（同 FlowTracker 记账、同状态机推进、同解析器），
+ * 差异仅三点：async spawn 不阻塞宿主事件循环；exec.signal 触发即终止当前
+ * 子进程并在当前轮边界停止（已完成轮次的状态/账本/flow 记录如实保留——
+ * 绝不回滚已落盘事实）；返回体多 aborted 字段如实上报取消。
+ */
+export async function runSelfBootstrapCycleAsync(
+  workspace: string,
+  maxRounds = 3,
+  timeoutMs = 60000,
+  options?: { signal?: AbortSignal },
+): Promise<BootstrapCycleResult & { aborted: boolean }> {
+  const cyclesDir = join(workspace, '.cycles');
+  if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
+  const scriptsDir = resolveSkillScriptsDir(workspace);
+  const signal = options?.signal;
+
+  let state = loadBootstrapState(cyclesDir);
+  if (state.status === 'CONVERGED' || state.status === 'EXHAUSTED') {
+    state = initialBootstrapState(maxRounds);
+  }
+  state = { ...state, maxRounds };
+
+  let trackerState = loadFlowTracker(cyclesDir);
+  const rounds: BootstrapCycleResult['rounds'] = [];
+  let aborted = false;
+
+  const runStep = async (
+    script: 'eval-runner' | 'gate-check' | 'auto-fix-loop',
+    args: string[],
+  ): Promise<InvokeResult | null> => {
+    if (!scriptsDir) return null;
+    const { state: s, flowId } = startFlow(cyclesDir, trackerState, script, workspace, args);
+    trackerState = s;
+    const result = await invokeSkillScriptAsync(scriptsDir, script, args, workspace, timeoutMs, { signal });
+    trackerState = finishFlow(cyclesDir, trackerState, flowId, result);
+    return result;
+  };
+
+  while (state.round < state.maxRounds && state.status !== 'CONVERGED') {
+    if (signal?.aborted) { aborted = true; break; }
+
+    const evalResult = await runStep('eval-runner', []);
+    const evalScore = evalResult ? parseEvalScore(evalResult) : 0;
+    const evalFlowId = undefined; // flowId 已由 runStep 内部记账（finishFlow 落盘）
+
+    const gateResult = await runStep('gate-check', ['--gate', 'all', '--quality', '--record']);
+    const gateVerdict = gateResult ? parseGateVerdict(gateResult) : 'unknown';
+
+    if (signal?.aborted) { aborted = true; break; }
+
+    const gatePassed = gateVerdict === 'PASS' || gateVerdict === 'approve';
+    let fixApplied: string | null = null;
+    if (!gatePassed && !signal?.aborted) {
+      const fixResult = await runStep('auto-fix-loop', []);
+      fixApplied = fixResult ? parseFixApplied(fixResult) : null;
+    }
+
+    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied);
+    saveBootstrapState(cyclesDir, state);
+
+    rounds.push({ round: state.round, evalScore, gateVerdict, fixApplied, evalFlowId });
+  }
+
+  return {
+    state,
+    rounds,
+    converged: state.status === 'CONVERGED',
+    aborted,
   };
 }

@@ -26,14 +26,12 @@ export function registerHitlTools(tools: ToolsSlot, deps: HitlGatewayDeps): Arra
   // Tool: anic_flows_hitl — HITL 三段修复流程（R3 阶段 4 后半，第 16 工具）
   disposers.push(deps.register({
     name: 'anic_flows_hitl',
-    description:
-      'Run the ANIC HITL three-phase flow: Phase 0 audits H1-H4 (sensitive-data protection, rollback safety, gate-green, ledger arbitration), '
-      + 'Phase 1 attempts automatic fixes for circuit-broken gates ONLY (e.g. .gitignore patterns, git baseline, audit log creation), '
-      + 'Phase 2 re-audits fixed gates; still-circuit gates get an incident file and suggestedNextStep=autonomy-fallback. '
-      + 'Verdicts: pass (exit 0), fail (exit 1), circuit (exit 2 -> BLOCKED, needs human intervention). '
-      + 'H4 ledger conflicts are NEVER auto-fixed (ledger is append-only; hash chain would break). '
-      + 'mode=native (default) runs the TypeScript engine; mode=script runs the canonical skill hitl-audit script. '
-      + 'gate=all (default) or a single gate H1/H2/H3/H4. Returns per-gate checks, fixes, rechecks, incidents and flow events.',
+    // SDO：触发条件 = HITL 审计发现熔断门需要「先修复后降级」处置、或要跑三段修复流程；
+    // 与 anic_hitl 区分：本工具执行修复流程（native 引擎/正典脚本），非路由指针。
+    description: 'Use when HITL-audited gates are circuit-broken and need the three-phase repair flow '
+      + '(audit → auto-fix circuit gates → re-audit), or a full HITL audit with repair semantics is needed. '
+      + 'H4 ledger conflicts stay BLOCKED (append-only, human-only). Triggers: HITL 修复 / '
+      + '三段修复 / hitl circuit / 修复后降级.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

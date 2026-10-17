@@ -25,11 +25,11 @@ export function registerEvolutionTools(tools: ToolsSlot, deps: EvolutionGatewayD
   // Tool: anic_autonomy_downgrade — 证据化自主级回退（评估熔断信号，仅证据支持时执行）
   disposers.push(deps.register({
     name: 'anic_autonomy_downgrade',
-    description:
-      'Evaluate the 8 circuit-breaker signals of a workspace and, ONLY if evidence supports it, '
-      + 'downgrade the autonomy level one step (L4→L3 or L3→L2) in .cycles/config.yml with '
-      + 'Post-Verify re-read and an incident record in .cycles/incidents/. '
-      + 'Refuses when no breaker is tripped (level maintained, nothing written) or at L1/L2 floor.',
+    // SDO：触发条件 = 熔断信号出现/需要评估是否降自主级；证据围栏语义保留（拒绝无证据降级）。
+    description: 'Use when an ANIC-managed project shows circuit-breaker signals and the autonomy level may need '
+      + 'an evidence-based step-down, or when checking whether a downgrade is warranted. '
+      + 'Refuses without tripped-breaker evidence. Triggers: 熔断 / circuit breaker / '
+      + '自主级回退 / autonomy downgrade / L4→L3.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

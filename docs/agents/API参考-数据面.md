@@ -1,6 +1,6 @@
 # dsh-anic API 参考 · 数据面
 
-> 本册覆盖 **data 域**：snapshot / step-trace / self-check / self-init，共 4 个端点。全部只读，唯一例外是 `self-init`（bootstrap 动作）。
+> 本册覆盖 **data 域**：snapshot / step-trace / self-check / self-init + invocations（实时调用流），共 5 个端点。除 `self-init`（bootstrap 动作）外全部只读。
 >
 > 公共约定（注册机制、响应形状、状态码语义、无工作区解析链、磁盘形状）见 [API参考.md](API参考.md)。周期面（cycle / ledger / stack-probe / seg-ledger）见 [API参考-周期面.md](API参考-周期面.md)。
 >
@@ -137,6 +137,23 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 **409 是设计而非意外** —— 注释写明 `refuse-to-rerun (idempotent by design)`：自举只在空工作区发生，重复调用必须响亮拒绝而不是静默覆盖已有配置。
 
 **INV-26 声明**（`selfInitRoute.ts` 头部）：「本路由自身错误只进日志/响应，**绝不写 `.cycles/incidents/`**」。
+
+## 5. GET `/anic/api/invocations/live`
+
+| 项 | 值 |
+| --- | --- |
+| 路径常量 | `invocationRoute.ts:27` |
+| 注册签名 | `registerInvocationRoute(ctx, { send, feed })` |
+| 聚合位置 | `src/host/routes/index.ts:68` |
+
+**动态白盒数据面**（cycle-97）：返回 `InvocationFeed` 实时调用环回缓冲（drop-oldest，limit 50）的只读快照——`anic_*` 工具执行的实时轨迹（脚本名 / 工作目录 / 退出码 / 摘要），供调试「调用没显示」类问题。
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 200 | feed 可用 | 环回缓冲快照 |
+| 500 | `feed` 为 null（插件装配未传入） | 诚实失败，不伪造空列表 |
+
+**本端点无工作区依赖**（实时缓冲在内存，不读磁盘工件）。与 flow-tracker（`.cycles/flow-tracker.json`，持久化调用史）互补：invocations/live 是**当下**的环回窗口，flow-tracker 是**持久**的审计记录。接线细节见 [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md)。
 
 ## 相关文档
 

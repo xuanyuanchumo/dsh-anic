@@ -6,6 +6,8 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
+import { StatusDot } from '../../components/statusDot.ts';
+import { toneColor, type ToneName } from '../../components/dataRow.ts';
 
 export interface TraceStepJson {
   nodeId: string;
@@ -16,6 +18,7 @@ export interface TraceStepJson {
   sources: string[];
   ledgerVerdict: { result: string; timestamp: string } | null;
   cyclesSeen: string[];
+  producedBy: string | null;
   warnings: string[];
 }
 
@@ -26,14 +29,18 @@ export interface StepTraceJson {
   warnings: string[];
 }
 
-/** 步骤状态色（P1-TOKENS）：原为私有十六进制表，现走语义令牌。 */
-const STATUS_COLORS: Record<string, string> = {
-  done: token('anic-status-done'),
-  active: token('anic-status-active'),
-  failed: token('anic-status-failed'),
-  skipped: token('anic-status-skipped'),
-  pending: token('anic-status-pending'),
-};
+/**
+ * 步骤状态 → 图形色调（B4：枚举→tone→令牌两跳，最后一跳收敛到 components/
+ * dataRow 的 TONE_TOKEN 表；未知状态回 pending）。角色是 10px 圆点 background
+ * ⇒ 非文本 ≥3.3 档（statusDot 消费图形令牌）。
+ */
+function statusToneOf(status: string): ToneName {
+  if (status === 'done') return 'done';
+  if (status === 'active') return 'active';
+  if (status === 'failed') return 'failed';
+  if (status === 'skipped') return 'skipped';
+  return 'pending';
+}
 
 /** 纯渲染：StepTrace JSON → 元素树（smoke 可断言）。 */
 export function renderStepTrace(trace: StepTraceJson): ReactElement {
@@ -48,13 +55,7 @@ export function renderStepTrace(trace: StepTraceJson): ReactElement {
           padding: '3px 8px', borderBottom: `1px solid ${token('anic-row-border')}`,
         },
       },
-      createElement('span', {
-        style: {
-          width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-          background: STATUS_COLORS[s.status] ?? token('anic-status-pending'),
-          border: `1px solid ${token('anic-border-strong')}`,
-        },
-      }),
+      StatusDot({ color: toneColor(statusToneOf(s.status)), size: 10, border: true }),
       createElement('span', { style: { minWidth: 160, color: token('anic-text') } }, s.name || s.nodeId),
       createElement('span', { style: { color: token('anic-text-dim') } }, `${s.kind} · ${s.status}`),
       s.basis === 'heuristic'
@@ -66,6 +67,13 @@ export function renderStepTrace(trace: StepTraceJson): ReactElement {
         : createElement('span', { style: { color: token('anic-ok-text'), fontSize: 10 } }, t('trace.structured')),
       s.ledgerVerdict
         ? createElement('span', { style: { color: token('anic-ledger-text'), fontSize: 10 } }, t('trace.ledger', { result: s.ledgerVerdict.result }))
+        : null,
+      s.producedBy
+        ? createElement('span', {
+            'data-anic-produced-by': s.producedBy,
+            title: t('trace.producedByTitle'),
+            style: { color: token('anic-text-faint'), fontSize: 10, marginLeft: 'auto' },
+          }, t('trace.producedBy', { producer: s.producedBy }))
         : null,
     ),
   );

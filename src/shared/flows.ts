@@ -19,6 +19,8 @@ export interface FlowDefinition {
   /** 全量 id，形如 'flow.workflowTab'（与 docs/anic/13 §2.2 表一致） */
   id: string;
   label: string;
+  /** 客户端渲染键（locale/zh|en.json 的 flows.* 段）；label 是 host/诊断侧的中文口径，客户端一律走 t(labelKey) */
+  labelKey: string;
   /** 该开关支持哪几层配置（M1 只启用 user 层；workspace/deployment 在 M2-a 接入） */
   layers: readonly FlowLayer[];
   /** 关闭形态契约（degradation contract）：关闭后系统处于什么状态 */
@@ -41,20 +43,20 @@ export interface PrefsFile {
   flows: Record<string, boolean>;
 }
 
-/** 10 个 flow 开关（与 docs/anic/13 §2.2 逐行对应 + cycle-9 新增 flowsView，新增开关必须同时更新该表） */
+/** 10 个 flow 开关（与 docs/anic/13 §2.2 逐行对应 + cycle-9 新增 flowsView，新增开关必须同时更新该表 + locale flows.* 段） */
 export const FLOWS: readonly FlowDefinition[] = [
-  { id: 'flow.workflowTab', label: 'ANIC 可视化标签', layers: ['user', 'workspace', 'deployment'], degradation: 'unregister 槽位（既有 disposer 路径）；宿主路由/工具照常' },
-  { id: 'flow.stepTrace', label: '白盒流程分区', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
-  { id: 'flow.diagnostics', label: '诊断面板', layers: ['user', 'workspace', 'deployment'], degradation: '面板不注册；遥测仍在内存环形缓冲（不丢证据）' },
-  { id: 'flow.approvals', label: '批准卡/HITL 队列', layers: ['user', 'workspace', 'deployment'], degradation: '队列只读展示 + 指引改走技能 CLI（自主级自动降 L2）' },
-  { id: 'flow.autoRefresh', label: 'live 轮询/刷新', layers: ['user', 'workspace', 'deployment'], degradation: '回退手动刷新按钮（条件请求语义仍在）' },
-  { id: 'flow.gateRecord', label: '门禁结果自动入账本', layers: ['workspace', 'deployment'], degradation: '不自动记账，UI 显式标注「未入账本」（诚实降级）' },
-  { id: 'flow.budgetEnforce', label: '预算熔断', layers: ['workspace', 'deployment'], degradation: '降级为只告警不熔断（显示风险横幅）' },
-  { id: 'flow.selfInit', label: '自举命令', layers: ['workspace', 'deployment'], degradation: '命令返回响亮禁用提示' },
-  { id: 'flow.agentsOrchestration', label: '子代理编排流', layers: ['workspace', 'deployment'], degradation: '编排配方标记停用；工具面照常（手动编排不受影响）' },
+  { id: 'flow.workflowTab', label: 'ANIC 可视化标签', labelKey: 'flows.workflowTab', layers: ['user', 'workspace', 'deployment'], degradation: 'unregister 槽位（既有 disposer 路径）；宿主路由/工具照常' },
+  { id: 'flow.stepTrace', label: '白盒流程分区', labelKey: 'flows.stepTrace', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
+  { id: 'flow.diagnostics', label: '诊断面板', labelKey: 'flows.diagnostics', layers: ['user', 'workspace', 'deployment'], degradation: '面板不注册；遥测仍在内存环形缓冲（不丢证据）' },
+  { id: 'flow.approvals', label: '批准卡/HITL 队列', labelKey: 'flows.approvals', layers: ['user', 'workspace', 'deployment'], degradation: '队列只读展示 + 指引改走技能 CLI（自主级自动降 L2）' },
+  { id: 'flow.autoRefresh', label: 'live 轮询/刷新', labelKey: 'flows.autoRefresh', layers: ['user', 'workspace', 'deployment'], degradation: '回退手动刷新按钮（条件请求语义仍在）' },
+  { id: 'flow.gateRecord', label: '门禁结果自动入账本', labelKey: 'flows.gateRecord', layers: ['workspace', 'deployment'], degradation: '不自动记账，UI 显式标注「未入账本」（诚实降级）' },
+  { id: 'flow.budgetEnforce', label: '预算熔断', labelKey: 'flows.budgetEnforce', layers: ['workspace', 'deployment'], degradation: '降级为只告警不熔断（显示风险横幅）' },
+  { id: 'flow.selfInit', label: '自举命令', labelKey: 'flows.selfInit', layers: ['workspace', 'deployment'], degradation: '命令返回响亮禁用提示' },
+  { id: 'flow.agentsOrchestration', label: '子代理编排流', labelKey: 'flows.agentsOrchestration', layers: ['workspace', 'deployment'], degradation: '编排配方标记停用；工具面照常（手动编排不受影响）' },
   // cycle-9（D10 宿主域接线）：flows 状态面板分区。路由 /anic/flows/status 与
   // 状态机本身不关（核心链路），只关面板分区 —— 关闭形态契约与 stepTrace 同款。
-  { id: 'flow.flowsView', label: '流程状态机面板', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
+  { id: 'flow.flowsView', label: '流程状态机面板', labelKey: 'flows.flowsView', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
 ];
 
 export const FLOW_IDS: readonly string[] = FLOWS.map((f) => f.id);

@@ -26,6 +26,7 @@ const STEPS = [
   { id: 'validate', cmd: [process.execPath, join(PLUGIN_ROOT, 'scripts', 'validate-dsh.mjs')], label: 'DSH 规范符合性门' },
   { id: 'vitest', cmd: [process.execPath, join(PLUGIN_ROOT, 'scripts', 'run-vitest.mjs')], label: '单元 + 契约守卫 (vitest)' },
   { id: 'smoke', cmd: [process.execPath, join(PLUGIN_ROOT, 'scripts', 'offline-smoke.mjs')], label: '机制冒烟 (stub 宿主)' },
+  { id: 'trigger', cmd: [process.execPath, join(PLUGIN_ROOT, 'scripts', 'trigger-eval.mjs')], label: '触发评估 (trigger-eval 代理评分)' },
 ];
 if (live) STEPS.push({ id: 'live', cmd: [process.execPath, join(PLUGIN_ROOT, 'scripts', 'j0-probe.mjs')], label: '真实宿主 E2E (J0 probe)' });
 

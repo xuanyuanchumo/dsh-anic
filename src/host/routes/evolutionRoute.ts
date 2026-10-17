@@ -2,6 +2,7 @@
  * M5 进化引擎路由 — 信任度/自主级别/技术债务查询与操作。
  */
 
+import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
 import {
@@ -18,6 +19,7 @@ import {
 } from '../evolution/autonomyGovernor.ts';
 import { generateTechDebt, type EvalResult } from '../evolution/patchEngine.ts';
 import { runAutonomyFallback } from '../evolution/autonomyActions.ts';
+import { listTechDebt, markTechDebtConsumed } from '../evolution/techDebtQueue.ts';
 import { newRequestId } from '../logger.ts';
 import { resolveWorkspaceRoots } from '../snapshotRoute.ts';
 
@@ -86,12 +88,58 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     });
   });
 
-  // POST /anic/api/tech-debt — 从评估结果生成技术债务
+  // GET /anic/api/tech-debt/list — 列出 .cycles/tech-debt/ 全部提案（G-C3 消费侧读面）。
+  // 读面用独立子路径而非与 POST 生成面共用 /anic/api/tech-debt：webServer 的 exact
+  // 表对同 path 双注册（GET+POST 各一条）的覆盖语义未在官方文档钉死，分路径零歧义。
+  // open = 未消费提案（人/上游 agent 执行修复的工作队列）；
+  // resolved = 已消费（带 consumedAt/consumedBy 审计字段）；
+  // skipped = 非 TechDebtEntry 形态文件（fix-loop 数组已展开，自由形态如实跳过）。
+  reg('/anic/api/tech-debt/list', 'GET', (req: RouteReq, res: unknown) => {
+    let root: string | null = null;
+    try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
+    if (!root) {
+      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      return;
+    }
+    const listing = listTechDebt(join(root, '.cycles'));
+    send(res, 200, {
+      open: listing.open,
+      openCount: listing.open.length,
+      resolvedCount: listing.resolved.length,
+      skipped: listing.skipped,
+    });
+  });
+
+  // POST /anic/api/tech-debt — 从评估结果生成技术债务（生成侧，既有语义）
   reg('/anic/api/tech-debt', 'POST', (req: RouteReq, res: unknown) => {
     void readBody(req).then((parsed) => {
     const results = Array.isArray(parsed.results) ? (parsed.results as EvalResult[]) : [];
     const entries = generateTechDebt(results);
     send(res, 200, { techDebt: entries, count: entries.length });
+    });
+  });
+
+  // POST /anic/api/tech-debt/consume — 标记提案已消费（G-C3 消费侧写面）。
+  // 语义：修复已由人/上游完成，这里只做记账（resolved=true + 审计字段）。
+  // R-31 红线不破：本路由绝不执行修复，只记录消费事实。
+  reg('/anic/api/tech-debt/consume', 'POST', (req: RouteReq, res: unknown) => {
+    void readBody(req).then((parsed) => {
+    let root: string | null = null;
+    try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
+    if (!root) {
+      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      return;
+    }
+    const ids = Array.isArray(parsed.ids) ? parsed.ids.filter((v): v is string => typeof v === 'string') : [];
+    const consumedBy = typeof parsed.consumedBy === 'string' && parsed.consumedBy.length > 0
+      ? parsed.consumedBy.slice(0, 200)
+      : 'unknown';
+    if (ids.length === 0) {
+      send(res, 400, { error: { code: 'ANIC_ROUTE_BAD_REQUEST', message: 'ids[] required (proposal ids to mark consumed)' } });
+      return;
+    }
+    const result = markTechDebtConsumed(join(root, '.cycles'), ids, consumedBy);
+    send(res, 200, result);
     });
   });
 

@@ -25,15 +25,26 @@ export interface AdvanceResult {
   reason?: string;
 }
 
-/** 列出已有 cycle 目录（数值序）。 */
+/** 列出已有 cycle 目录（数值序）。
+ *
+ * 布局对齐（cycle-16 真机暴露）：正典 cycle 目录在 `.cycles/cycles/cycle-N`
+ * （技能 init-cycle.mjs 的写入位置；gateEngine.ts:55 / orgStatus.ts:33 /
+ * macroPhaseEngine.ts:82 同款双跳）。旧实现只扫 `.cycles` 根——真实工作区
+ * 永远空列表（cycle/list 在任何真机从未工作过；B1 时间线是第一个消费者才抓到）。
+ * 同时兼容单跳布局（cycleRunner 自身 initCycle 写出的位置）：两处都扫，数值序合并。
+ */
 export function listCycles(cyclesDir: string): number[] {
-  if (!existsSync(cyclesDir)) return [];
   const nums: number[] = [];
-  for (const entry of readdirSync(cyclesDir)) {
-    const m = entry.match(/^cycle-(\d+)$/);
-    if (m?.[1]) nums.push(parseInt(m[1], 10));
-  }
-  return nums.sort((a, b) => a - b);
+  const scan = (dir: string): void => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir)) {
+      const m = entry.match(/^cycle-(\d+)$/);
+      if (m?.[1]) nums.push(parseInt(m[1], 10));
+    }
+  };
+  scan(cyclesDir); // 旧单跳布局（兼容）
+  scan(join(cyclesDir, 'cycles')); // 正典双跳布局（技能正典）
+  return [...new Set(nums)].sort((a, b) => a - b);
 }
 
 /** 取下一个 cycle 编号（max+1，不靠字典序）。 */
@@ -42,10 +53,11 @@ export function nextCycleNumber(cyclesDir: string): number {
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
-/** 初始化新 cycle。 */
+/** 初始化新 cycle（正典双跳布局 .cycles/cycles/cycle-N，与技能 init-cycle.mjs 对齐）。 */
 export function initCycle(cyclesDir: string, projectName?: string): CycleInfo {
+  const canonical = join(cyclesDir, 'cycles');
   const n = nextCycleNumber(cyclesDir);
-  const cycleDir = join(cyclesDir, `cycle-${n}`);
+  const cycleDir = join(canonical, `cycle-${n}`);
   const now = new Date().toISOString();
 
   // 创建标准子目录（不创建空目录的空目录——只创有内容的）

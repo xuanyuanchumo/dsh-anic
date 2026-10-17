@@ -52,7 +52,8 @@
     "colType": "Type",
     "colVerdict": "Verdict",
     "colLabel": "Name",
-    "detailClose": "Close detail"
+    "detailClose": "Close detail",
+    "nodeDetailLabel": "Node detail: {label}"
   },
   "state": {
     "loading": "Loading…",
@@ -87,6 +88,8 @@
     "heuristicTitle": "Heuristic (INV-27): structured state missing, inferred from ledger verdicts",
     "structured": "✓ structured",
     "ledger": "ledger: {result}",
+    "producedBy": "produced by: {producer}",
+    "producedByTitle": "Producer annotation (G-T5 structured map): which script/flow produced this step's artifacts; omitted when not structurally determinable (never guessed)",
     "line": "{count} steps · projection {generatedAt}",
     "warnings": "{count} projection warnings (honest annotation, not errors)",
     "statusDone": "done",
@@ -94,6 +97,18 @@
     "statusFailed": "failed",
     "statusSkipped": "skipped",
     "statusPending": "pending"
+  },
+  "flows": {
+    "workflowTab": "ANIC visualization tab",
+    "stepTrace": "Step-trace section",
+    "diagnostics": "Diagnostics panel",
+    "approvals": "Approval cards / HITL queue",
+    "autoRefresh": "Live polling / refresh",
+    "gateRecord": "Auto-record gate results to ledger",
+    "budgetEnforce": "Budget breaker",
+    "selfInit": "Self-init command",
+    "agentsOrchestration": "Agent orchestration flow",
+    "flowsView": "Flow state machine panel"
   },
   "diag": {
     "title": "Runtime self-check (Runtime INV Probes)",
@@ -137,19 +152,16 @@
     "sourceDeployment": "deployment",
     "sourceDefault": "default",
     "sourceLine": "{source} layer · {layers}",
-    "contractLabel": "Degradation: ",
-    "reserved": "reserved",
-    "reservedTitle": "This switch takes effect host-side; the panel has no UI effect yet (honest label, not fake wiring)",
-    "layerLocked": "layer read-only",
-    "layerLockedTitle": "This switch does not support the user layer: edit the anic section of .cycles/config.yml instead",
     "warnings": "{count} switch warnings (unknown keys / invalid values ignored, see telemetry)",
-    "hint": "M1: only the user layer is writable here; edit the anic section of .cycles/config.yml for the workspace layer (the single canonical entry).",
-    "allOn": "All on",
-    "allOff": "All off",
-    "reset": "Reset to default",
-    "groupUser": "User-layer switches (writable)",
-    "groupLocked": "Workspace/deployment-layer switches (read-only)",
-    "close": "Collapse drawer"
+    "hint": "M1: only the user layer is writable here; edit the anic section of .cycles/config.yml for the workspace layer (the single canonical entry)."
+  },
+  "cycles": {
+    "title": "Cycle timeline ({total} cycles)",
+    "summary": "latest cycle-{latest} · next cycle-{next} · {advanced} nodes advanced in current",
+    "noLatest": "(no cycle)",
+    "currentTitle": "cycle-{num} (current, {advanced} nodes advanced)",
+    "pastTitle": "cycle-{num}",
+    "ariaLabel": "Cycle timeline: {total} cycles, latest cycle-{latest}"
   },
   "flows": {
     "workflowTab": "Workflow Tab",

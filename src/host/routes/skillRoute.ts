@@ -3,7 +3,7 @@
  * M8: skill/invoke + skill/list + evaluate + iterate
  */
 
-import path from 'node:path';
+import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
 import { resolveWorkspaceRoots, sendJson } from '../snapshotRoute.ts';
@@ -14,8 +14,35 @@ import {
   validateWorkspace,
   invokeSkillScript,
 } from '../skillInvoker.ts';
+import { parseEvalScore, parseGateVerdict } from '../runtime/scriptParsers.ts';
+import { appendCrossProjectHistory } from '../crossProjectHistory.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
+
+/** 跨项目结果回写插件工作区自举历史（G-C5；失败响亮降级不阻断主结果）。 */
+function syncCrossProjectHistory(
+  ctx: SnapshotCtx,
+  kind: 'evaluate' | 'iterate',
+  targetWorkspace: string,
+  evalScore: number | null,
+  gateVerdict: string | null,
+): { bootstrapSync: 'ok' } | { bootstrapSync: 'failed'; bootstrapSyncReason: string } {
+  try {
+    const ownRoots = resolveWorkspaceRoots(ctx);
+    if (!ownRoots) return { bootstrapSync: 'failed', bootstrapSyncReason: 'own workspace unresolvable' };
+    const r = appendCrossProjectHistory(join(ownRoots, '.cycles'), {
+      timestamp: new Date().toISOString(),
+      kind,
+      workspace: targetWorkspace,
+      evalScore,
+      gateVerdict,
+    });
+    if (!r.ok) return { bootstrapSync: 'failed', bootstrapSyncReason: r.reason };
+    return { bootstrapSync: 'ok' };
+  } catch (e) {
+    return { bootstrapSync: 'failed', bootstrapSyncReason: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 /** 注册技能调用路由（list/invoke/evaluate/iterate）。 */
 export function registerSkillRoutes(
@@ -90,6 +117,9 @@ export function registerSkillRoutes(
       const args = dimensions ? ['--dimensions', dimensions] : [];
       const result = invokeSkillScript(scriptsDir, 'eval-runner', args, workspace, 60000);
 
+      // G-C5：跨项目评估摘要回写插件自身 self-bootstrap.json（增强非依赖）
+      const sync = syncCrossProjectHistory(ctx, 'evaluate', workspace, parseEvalScore(result), null);
+
       send(res, 200, {
         workspace,
         exitCode: result.exitCode,
@@ -97,6 +127,7 @@ export function registerSkillRoutes(
         stderr: result.stderr.slice(0, 4000),
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        ...sync,
       });
       });
     }),
@@ -120,6 +151,13 @@ export function registerSkillRoutes(
         workspace, 60000,
       );
 
+      // G-C5：跨项目迭代摘要回写（eval 分数 + 门禁裁决）
+      const sync = syncCrossProjectHistory(
+        ctx, 'iterate', workspace,
+        parseEvalScore(evalResult),
+        parseGateVerdict(gateResult),
+      );
+
       send(res, 200, {
         workspace,
         eval: {
@@ -132,6 +170,7 @@ export function registerSkillRoutes(
           stdout: gateResult.stdout.slice(0, 4000),
           timedOut: gateResult.timedOut,
         },
+        ...sync,
       });
       });
     }),

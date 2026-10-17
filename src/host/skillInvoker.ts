@@ -6,6 +6,11 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+// Q5 断环（cycle-16）：InvokeResult 的单一实现在异步伴生文件里，本文件只
+// import type 单向引入（注意：静态 import 图扫描器按文本匹配 from-字面量，
+// 注释里不要写带引号的相对路径，否则会被当成真实边）。
+import type { InvokeResult } from './skillInvokerAsync.ts';
+export type { InvokeResult } from './skillInvokerAsync.ts';
 
 const SKILL_SCRIPTS = [
   'init-workflow',
@@ -27,14 +32,7 @@ const SKILL_SCRIPTS = [
 
 export type SkillScriptName = (typeof SKILL_SCRIPTS)[number];
 
-export interface InvokeResult {
-  script: string;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-  durationMs: number;
-}
+// （InvokeResult 形状见 skillInvokerAsync.ts —— Q5 断环后类型的单一实现处）
 
 export function isAllowedScript(name: string): name is SkillScriptName {
   return (SKILL_SCRIPTS as readonly string[]).includes(name);
@@ -174,3 +172,7 @@ export function invokeSkillScript(
     durationMs: Date.now() - start,
   };
 }
+
+// 异步版（P1-EXEC-SIGNAL / P1-EVENT-LOOP）拆分至 skillInvokerAsync.ts；
+// re-export 保持既有 import 路径稳定（tools*.ts / flows / orchestrator 均可两选一）。
+export { invokeSkillScriptAsync, type InvokeOptions } from './skillInvokerAsync.ts';

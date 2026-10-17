@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_meta": {
+    "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：20 条查询（10 正 10 负）、负例取「关键词相近但应触发其他工具」的险些误触、每条 3 次重复取触发率、60/40 训练/测试分离、按 held-out 分选优。静态数据文件（研究产物，非源码）；A3 实现 trigger-eval.mjs 时按 split 字段分组消费。",
+    "createdAt": "2026-10-18",
+    "source": "skill-ecosystem.md P0-2 设计（.cycles/cycles/cycle-16/research/skill-ecosystem.md）",
+    "designRules": [
+      "正例：真实用户口吻（具体、带细节、可能有口语/缩写），覆盖 17 工具中最重要的 10 个",
+      "负例：shouldTriggerOtherTool（关键词相近但语义指向别的 anic 工具）或 shouldTriggerNone（与 anic 无关的相近关键词）",
+      "split: train 60% / test 40%——12 train + 8 test，正负均衡",
+      "query 风格参照 skill-creator：非抽象请求，带文件路径/项目背景/口语化细节"
+    ],
+    "usage": "A3 脚本对每条 query 采样 3 次（各独立会话），记录是否触发 expectedTool；负例命中 expectedTool 即为误触（false positive）。expectedTool 为 null 表示不应触发任何 anic_* 工具。"
+  },
+  "queries": [
+    {
+      "id": "pos-01",
+      "split": "train",
+      "query": "我们项目刚做完一轮功能开发，现在要看看整体质量怎么样，帮我跑一下评估报告，重点看 E1-E8 维度",
+      "expectedTool": "anic_evaluate",
+      "rationale": "正例：质量评估报告 + E1-E8 触发词明确指向评估而非门禁"
+    },
+    {
+      "id": "pos-02",
+      "split": "test",
+      "query": "d:\\demo\\my-app 这个项目还没有初始化 anic 工作流，帮我装上技能并把骨架建起来，之后我要开始写 intent",
+      "expectedTool": "anic_install",
+      "rationale": "正例：新项目 bootstrap 场景，装技能 + 初始化骨架是 anic_install 的语义"
+    },
+    {
+      "id": "pos-03",
+      "split": "train",
+      "query": "这轮迭代改了不少代码，跑一轮完整的迭代吧，评估加门禁一起，我想看能不能收敛",
+      "expectedTool": "anic_iterate",
+      "rationale": "正例：「跑一轮完整迭代」「评估加门禁一起」= 单轮 eval+gate 组合，anic_iterate 的正典场景"
+    },
+    {
+      "id": "pos-04",
+      "split": "test",
+      "query": "准备发版了，G0 到 G3 的收敛门全部检查一遍，结果记到账本里，发版要有据可查",
+      "expectedTool": "anic_gate_check",
+      "rationale": "正例：G0-G3 + 记账本 = anic_gate_check（简单门禁运行，非流程状态机视角）"
+    },
+    {
+      "id": "pos-05",
+      "split": "train",
+      "query": "pnpm test 红了一片，同样的错误反复出现，帮我跑自动修复循环，修不动的话分析一下失败模式",
+      "expectedTool": "anic_flows_auto_fix",
+      "rationale": "正例：测试反复红 + 自动修复 + 失败模式分析 = auto-fix 循环的正典触发症状"
+    },
+    {
+      "id": "pos-06",
+      "split": "test",
+      "query": "HITL 审计说 H1 和 H2 熔断了，gitignore 缺模式和 git 没初始化基线，走一遍三段修复流程处理掉",
+      "expectedTool": "anic_flows_hitl",
+      "rationale": "正例：HITL 熔断门的「先修复后降级」三段修复 = anic_flows_hitl（修复流程，非审计入口）"
+    },
+    {
+      "id": "pos-07",
+      "split": "train",
+      "query": "设计阶段的活干完了，intent 也被接受了，把工作流推进到 build 阶段吧",
+      "expectedTool": "anic_flows_advance",
+      "rationale": "正例：宏观阶段推进（design→build）+ 门禁前置 = anic_flows_advance 的唯一语义"
+    },
+    {
+      "id": "pos-08",
+      "split": "test",
+      "query": "cycle-15 已经全部任务完成了，归档一下，然后看看现在一共有哪些归档的循环",
+      "expectedTool": "anic_flows_archive",
+      "rationale": "正例：归档完成循环 + 查归档清单 = anic_flows_archive 双动作"
+    },
+    {
+      "id": "pos-09",
+      "split": "train",
+      "query": "帮我看下这个项目现在的自主级是多少，最近的技能调用记录和健康度也一起拉出来",
+      "expectedTool": "anic_status",
+      "rationale": "正例：自主级 + 调用历史 + 健康度 = anic_status 全景查询三要素"
+    },
+    {
+      "id": "pos-10",
+      "split": "test",
+      "query": "不用一步一步调了，直接驱动完整自举循环让它自动收敛，最多跑 5 轮",
+      "expectedTool": "anic_bootstrap_cycle",
+      "rationale": "正例：「不要单步、驱动完整自举循环自动收敛」= anic_bootstrap_cycle 与单步调用的区分语义"
+    },
+    {
+      "id": "neg-01",
+      "split": "train",
+      "query": "帮我看看这个 PR 的测试覆盖怎么样，有没有漏测的关键路径",
+      "expectedTool": null,
+      "rationale": "负例（shouldTriggerNone）：「测试覆盖」是通用代码审查请求，无 ANIC 工作流上下文（.cycles/config.yml、评估基线），不应触发 anic_evaluate——评估工具只管 ANIC 管理的项目质量评估报告，不管任意 PR 的覆盖审查"
+    },
+    {
+      "id": "neg-02",
+      "split": "test",
+      "query": "给这个仓库加个 CI 流水线吧，push 的时候自动跑构建和部署",
+      "expectedTool": null,
+      "rationale": "负例（shouldTriggerNone）：「构建/部署」关键词与 G3/Deploy 门禁相近，但实际是搭 CI 的开发任务，与 anic 门禁无关"
+    },
+    {
+      "id": "neg-03",
+      "split": "train",
+      "query": "代码里有个 bug 一直复现，帮我调试定位一下根因",
+      "expectedTool": null,
+      "rationale": "负例（shouldTriggerNone）：「复现/根因」与 auto-fix 的失败模式分析关键词相近，但普通 bug 调试不是测试失败的自动修复循环——anic_flows_auto_fix 只管测试命令反复失败的修复"
+    },
+    {
+      "id": "neg-04",
+      "split": "test",
+      "query": "帮我把这个组件的样式改一下，红色改成蓝色，间距收紧一点",
+      "expectedTool": null,
+      "rationale": "负例（shouldTriggerNone）：UI 修改请求，与所有 anic 工具无关——验证不误触"
+    },
+    {
+      "id": "neg-05",
+      "split": "train",
+      "query": "插件自己最近状态怎么样，跑一次自举看看有没有技术债可以登记的",
+      "expectedTool": "anic_bootstrap",
+      "rationale": "负例（shouldTriggerOtherTool）：「插件自身 + 自举 + 技术债」险些指向 anic_bootstrap_cycle 或 anic_bootstrap_analyze，但「评估 dsh-anic 自己 + tech-debt 提案」的正典语义是 anic_bootstrap（单次自评估）。此例检验三个 bootstrap 工具的区分度——若 A3 判定 anic_bootstrap_cycle 更合理可改 expectedTool 并记录理由"
+    },
+    {
+      "id": "neg-06",
+      "split": "test",
+      "query": "门禁跑完想把流程状态机的当前状态和流转事件也一起看，顺便对比下 script 和 native 两个引擎的判定有没有分叉",
+      "expectedTool": "anic_flows_gate_check",
+      "rationale": "负例（shouldTriggerOtherTool）：「门禁」先想到 anic_gate_check，但「流程状态机视角 + diff 对账」的语义专属 anic_flows_gate_check——检验两个门禁工具的区分度"
+    },
+    {
+      "id": "neg-07",
+      "split": "train",
+      "query": "把工作流图渲染出来我想看下现在的节点和连线，最好能看到门禁的三色状态",
+      "expectedTool": "anic_snapshot",
+      "rationale": "负例（shouldTriggerOtherTool）：「工作流图渲染」可能被引导到 DSH 插件的 ANIC 标签页（人看 UI），但作为工具调用语义（取图数据供检查/渲染）指向 anic_snapshot 而非 anic_status——检验快照与状态全景的区分度"
+    },
+    {
+      "id": "neg-08",
+      "split": "test",
+      "query": "自举跑完了，技术债提案、HITL 审计发现、事实基座验证和风险评分都给我整理出来，我要人工过一遍",
+      "expectedTool": "anic_bootstrap_analyze",
+      "rationale": "负例（shouldTriggerOtherTool）：「自举 + 技术债」指向 anic_bootstrap / anic_bootstrap_cycle，但「深度分析产物供开发者审阅（tech-debt + HITL + fact-base + risk score）」专属 anic_bootstrap_analyze——检验三 bootstrap 工具的区分度"
+    },
+    {
+      "id": "neg-09",
+      "split": "train",
+      "query": "org-status 脚本跑一下，我看看 band 违例和组织状态，顺便用 quick-validate 自检一下技能包",
+      "expectedTool": "anic_skill",
+      "rationale": "负例（shouldTriggerOtherTool）：org-status 有语义关联 anic_status（全景），但用户点名了具体脚本名 + 自定义参数（quick-validate 非独立命名工具）——通用脚本网关 anic_skill 是正确入口。检验命名工具与通用网关的分工"
+    },
+    {
+      "id": "neg-10",
+      "split": "test",
+      "query": "这个会话上下文是不是快满了？帮我压缩一下对话历史",
+      "expectedTool": null,
+      "rationale": "负例（shouldTriggerNone）：「上下文水位」与 anic 熔断条件 7（上下文 >85%）关键词相近，但用户的实际诉求是压缩对话历史（宿主能力），与 anic_* 工具无关"
+    }
+  ],
+  "_stats": {
+    "total": 20,
+    "positive": 10,
+    "negative": 10,
+    "negativeBreakdown": { "shouldTriggerNone": 6, "shouldTriggerOtherTool": 4 },
+    "splitBreakdown": { "train": 12, "test": 8 },
+    "positiveToolsCovered": [
+      "anic_evaluate",
+      "anic_install",
+      "anic_iterate",
+      "anic_gate_check",
+      "anic_flows_auto_fix",
+      "anic_flows_hitl",
+      "anic_flows_advance",
+      "anic_flows_archive",
+      "anic_status",
+      "anic_bootstrap_cycle"
+    ],
+    "distinguishingPairsExercised": [
+      "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08）",
+      "anic_gate_check vs anic_flows_gate_check（neg-06）",
+      "anic_snapshot vs anic_status（neg-07）",
+      "anic_status vs anic_skill（neg-09）",
+      "anic_flows_auto_fix vs 普通调试（neg-03）"
+    ]
+  }
+}
