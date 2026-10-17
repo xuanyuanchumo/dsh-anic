@@ -18,7 +18,7 @@
 import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { DIMENSIONS, resolveDimensions } from './lib/dimensions.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
@@ -377,20 +377,31 @@ function checkResponsive(projectDir) {
 }
 
 function checkComplexity(projectDir) {
+  // D-1415（cycle-15，D-1404 漏网同型）：原 `… 2>&1 || true` 在 cmd.exe 无 true
+  // 命令——band-detector 非零退出（真发现 WE 违例/超预算，正是需要报警时）execSync
+  // 抛错进 catch → SKIP（fail-open）。改 execFileSync 直跑（无 shell 语义），非零
+  // 退出时从 e.stdout 取完整输出按文本裁决。
+  let output = '';
   try {
-    const output = execSync(`node "${join(SKILL_ROOT, 'scripts', 'band-detector.mjs')}" "${projectDir}" --threshold 0.15 2>&1 || true`, {
+    output = execFileSync('node', [join(SKILL_ROOT, 'scripts', 'band-detector.mjs'), projectDir, '--threshold', '0.15'], {
       timeout: 30000, stdio: 'pipe', encoding: 'utf-8',
     });
-    if (output.includes('OVER_BUDGET')) {
-      return { pass: false, detail: 'Complexity over budget' };
-    }
-    if (output.includes('WARNING')) {
-      return { pass: true, detail: 'Complexity within bands (warning)' };
-    }
-    return { pass: true, detail: 'Complexity within acceptable bands' };
-  } catch {
-    return skipped('Complexity check unavailable (band-detector failed)');
+  } catch (e) {
+    output = String(e.stdout ?? '');
+    if (!output) return skipped('Complexity check unavailable (band-detector failed)');
   }
+  if (output.includes('OVER_BUDGET')) {
+    return { pass: false, detail: 'Complexity over budget' };
+  }
+  const weMatch = output.match(/(\d+) Western Electric rule violation/);
+  if (weMatch) {
+    // 统计控制信号：过程漂移提示（如复杂度改善也会触发）——可见但不过度 FAIL
+    return { pass: true, detail: `Complexity within bands (${weMatch[1]} WE rule signal(s), statistical control advisory)` };
+  }
+  if (output.includes('WARNING')) {
+    return { pass: true, detail: 'Complexity within bands (warning)' };
+  }
+  return { pass: true, detail: 'Complexity within acceptable bands' };
 }
 
 function checkErrorHandling(projectDir) {

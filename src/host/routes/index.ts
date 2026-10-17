@@ -11,7 +11,7 @@
  *
  * 共享 deps 经 routeContext 提取（单一职责）；agent 卡目录 dist 相对推导。
  */
-import { fileURLToPath } from 'node:url';
+import { pluginAssetDir, resolvePluginRoot } from '../pluginRoot.ts';
 import { registerSnapshotRoute, type SnapshotCtx } from '../snapshotRoute.ts';
 import { registerStepTraceRoute } from './stepTraceRoute.ts';
 import { registerSelfCheckRoute } from './selfCheckRoute.ts';
@@ -44,9 +44,9 @@ export interface RegisterRoutesOptions {
 }
 
 function defaultAgentCardsDir(): string {
-  // dist/host.js → ../assets/agents/ = dsh-anic/assets/agents/
-  // （../../ 会多弹一层落到 workspace root，P4 自检 ENOENT 根因）
-  try { return fileURLToPath(new URL('../assets/agents/', import.meta.url)); } catch { return ''; }
+  // P0-DIR-ROOT（cycle-15）：标记驱动向上查找——旧 `../assets/agents/` 固定层级
+  // 只在 dist 单文件布局正确（源码布局会落到 src/host/assets/）。统一走 pluginRoot。
+  try { return pluginAssetDir('agents'); } catch { return ''; }
 }
 
 /** 注册全部 ANIC 路由（六域分区聚合）。 */
@@ -110,7 +110,9 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   // ── dual 域（双向自举 M11）──
   {
-    const pluginDir = fileURLToPath(new URL('../../../', import.meta.url));
+    // P0-DIR-ROOT（cycle-15）：旧 `new URL('../../../')` 在 dist 单文件布局下
+    // 解析到仓库父目录——dualBootstrap 一直在审计错误目录。改标记驱动解析。
+    const pluginDir = resolvePluginRoot();
     disposers.push(...registerDualBootstrapRoute({ ctx: c, send, getWorkspaceRoot, pluginDir }));
     disposers.push(...registerTruthAuditRoute(c, send));
   }

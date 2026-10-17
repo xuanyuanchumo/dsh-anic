@@ -95,8 +95,12 @@ export function auditStructure(pluginDir: string): TruthAuditResult {
 export function auditLogic(pluginDir: string): TruthAuditResult {
   const findings: AuditFinding[] = [];
   const routesDir = join(pluginDir, 'src', 'host', 'routes');
+  // routes/ 目录下的共享基建文件（无路由注册职责）：T4 只对路由文件断言注册。
+  // routeContext.ts 是六域共享 deps 提取层（M9），不是路由——曾误报 no registration。
+  const NON_ROUTE_HELPERS = new Set(['routeContext.ts']);
   if (existsSync(routesDir)) {
     for (const file of readdirSync(routesDir).filter((f) => f.endsWith('.ts'))) {
+      if (NON_ROUTE_HELPERS.has(file)) continue;
       const content = readFileSync(join(routesDir, file), 'utf8');
       const hasReg = content.includes('register') || content.includes('reg(');
       findings.push({ check: `route:${file}`, status: hasReg ? 'pass' : 'warn', detail: hasReg ? 'has registration' : 'no registration' });

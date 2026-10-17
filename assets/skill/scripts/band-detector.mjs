@@ -138,7 +138,10 @@ function applyWesternElectricRules(dataPoints, mean, stdDev) {
     const above2 = recent3.filter(v => v > sigma2).length;
     const below2 = recent3.filter(v => v < sigma2Low).length;
     if (above2 >= 2 || below2 >= 2) {
-      violations.push({ rule: 2, index: i, value: v, desc: '连续 2/3 点在同侧 2σ 外' });
+      // 修复：原 `value: v` 引用规则 1 循环的越界变量——规则 2 首次真触发即
+      // ReferenceError（潜伏至今：只有历史快照的均值/σ 漂移到让连续点落入 2σ 带
+      // 外时才命中，表现为 band-detector「时好时坏」）。
+      violations.push({ rule: 2, index: i, value: dataPoints[i], desc: '连续 2/3 点在同侧 2σ 外' });
     }
   }
 

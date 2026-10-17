@@ -41,6 +41,8 @@ export function registerDualBootstrapRoute(deps: RouteDeps): Array<(() => void) 
     const requestId = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) { deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } }, requestId); return; }
+    // P0-DIR-ROOT：根未解析时响亮失败——evaluatePluginSelf('') 会审计 cwd（错误目录）
+    if (!deps.pluginDir) { deps.send(res, 500, { error: { code: 'ANIC_PLUGIN_ROOT_UNRESOLVED', message: 'dsh-anic plugin root not found' } }, requestId); return; }
     const cyclesDir = join(root, '.cycles');
     const pluginEval = evaluatePluginSelf(deps.pluginDir);
     const skillEval = evaluateSkillSelf(cyclesDir);
@@ -51,6 +53,7 @@ export function registerDualBootstrapRoute(deps: RouteDeps): Array<(() => void) 
     const requestId = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) { deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } }, requestId); return; }
+    if (!deps.pluginDir) { deps.send(res, 500, { error: { code: 'ANIC_PLUGIN_ROOT_UNRESOLVED', message: 'dsh-anic plugin root not found' } }, requestId); return; }
     const cyclesDir = join(root, '.cycles');
     const state = loadDualBootstrapState(cyclesDir);
     const pluginEval = evaluatePluginSelf(deps.pluginDir);

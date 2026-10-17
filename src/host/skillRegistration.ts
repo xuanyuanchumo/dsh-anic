@@ -20,8 +20,8 @@
  * 不参与互斥优先链，符合「async-inject 只接加性面」的既有纪律。
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createScoped } from './logger.ts';
+import { pluginAssetDir } from './pluginRoot.ts';
 
 const log = createScoped('anic:skill-registration');
 
@@ -75,9 +75,9 @@ export function parseSkillFrontmatter(md: string): ParsedSkillFrontmatter {
   return out;
 }
 
-/** 技能目录（dist 相对推导：dist/host.js → ../assets/skill/，与 agents.ts 同形态）。 */
+/** 技能目录（P0-DIR-ROOT：标记驱动解析——统一 dist/源码/junction 三种布局）。 */
 function defaultSkillDir(): string {
-  try { return fileURLToPath(new URL('../assets/skill/', import.meta.url)); } catch { return ''; }
+  try { return pluginAssetDir('skill'); } catch { return ''; }
 }
 
 /** 最小 skills 槽位类型（宿主 ctx unknown 的房屋风格：本地窄化）。 */
