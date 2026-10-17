@@ -1,7 +1,7 @@
 /** 真实性审计四维检查函数（从 truthAudit.ts 拆出以满足 250 行模块限制）。 */
 import { join } from 'node:path';
 import { existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
-import type { TruthAuditResult, AuditFinding } from './truthAudit.ts';
+import type { TruthAuditResult, AuditFinding } from './truthAuditTypes.ts';
 
 const MAX_FILE_LINES = 250;
 

@@ -1,2 +1,24 @@
+# dsh-anic 独立工程设置（pnpm ≥10.13/11：所有 pnpm 专属设置以此文件为家；
+# package.json 的 pnpm 字段在 pnpm 11 已被忽略并告警，.npmrc 仅作旧版回退）。
+# 单包工程——本文件不含 packages: 字段，不构成多包 workspace。
+
+# peer 依赖（@deepseek-ai/dsh、@deepseek-ai/cordis）由 DSH 宿主在运行时提供；
+# 本仓 node_modules 仅供开发/测试。不自动安装 peer——否则拖入整棵宿主树
+# （~824 包，含 koffi/node-pty 等原生构建脚本）。
+autoInstallPeers: false
+
+# D-1407 供应链修复（cycle-14）：pnpm audit 实测 dev 链漏洞，用 overrides 钉住
+# 传递依赖的受修复版本（本插件运行时依赖为零，以下全部为构建/测试工具链）：
+#   tinypool ≥2.1.2  — [critical×2] Prototype Pollution → RCE（.>vitest>tinypool）
+#   valibot  ≥1.4.2  — [high] EMOJI_REGEX ReDoS + [moderate] record()/flatten() throw
+#   diff     ≥8.0.3  — [low] parsePatch/applyPatch DoS（.>tsdown>diff）
+# 遗留（记录在案）：vitest 3.2.7 自身的 @vitest/mocker 路径穿越 [moderate×2]——
+# 修复版为 vitest ≥4.1.11（跨大版本升级，独立任务处理，不混入本供应链批次）。
+overrides:
+  tinypool: '>=2.1.2'
+  valibot: '>=1.4.2'
+  diff: '>=8.0.3'
+
+# 允许 esbuild 运行安装脚本（二进制校验，vitest 转译链需要）；其余包无脚本安装。
 allowBuilds:
   esbuild: true

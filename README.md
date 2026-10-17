@@ -6,7 +6,8 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
-## 当前形态（M1..M11 + R3 流程状态机，v0.15.0）
+## 当前形态（M1..M11 + R3 流程状态机，v0.16.0）
+- **自举评估链主平台复活（v0.16.0 / cycle-14，D-1401~D-1408）**：eval-runner 的质量门在 Windows（DSH 宿主主平台）上此前系统性失明——四子检查 `grep|wc` shell-ism 恒 SKIP、环检测 madge 恒 SKIP 且真环被 `|| true` 吞掉（fail-open）、依赖审计 npm audit 无 true 命令恒 SKIP、秘钥扫描 138 命中全假阳性（design-token 惯用形态误伤）。本轮全部根治：scanSourceLines 纯 Node 行扫描、importGraph 纯 Node import 图 + DFS 三色环检测（scripts/lib/importGraph.mjs，零外部依赖）、pnpm audit 回退链（npmmirror 无 bulk 端点 → registry.npmjs.org）、秘钥两段式精筛（pre 粗筛 + 紧邻赋值精筛）。供应链修复：tinypool critical×2 + valibot high（全 dev 链）经 pnpm-workspace.yaml overrides 清零（824 包污染锁 → 239 包）。**自证闭环**：修复后首次真实环检测在自家仓抓到 truthAudit↔truthAuditChecks 真环（type 回边），类型下沉 truthAuditTypes.ts 断环复验 PASS。自举审计 16 维度 14 PASS + 2 结构性 SKIP（历史最佳）；69 文件 852 用例全绿。
 
 - **双格式报告解析 + 抖动加固（v0.15.0 / cycle-13，D-1103/F-T1/F-T2）**：auto-fix 报告计数此前只认旧键值「失败：N」，而正典模板与 G2 门禁规定的是 §2 汇总管道表「| 失败 | N |」——两套正典解析器互不相交，正典报告被读成 0（fail-open 假绿）；现技能脚本（auto-fix-loop.mjs v1.8.5-fork）与原生引擎（autoFixAnalyze.parseReportContent）双侧支持管道表优先 + 键值回退，且引擎侧重复解析器消重为单一源；差分第 4 场景红→绿实证（命令过 + 正典报告 3 失败 → 双侧 circuit/exit 2/repeating），真实宿主（3080）script 模式端到端 409 circuit。F-T1：atomicWriteFileSync rename 瞬时错误重试（EPERM/EACCES 类，1/5/25ms 退避）；F-T2：macroPhaseDifferential 补 afterEach 清理（原先每轮泄漏 ~20 个临时目录）。69 文件 849 用例全绿。
 

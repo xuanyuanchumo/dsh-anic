@@ -1,15 +1,29 @@
 #!/usr/bin/env node
 // eval-runner.mjs — E1-E8 + Q1-Q8 评估维度运行器：执行评估并生成评估报告
 // 用法: node scripts/eval-runner.mjs <project-dir> [--dimensions E1,E2,...,Q1,Q2,...] [--cycle N] [--quality]
+// v1.8.7-fork（cycle-14）：
+//   D-1403/D-1404（v1.8.6）：①Q4 秘密扫描/Q6 a11y+响应式/Q7 错误处理
+//   从 shell grep|wc 改为纯 Node scanSourceLines——DSH 宿主主平台 Windows 无
+//   grep/wc，四子检查原先恒 SKIP（质量门永远缺证据）；②Q6 i18n 候选加入 DSH
+//   插件规范位置 locale/（与 src/locale/）；③a11y/responsive 扫描扩展名加入
+//   .ts（DSH 客户端约定 createElement 无 JSX、CSS-in-TS）。
+//   D-1405：Q4 秘密扫描两段式精筛（关键词紧邻 =/: 且右侧为非空字符串字面量）
+//   ——宽匹配在本仓 138/138 全假阳性（design-token 助手 token('x') 误报），
+//   精筛归零 FP 且真秘钥（api_key = "sk-…"）仍命中。
+//   D-1406：Q4 依赖审计通道复活——原 'npm audit … || true' 在 cmd.exe 恒抛错
+//   进 catch（Windows 从未活过）；加入 pnpm audit（DSH 生态标配）与
+//   --registry=npmjs 回退（npmmirror 无 bulk 审计端点）；退出码不作判据，
+//   以能否解析出 metadata 为准。首跑即曝出本仓 2 critical（tinypool RCE）。
 
 import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { DIMENSIONS, resolveDimensions } from './lib/dimensions.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
+import { collectImportGraph, findCircularDeps } from './lib/importGraph.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, '..');
@@ -39,6 +53,40 @@ const getLatestCycle = getLatestCycleDir;
 // 但 gate-check --quality 视 SKIP 为不可关门——门禁必须有证据。
 function skipped(detail) {
   return { pass: false, skipped: true, detail: `${detail} → SKIP (not evaluated)` };
+}
+
+// D-1404（cycle-14）：源码行扫描的纯 Node 实现，替代原先 shell 出的
+// `grep -rn "..." --include=*.ts src/ | wc -l`。原实现在 DSH 宿主主平台
+// Windows（cmd.exe 无 grep/wc）上必然走 catch → SKIP——Q4 秘密扫描、Q6
+// a11y+响应式、Q7 错误处理四项子检查在主平台上永远「不可用」，质量门
+// 永远缺证据（静默降级，正是 iteration-5 要消灭的 fail-open 亲戚）。
+// 语义与 grep -rn 逐行对齐：扩展名过滤、行级正则（大小写敏感，同无 -i
+// 的 grep）、返回 {file,line,text}[]（file 为相对项目根的路径）。
+// D-1403：扩展名集合由调用方给——a11y/responsive 在 DSH 生态里必须含
+// .ts（客户端约定 createElement 无 JSX、CSS-in-TS，无 .tsx/.css 文件）。
+function scanSourceLines(projectDir, { extensions, regex, maxMatches = 10000 } = {}) {
+  const srcDir = join(projectDir, 'src');
+  const matches = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (matches.length >= maxMatches) return;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!extensions.some((ext) => entry.name.endsWith(ext))) continue;
+      const lines = readFileSync(full, 'utf-8').split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (regex.test(lines[i])) {
+          matches.push({ file: relative(projectDir, full), line: i + 1, text: lines[i] });
+          if (matches.length >= maxMatches) break;
+        }
+      }
+    }
+  };
+  walk(srcDir);
+  return matches;
 }
 
 // 组合多个子检查：任一 FAIL ⇒ FAIL；无 FAIL 但有 SKIP ⇒ SKIP；否则 PASS。
@@ -147,29 +195,77 @@ function checkSecurity(projectDir) {
 
 function checkHardcodedSecrets(projectDir) {
   if (!existsSync(join(projectDir, 'src'))) return skipped('No src/ directory');
+  // D-1404：纯 Node 扫描（原 grep -rn 在 Windows 上不可用 → 恒 SKIP）。
+  // D-1405：两段式精筛。原宽匹配（行含 password|secret|token 即计）
+  //   在真实生产仓上 138/138 全假阳性——design-token 助手 token('anic-border')
+  //   与 sanitizeEnv 自身的凭据清洗代码全部误报，检测通道不可用。
+  // 精筛语义：秘钥样关键词【紧邻】= 或 : 且右侧是非空字符串字面量——
+  //   即「疑似凭据名的硬编码赋值」。函数调用 token('x')、函数定义
+  //   const token = (n) => …、常量 TOKEN_SCOPE = '…'（关键词后随 _SCOPE）
+  //   均不触发；api_key = "sk-…"、{ token: 'abc' }、accessToken = "x" 命中。
+  const preFilter = /password|secret|api_key|token/i;
+  const precise = /(password|secret|api_key|token)\s*[:=]\s*['"][^'"]+['"]/i;
+  let hits;
   try {
-    const output = execSync('grep -rn "password\\|secret\\|api_key\\|token" --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" src/ 2>/dev/null || true', {
-      cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+    hits = scanSourceLines(projectDir, {
+      extensions: ['.ts', '.js', '.tsx', '.jsx'],
+      regex: preFilter,
     });
-    const lines = output.trim().split('\n').filter(Boolean);
-    const suspicious = lines.filter(l => !l.includes('//') && !l.includes('/*') && !l.includes('process.env'));
-    if (suspicious.length > 0) {
-      return { pass: false, detail: `${suspicious.length} potential hardcoded secrets found` };
-    }
-    return { pass: true, detail: 'No hardcoded secrets detected' };
   } catch {
-    return skipped('Secret scan unavailable (grep failed)');
+    return skipped('Secret scan unavailable (source scan failed)');
+  }
+  const suspicious = hits.filter(
+    (h) =>
+      !h.text.includes('//') &&
+      !h.text.includes('/*') &&
+      !h.text.includes('process.env') &&
+      precise.test(h.text),
+  );
+  if (suspicious.length > 0) {
+    return { pass: false, detail: `${suspicious.length} potential hardcoded secrets found` };
+  }
+  return { pass: true, detail: 'No hardcoded secrets detected' };
+}
+
+function runAuditJson(cmd, projectDir) {
+  // npm/pnpm audit 在发现漏洞时以非零码退出，但 JSON 仍写 stdout——
+  // 退出码不可作为失败判据，只能以「能否解析出 metadata」为准。
+  try {
+    return execSync(cmd, {
+      cwd: projectDir, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8',
+    });
+  } catch (e) {
+    const out = typeof e.stdout === 'string' ? e.stdout : '';
+    return out || null; // 非零退出但带 JSON → 继续解析；无输出 → null
   }
 }
 
 function checkDependencyAudit(projectDir) {
-  try {
-    const output = execSync('npm audit --json 2>/dev/null || true', {
-      cwd: projectDir, timeout: 30000, stdio: 'pipe', encoding: 'utf-8',
-    });
-    const audit = JSON.parse(output);
-    const vulns = audit.metadata?.vulnerabilities;
-    if (!vulns) return skipped('npm audit returned no vulnerability metadata (lockfile or registry unavailable)');
+  // D-1406：原实现两处 Windows/pnpm 生态致命伤——
+  //   ① 'npm audit --json 2>/dev/null || true'：cmd.exe 无 true 命令，npm 非零退出时
+  //     execSync 抛错进 catch → 恒 SKIP（主平台上通道从未活过）；
+  //   ② 只认 package-lock.json 的 metadata：pnpm 仓（DSH 生态标配）永远 SKIP。
+  // 探测顺序：有 pnpm-lock.yaml → pnpm audit（默认 registry，失败时回退 npmjs
+  // 源——npmmirror 等镜像无 bulk 审计端点）；有 package-lock.json → npm audit。
+  const hasNpmLock = existsSync(join(projectDir, 'package-lock.json'));
+  const hasPnpmLock = existsSync(join(projectDir, 'pnpm-lock.yaml'));
+  const audits = [];
+  if (hasPnpmLock) {
+    audits.push('pnpm audit --json');
+    audits.push('pnpm audit --json --registry=https://registry.npmjs.org');
+  }
+  if (hasNpmLock) audits.push('npm audit --json');
+  if (audits.length === 0) return skipped('No package-lock.json / pnpm-lock.yaml to audit');
+  for (const cmd of audits) {
+    const output = runAuditJson(cmd, projectDir);
+    if (!output) continue;
+    let vulns;
+    try {
+      vulns = JSON.parse(output).metadata?.vulnerabilities;
+    } catch {
+      continue;
+    }
+    if (!vulns) continue;
     const highVulns = vulns.high || 0;
     const criticalVulns = vulns.critical || 0;
     if (criticalVulns > 0) {
@@ -179,9 +275,8 @@ function checkDependencyAudit(projectDir) {
       return { pass: false, detail: `${highVulns} high vulnerabilities` };
     }
     return { pass: true, detail: 'No high/critical vulnerabilities' };
-  } catch {
-    return skipped('npm audit unavailable');
   }
+  return skipped('npm/pnpm audit unavailable (no vulnerability metadata from any registry)');
 }
 
 function checkArchitectureLayers(projectDir) {
@@ -201,43 +296,62 @@ function checkArchitectureLayers(projectDir) {
 }
 
 function checkCircularDeps(projectDir) {
+  // D-1408（cycle-14）：原 `npx madge --circular … || true` 两处主平台致命伤——
+  // ① Windows（DSH 宿主主平台）npx madge 触发交互式下载提示 → 恒失败 SKIP；
+  // ② '|| true' 在 cmd.exe 无 true 命令：madge 非零退出（真正发现环时）execSync
+  //   抛错进 catch → 环被静默吞成 SKIP（fail-open，最需报警时失明）。
+  // 改纯 Node 相对 import 图 + DFS 环检测（scripts/lib/importGraph.mjs，零外部依赖）。
+  let graph;
   try {
-    const output = execSync('npx madge --circular --extensions ts,tsx,js,jsx src/ 2>/dev/null || true', {
-      cwd: projectDir, timeout: 30000, stdio: 'pipe', encoding: 'utf-8',
-    });
-    if (output.includes('✖')) {
-      const count = (output.match(/\(\d+\)/g) || []).length;
-      return { pass: false, detail: `${count} circular dependencies detected` };
-    }
-    return { pass: true, detail: 'No circular dependencies' };
+    graph = collectImportGraph(projectDir);
   } catch {
-    return skipped('Circular dependency check unavailable (madge missing)');
+    return skipped('Import graph collection failed');
   }
+  if (graph.files.length === 0) return skipped('No source files to analyze');
+  const cycles = findCircularDeps(graph);
+  if (cycles.length > 0) {
+    const sample = cycles
+      .slice(0, 3)
+      .map((members) => members.map((f) => relative(projectDir, f)).join(' ↔ '))
+      .join('；');
+    return { pass: false, detail: `${cycles.length} circular dependencies detected: ${sample}` };
+  }
+  return { pass: true, detail: `No circular dependencies (${graph.files.length} source files)` };
 }
 
 function checkA11y(projectDir) {
   const srcDir = join(projectDir, 'src');
   if (!existsSync(srcDir)) return skipped('No src/ directory');
 
+  // D-1404：纯 Node 扫描（原 grep|wc 在 Windows 上不可用 → 恒 SKIP）。
+  // D-1403：扩展名加入 .ts/.js——DSH 生态客户端约定 createElement（无 JSX），
+  // aria 属性写在 .ts 文件里；只扫 .tsx/.jsx 会漏报整个 DSH 插件生态。
+  let hits;
   try {
-    const output = execSync('grep -rn "aria-\\|role=" --include="*.tsx" --include="*.jsx" src/ 2>/dev/null | wc -l', {
-      cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+    hits = scanSourceLines(projectDir, {
+      extensions: ['.tsx', '.jsx', '.ts', '.js'],
+      regex: /aria-|role=/,
     });
-    const ariaCount = parseInt(output.trim(), 10);
-    if (ariaCount === 0) {
-      return { pass: false, detail: 'No ARIA attributes found in frontend code' };
-    }
-    return { pass: true, detail: `${ariaCount} ARIA attributes found` };
   } catch {
-    return skipped('a11y check unavailable (grep failed)');
+    return skipped('a11y check unavailable (source scan failed)');
   }
+  if (hits.length === 0) {
+    return { pass: false, detail: 'No ARIA attributes found in frontend code' };
+  }
+  return { pass: true, detail: `${hits.length} ARIA attributes found` };
 }
 
 function checkI18n(projectDir) {
+  // D-1403：加入 DSH 插件规范位置——根 locale/（package.json 导出
+  // ./locale/*.json，dsh-client-ui 的 i18n 约定）与 src/locale/。
+  // 原候选只有 src/i18n、src/client/i18n、public/locales 三个通用 Web
+  // 位置，对 DSH 插件项目全部失配 → Q6 恒 SKIP。
   const i18nPaths = [
     join(projectDir, 'src', 'i18n'),
     join(projectDir, 'src', 'client', 'i18n'),
     join(projectDir, 'public', 'locales'),
+    join(projectDir, 'locale'),
+    join(projectDir, 'src', 'locale'),
   ];
   const found = i18nPaths.filter(p => existsSync(p));
   if (found.length === 0) return skipped('No i18n directory');
@@ -245,18 +359,21 @@ function checkI18n(projectDir) {
 }
 
 function checkResponsive(projectDir) {
+  // D-1404：纯 Node 扫描；D-1403：扩展名加入 .ts——DSH 生态 CSS-in-TS
+  // （如 panelCss.ts 里的 @media/@container），无独立 .css 文件。
+  let hits;
   try {
-    const output = execSync('grep -rn "@media\\|useMediaQuery\\|breakpoint" --include="*.tsx" --include="*.jsx" --include="*.css" --include="*.scss" src/ 2>/dev/null | wc -l', {
-      cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+    hits = scanSourceLines(projectDir, {
+      extensions: ['.tsx', '.jsx', '.css', '.scss', '.ts'],
+      regex: /@media|useMediaQuery|breakpoint/,
     });
-    const count = parseInt(output.trim(), 10);
-    if (count === 0) {
-      return { pass: false, detail: 'No responsive design breakpoints found' };
-    }
-    return { pass: true, detail: `${count} responsive breakpoints found` };
   } catch {
-    return skipped('Responsive check unavailable (grep failed)');
+    return skipped('Responsive check unavailable (source scan failed)');
   }
+  if (hits.length === 0) {
+    return { pass: false, detail: 'No responsive design breakpoints found' };
+  }
+  return { pass: true, detail: `${hits.length} responsive breakpoints found` };
 }
 
 function checkComplexity(projectDir) {
@@ -278,18 +395,20 @@ function checkComplexity(projectDir) {
 
 function checkErrorHandling(projectDir) {
   if (!existsSync(join(projectDir, 'src'))) return skipped('No src/ directory');
+  // D-1404：纯 Node 扫描（原 grep|wc 在 Windows 上不可用 → 恒 SKIP）。
+  let hits;
   try {
-    const output = execSync('grep -rn "try\\|catch\\|ErrorBoundary\\|error" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" src/ 2>/dev/null | wc -l', {
-      cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+    hits = scanSourceLines(projectDir, {
+      extensions: ['.ts', '.tsx', '.js', '.jsx'],
+      regex: /try|catch|ErrorBoundary|error/,
     });
-    const count = parseInt(output.trim(), 10);
-    if (count === 0) {
-      return { pass: false, detail: 'No error handling patterns found' };
-    }
-    return { pass: true, detail: `${count} error handling patterns found` };
   } catch {
-    return skipped('Error handling check unavailable (grep failed)');
+    return skipped('Error handling check unavailable (source scan failed)');
   }
+  if (hits.length === 0) {
+    return { pass: false, detail: 'No error handling patterns found' };
+  }
+  return { pass: true, detail: `${hits.length} error handling patterns found` };
 }
 
 function checkDeliveryChecklist(projectDir, cycleDir) {
