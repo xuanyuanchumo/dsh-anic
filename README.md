@@ -6,7 +6,9 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
-## 当前形态（M1..M11 + R3 流程状态机，v0.13.0）
+## 当前形态（M1..M11 + R3 流程状态机，v0.14.0）
+
+- **终态重入四流程修复（v0.14.0 / cycle-12，D-1101）**：task 型流程终态后可重新入轮——gate-check（PASSED/FAILED→RUNNING）、archive（DONE→RUNNING）、hitl（PASSED/FAILED→RUNNING）三流程补 run 边，macro-phase 经正典比对排除（maintain 是末相无 reset 语义）；`tests/unit/flowTerminalReentry.test.ts` 四层 9 用例（描述子齐全性/机器层放行/集成层二轮/排除钉）。**桌面端宿主实证（D-1102）**：桌面宿主上插件 fiberPhase active、anic_* 工具真实执行、org-status/workflow-snapshot 路由 200、plugin_manager 禁用→启用往返无 duplicate-route（R12 HMR 安全性真机实证）；v0.13.0+ 新面受 Node 模块缓存限制需宿主自然重启生效。67 文件 837 用例全绿。
 
 - 客户端贡献：`conversation.view` 顶层标签 `ANIC`（`kind:'list'` 可叠加，不顶掉既有标签）。
 - 渲染真实 `.cycles/`：138 节点 / 164 边 / 57 cycles / 56 条账本事件（`autonomy L4`）。

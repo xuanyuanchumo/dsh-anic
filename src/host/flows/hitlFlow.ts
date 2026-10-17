@@ -6,6 +6,10 @@
  *                              →(circuit,  守卫:verdict-circuit)→ BLOCKED
  *         RUNNING →(run)→ RUNNING   崩溃恢复自环
  *         BLOCKED →(run)→ RUNNING   重试恢复（人类修复后重跑，无需手动 reset）
+ *         PASSED/FAILED →(run)→ RUNNING   终态重入（D-1101：上一轮审计完结后，
+ *                                      新一轮 HITL 审计是新的一跑——cycle-11 真机
+ *                                      发现终态不可重入后统一补齐；BLOCKED 重试边
+ *                                      语义不变）
  *         PASSED/FAILED/BLOCKED →(reset)→ IDLE
  *
  * 两执行模式（无 diff —— 三段修复是写动作（审计行/gitignore/incident），
@@ -37,6 +41,8 @@ export const HITL_FLOW: FlowDescriptor<HitlFlowState> = {
     { from: 'RUNNING', to: 'PASSED', trigger: 'all-pass', guard: 'verdict-all-pass' },
     { from: 'RUNNING', to: 'FAILED', trigger: 'any-fail', guard: 'verdict-any-fail' },
     { from: 'RUNNING', to: 'BLOCKED', trigger: 'circuit', guard: 'verdict-circuit' },
+    { from: 'PASSED', to: 'RUNNING', trigger: 'run' },
+    { from: 'FAILED', to: 'RUNNING', trigger: 'run' },
     { from: 'PASSED', to: 'IDLE', trigger: 'reset' },
     { from: 'FAILED', to: 'IDLE', trigger: 'reset' },
     { from: 'BLOCKED', to: 'IDLE', trigger: 'reset' },

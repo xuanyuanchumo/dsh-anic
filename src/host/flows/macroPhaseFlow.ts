@@ -4,6 +4,9 @@
  * 状态图（单向线性，无回退边 —— 「禁回退」由图的形状承载，不是运行时检查）：
  *   plan → design → build → test → deploy → maintain
  *   显式跳相（--node/场景 target）= `jump:from:to` 边（非邻接对）；邻接对用 'advance'。
+ *   D-1101 决议：**不加**终态重入边 —— maintain 是末相，技能侧 workflow-state.mjs:202
+ *   对末相 advance 报 "Already at final phase. No more phases to advance."，无 reset
+ *   语义；重入边会偏离正典（task 型流程 gate-check/archive/hitl/auto-fix 才有重入）。
  *
  * 守卫 phase-gates-passed：当前相的门禁**曾**在账本 PASS（技能 cmdAdvance:209-216
  * 同一语义）。payload 由运行器装配 {currentPhase, gatesPassed}。

@@ -5,6 +5,10 @@
  *                              →(blocked, 守卫:引擎拒绝)→ BLOCKED
  *         RUNNING →(run)→ RUNNING   崩溃恢复自环
  *         BLOCKED →(run)→ RUNNING   重试恢复（修复任务后再归档，无需手动 reset）
+ *         DONE →(run)→ RUNNING      终态重入（D-1101：cycle-N 归档完成后 cycle-N+1
+ *                                   是新的一跑；技能侧 archive-cycle.mjs:68 对已归档
+ *                                   同名 cycle 报 already archived，对不同 cycle 是
+ *                                   全新合法运行）
  *         DONE/BLOCKED →(reset)→ IDLE
  *
  * 两执行模式（无 diff —— archive 是写动作，同目录双跑会双写；
@@ -35,6 +39,7 @@ export const ARCHIVE_FLOW: FlowDescriptor<ArchiveFlowState> = {
     { from: 'BLOCKED', to: 'RUNNING', trigger: 'run' },
     { from: 'RUNNING', to: 'DONE', trigger: 'success', guard: 'engine-ok' },
     { from: 'RUNNING', to: 'BLOCKED', trigger: 'blocked', guard: 'engine-blocked' },
+    { from: 'DONE', to: 'RUNNING', trigger: 'run' },
     { from: 'DONE', to: 'IDLE', trigger: 'reset' },
     { from: 'BLOCKED', to: 'IDLE', trigger: 'reset' },
   ],

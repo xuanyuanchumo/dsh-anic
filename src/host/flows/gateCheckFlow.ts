@@ -4,7 +4,10 @@
  * 状态图：IDLE →(run)→ RUNNING →(all-pass, 守卫:引擎全绿)→ PASSED
  *                              →(any-fail, 守卫:引擎有红)→ FAILED
  *         RUNNING →(run)→ RUNNING   崩溃恢复自环（进程死于 RUNNING 时无需人工 reset）
- *         PASSED/FAILED →(reset)→ IDLE   下一 cycle 复位
+ *         PASSED/FAILED →(run)→ RUNNING   终态重入（D-1101：下一 cycle 的 gate-check
+ *                                        是新的一跑，不是同一跑的恢复——cycle-11 真机
+ *                                        发现终态不可重入后统一补齐）
+ *         PASSED/FAILED →(reset)→ IDLE   显式复位（语义保留）
  *
  * 三执行模式（引擎侧实现在 gateCheckRunners.ts）：
  *  - script：正典路径（技能脚本是账本正典写入者，行为零变化）
@@ -33,6 +36,8 @@ export const GATE_CHECK_FLOW: FlowDescriptor<GateCheckState> = {
     { from: 'RUNNING', to: 'RUNNING', trigger: 'run' },
     { from: 'RUNNING', to: 'PASSED', trigger: 'all-pass', guard: 'gate-verdict-all-pass' },
     { from: 'RUNNING', to: 'FAILED', trigger: 'any-fail', guard: 'gate-verdict-any-fail' },
+    { from: 'PASSED', to: 'RUNNING', trigger: 'run' },
+    { from: 'FAILED', to: 'RUNNING', trigger: 'run' },
     { from: 'PASSED', to: 'IDLE', trigger: 'reset' },
     { from: 'FAILED', to: 'IDLE', trigger: 'reset' },
   ],
