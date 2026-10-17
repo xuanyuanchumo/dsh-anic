@@ -6,8 +6,11 @@
  *  - autoFixEngine.ts：跑测试命令 / 审计行 / incident / 报告落盘 —— IO 包装
  *
  * 技能语义基准：
- *  - readTestReports（mjs:57-77）：.cycles/cycles/<cycle>/test-reports/*.md 解析
- *    通过/失败/错误 三计数（中文冒号正则）
+ *  - readTestReports（mjs:57-77，v1.8.5-fork D-1103）：.cycles/cycles/<cycle>/
+ *    test-reports/*.md 解析通过/失败/错误三计数——**双格式**：正典 §2 汇总
+ *    管道表「| 失败 | N |」（与 G2 gate-check.mjs 同形态）优先，旧键值
+ *    「失败：N」回退；管道表命中时键值不看（§4 散文里的「失败：3 次」
+ *    不覆盖 §2 权威计数）。原双正则不相交是 fail-open：正典报告读成 0。
  *  - identifyFailures（mjs:79-106）：test 命令失败 + 报告失败两类；失败行过滤
  *    FAIL|失败|错误|Error 取前 10
  *  - analyzeFailurePattern（mjs:108-140）：repeating（单类型 ≥3）/ cascading
@@ -47,15 +50,24 @@ export interface FailureAnalysis {
   failureTypes: Record<string, AutoFixFailure[]>;
 }
 
-/** 解析单份测试报告的通过/失败/错误计数（技能 mjs:63-76 逐字对齐，中文冒号兼容）。 */
+/**
+ * 解析单份测试报告的通过/失败/错误计数（技能 mjs:63-76 v1.8.5-fork 对齐）。
+ *
+ * 双格式（D-1103）：正典 §2 汇总管道表优先，旧键值回退。
+ * 管道表是模板与 G2 门禁规定的机器可读区；键值正则可能命中 §4 失败详情
+ * 散文（如「失败：3 次」），故同报并存时管道表权威。
+ */
 export function parseReportContent(content: string): { failures: number; errors: number; passes: number } {
-  const failMatch = content.match(/失败[：:]\s*(\d+)/);
-  const errorMatch = content.match(/错误[：:]\s*(\d+)/);
-  const passMatch = content.match(/通过[：:]\s*(\d+)/);
+  const pipeFail = content.match(/\|\s*失败\s*\|\s*(\d+)\s*\|/);
+  const pipeError = content.match(/\|\s*错误\s*\|\s*(\d+)\s*\|/);
+  const pipePass = content.match(/\|\s*通过\s*\|\s*(\d+)\s*\|/);
+  const kvFail = content.match(/失败[：:]\s*(\d+)/);
+  const kvError = content.match(/错误[：:]\s*(\d+)/);
+  const kvPass = content.match(/通过[：:]\s*(\d+)/);
   return {
-    failures: failMatch ? parseInt(failMatch[1]!, 10) : 0,
-    errors: errorMatch ? parseInt(errorMatch[1]!, 10) : 0,
-    passes: passMatch ? parseInt(passMatch[1]!, 10) : 0,
+    failures: pipeFail ? parseInt(pipeFail[1]!, 10) : (kvFail ? parseInt(kvFail[1]!, 10) : 0),
+    errors: pipeError ? parseInt(pipeError[1]!, 10) : (kvError ? parseInt(kvError[1]!, 10) : 0),
+    passes: pipePass ? parseInt(pipePass[1]!, 10) : (kvPass ? parseInt(kvPass[1]!, 10) : 0),
   };
 }
 

@@ -24,7 +24,7 @@ import { loadWorkspaceConfig } from '../config.ts';
 import { latestCycleDir } from '../llm/gateEvidence.ts';
 import { recordFixAttempt, recordAutoFixIncident, generateFixReport } from './autoFixReport.ts';
 import {
-  analyzeFailurePattern, identifyFailures,
+  analyzeFailurePattern, identifyFailures, parseReportContent,
   type FailureAnalysis, type FixAttempt, type TestCommandResult, type TestReportSummary,
 } from './autoFixAnalyze.ts';
 
@@ -67,7 +67,7 @@ export function runTestCommand(cmd: string, cwd: string, timeoutMs = AUTO_FIX_TE
   }
 }
 
-/** 读测试报告目录（技能 readTestReports mjs:57-77：*.md 中文三计数解析）。 */
+/** 读测试报告目录（技能 readTestReports mjs:57-77 v1.8.5-fork：*.md 双格式三计数解析）。 */
 export function readTestReports(cycleDir: string): TestReportSummary[] {
   const testReportsDir = join(cycleDir, 'test-reports');
   if (!existsSync(testReportsDir)) return [];
@@ -75,23 +75,11 @@ export function readTestReports(cycleDir: string): TestReportSummary[] {
   const files = readdirSync(testReportsDir).filter((f) => f.endsWith('.md'));
   for (const file of files) {
     const content = readFileSync(join(testReportsDir, file), 'utf-8');
-    const { failures, errors, passes } = parseReportCounts(content);
+    const { failures, errors, passes } = parseReportContent(content);
     reports.push({ file, failures, errors, passes, content });
   }
   return reports;
 }
-
-function parseReportCounts(content: string): { failures: number; errors: number; passes: number } {
-  const failMatch = content.match(/失败[：:]\s*(\d+)/);
-  const errorMatch = content.match(/错误[：:]\s*(\d+)/);
-  const passMatch = content.match(/通过[：:]\s*(\d+)/);
-  return {
-    failures: failMatch ? parseInt(failMatch[1]!, 10) : 0,
-    errors: errorMatch ? parseInt(errorMatch[1]!, 10) : 0,
-    passes: passMatch ? parseInt(passMatch[1]!, 10) : 0,
-  };
-}
-
 
 /** 熔断 reason（技能 mjs:309-329 三分支逐字）。 */
 function circuitReason(analysis: FailureAnalysis): string {

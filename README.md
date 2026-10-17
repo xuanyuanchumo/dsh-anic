@@ -6,13 +6,15 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
-## 当前形态（M1..M11 + R3 流程状态机，v0.14.0）
+## 当前形态（M1..M11 + R3 流程状态机，v0.15.0）
+
+- **双格式报告解析 + 抖动加固（v0.15.0 / cycle-13，D-1103/F-T1/F-T2）**：auto-fix 报告计数此前只认旧键值「失败：N」，而正典模板与 G2 门禁规定的是 §2 汇总管道表「| 失败 | N |」——两套正典解析器互不相交，正典报告被读成 0（fail-open 假绿）；现技能脚本（auto-fix-loop.mjs v1.8.5-fork）与原生引擎（autoFixAnalyze.parseReportContent）双侧支持管道表优先 + 键值回退，且引擎侧重复解析器消重为单一源；差分第 4 场景红→绿实证（命令过 + 正典报告 3 失败 → 双侧 circuit/exit 2/repeating），真实宿主（3080）script 模式端到端 409 circuit。F-T1：atomicWriteFileSync rename 瞬时错误重试（EPERM/EACCES 类，1/5/25ms 退避）；F-T2：macroPhaseDifferential 补 afterEach 清理（原先每轮泄漏 ~20 个临时目录）。69 文件 849 用例全绿。
 
 - **终态重入四流程修复（v0.14.0 / cycle-12，D-1101）**：task 型流程终态后可重新入轮——gate-check（PASSED/FAILED→RUNNING）、archive（DONE→RUNNING）、hitl（PASSED/FAILED→RUNNING）三流程补 run 边，macro-phase 经正典比对排除（maintain 是末相无 reset 语义）；`tests/unit/flowTerminalReentry.test.ts` 四层 9 用例（描述子齐全性/机器层放行/集成层二轮/排除钉）。**桌面端宿主实证（D-1102）**：桌面宿主上插件 fiberPhase active、anic_* 工具真实执行、org-status/workflow-snapshot 路由 200、plugin_manager 禁用→启用往返无 duplicate-route（R12 HMR 安全性真机实证）；v0.13.0+ 新面受 Node 模块缓存限制需宿主自然重启生效。67 文件 837 用例全绿。
 
 - 客户端贡献：`conversation.view` 顶层标签 `ANIC`（`kind:'list'` 可叠加，不顶掉既有标签）。
 - 渲染真实 `.cycles/`：138 节点 / 164 边 / 57 cycles / 56 条账本事件（`autonomy L4`）。
-- 流程状态机（R3）：FlowRegistry 3 流程（gate-check/macro-phase/archive）专属状态机 + 模块引擎；面板 flows 分区实时可视化；Tier-2 多智能体 LLM 评审通道（真模型逐门逐角色）。
+- 流程状态机（R3）：FlowRegistry 5 流程（gate-check/macro-phase/archive/hitl/auto-fix）专属状态机 + 模块引擎；面板 flows 分区实时可视化；Tier-2 多智能体 LLM 评审通道（真模型逐门逐角色）。
 - 零 bundle 依赖（react 之外全部外置或内联）；SVG 渲染，无布局引擎。
 
 ### M1 四路由 + 三面板区 + 九开关 + 十五 agent 卡

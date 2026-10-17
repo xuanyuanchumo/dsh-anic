@@ -57,6 +57,12 @@ function runCommand(cmd, projectDir) {
   }
 }
 
+// v1.8.5-fork（D-1103）：报告计数双格式解析。原正则只认键值「失败：N」，
+// 而正典模板（assets/templates/test-report.md §2 汇总）与 G2 门禁（gate-check.mjs）
+// 规定的都是管道表「| 失败 | N |」——两套正典解析器互不相交，正典报告全被读成 0，
+// test-report-failure 通道形同虚设（fail-open）。修复：管道表优先（正典机器可读区），
+// 键值回退（兼容自由文本/旧报告）；管道表命中时不再看键值——§4 失败详情散文里的
+// 「失败：3 次」样文字不会覆盖 §2 汇总的权威计数。
 function readTestReports(projectDir, cycleDir) {
   const testReportsDir = join(projectDir, '.cycles', 'cycles', cycleDir, 'test-reports');
   if (!existsSync(testReportsDir)) return [];
@@ -65,14 +71,19 @@ function readTestReports(projectDir, cycleDir) {
   const files = readdirSync(testReportsDir).filter(f => f.endsWith('.md'));
   for (const file of files) {
     const content = readFileSync(join(testReportsDir, file), 'utf-8');
-    const failMatch = content.match(/失败[：:]\s*(\d+)/);
-    const errorMatch = content.match(/错误[：:]\s*(\d+)/);
-    const passMatch = content.match(/通过[：:]\s*(\d+)/);
+    // 正典 §2 汇总管道表：| 失败 | N |（与 G2 gate-check.mjs 同一形态）
+    const pipeFail = content.match(/\|\s*失败\s*\|\s*(\d+)\s*\|/);
+    const pipeError = content.match(/\|\s*错误\s*\|\s*(\d+)\s*\|/);
+    const pipePass = content.match(/\|\s*通过\s*\|\s*(\d+)\s*\|/);
+    // 旧键值格式回退：失败：N / 失败:N（全半角冒号）
+    const kvFail = content.match(/失败[：:]\s*(\d+)/);
+    const kvError = content.match(/错误[：:]\s*(\d+)/);
+    const kvPass = content.match(/通过[：:]\s*(\d+)/);
     reports.push({
       file,
-      failures: failMatch ? parseInt(failMatch[1]) : 0,
-      errors: errorMatch ? parseInt(errorMatch[1]) : 0,
-      passes: passMatch ? parseInt(passMatch[1]) : 0,
+      failures: pipeFail ? parseInt(pipeFail[1]) : (kvFail ? parseInt(kvFail[1]) : 0),
+      errors: pipeError ? parseInt(pipeError[1]) : (kvError ? parseInt(kvError[1]) : 0),
+      passes: pipePass ? parseInt(pipePass[1]) : (kvPass ? parseInt(kvPass[1]) : 0),
       content,
     });
   }

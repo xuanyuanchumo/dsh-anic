@@ -6,7 +6,7 @@
  * 本套件钉死：真实 band-history 分数序列 → orgStatus 响应携带 weViolations
  * → renderOrgStatus 渲染违例条目（动态白盒：warn/alarm 的「为什么」可见）。
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,11 @@ const TMP = join(tmpdir(), `anic-orgwe-${Date.now()}`);
 beforeEach(() => {
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(join(TMP, '.cycles'), { recursive: true });
+});
+
+// F-T2（cycle-13）：收尾清理——原先只清 beforeEach，最后一组用例的目录泄漏。
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
 });
 
 function writeBandHistory(scores: number[]): void {

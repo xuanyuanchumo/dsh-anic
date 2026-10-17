@@ -4,7 +4,7 @@
  * 钉死面：PHASES 表 / 曾通过门语义（任一历史 PASS，非每门最新）/ 只许前向 /
  * 末相免检 exit 0 / 失败零写入 / dryRun 零写入 / 消息文案逐字。
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,11 @@ let tmp = '';
 beforeEach(() => {
   tmp = join(tmpdir(), `anic-macro-engine-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(join(tmp, '.cycles'), { recursive: true });
+});
+
+// F-T2（cycle-13）：与其余差分测试对齐——原先无清理，每轮全量泄漏临时目录。
+afterEach(() => {
+  rmSync(tmp, { recursive: true, force: true });
 });
 
 function writeState(currentPhase: string): void {

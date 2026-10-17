@@ -5,20 +5,74 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseReportContent, filterFailLines, identifyFailures, analyzeFailurePattern,
-  type FixAttempt, type TestCommandResult, type TestReportSummary,
+  type FixAttempt, type TestCommandResult, type TestReportSummary, type AutoFixFailure,
 } from '../../src/host/evolution/autoFixAnalyze.ts';
 
 const ok: TestCommandResult = { success: true, output: 'all green' };
 const boom: TestCommandResult = { success: false, output: '', error: 'exit 1', exitCode: 1 };
 
-describe('parseReportContent（技能 mjs:63-76 中文冒号兼容）', () => {
-  it('解析 通过/失败/错误 三计数（技能「键：值」格式——全半角冒号兼容）', () => {
+describe('parseReportContent（技能 mjs:63-76 v1.8.5-fork 双格式：管道表优先 + 键值回退）', () => {
+  it('解析 通过/失败/错误 三计数（旧「键：值」格式——全半角冒号兼容，回退路径）', () => {
     expect(parseReportContent('通过：12\n失败：2\n错误：1')).toEqual({ failures: 2, errors: 1, passes: 12 });
   });
 
   it('半角冒号同样匹配；缺失计数为 0', () => {
     expect(parseReportContent('失败: 3\n')).toEqual({ failures: 3, errors: 0, passes: 0 });
     expect(parseReportContent('no counters here')).toEqual({ failures: 0, errors: 0, passes: 0 });
+  });
+
+  it('D-1103 正典 §2 汇总管道表「| 失败 | N |」可解析（G2 同形态）', () => {
+    const canonical = [
+      '# 测试报告',
+      '',
+      '## 2. 汇总',
+      '',
+      '| 指标 | 数量 |',
+      '|---|---|',
+      '| 通过 | 837 |',
+      '| 失败 | 3 |',
+      '| 错误 | 1 |',
+      '| 跳过 | 0 |',
+    ].join('\n');
+    expect(parseReportContent(canonical)).toEqual({ failures: 3, errors: 1, passes: 837 });
+  });
+
+  it('D-1103 双格式并存：管道表权威——§4 散文「失败：99 次」不覆盖 §2 计数', () => {
+    const both = [
+      '## 2. 汇总',
+      '| 通过 | 10 |',
+      '| 失败 | 2 |',
+      '| 错误 | 0 |',
+      '',
+      '## 4. 失败项详情',
+      '复现时观察到失败：99 次，远超预期。错误：7 处也需要关注。',
+    ].join('\n');
+    expect(parseReportContent(both)).toEqual({ failures: 2, errors: 0, passes: 10 });
+  });
+
+  it('D-1103 散文键值命中但管道表全零：管道表仍权威（0 不是缺失）', () => {
+    const zeroTable = [
+      '| 指标 | 数量 |',
+      '| 通过 | 50 |',
+      '| 失败 | 0 |',
+      '| 错误 | 0 |',
+      '',
+      '备注：历史版本曾失败：12 次，现已修复。',
+    ].join('\n');
+    expect(parseReportContent(zeroTable)).toEqual({ failures: 0, errors: 0, passes: 50 });
+  });
+
+  it('D-1103 修复前缺陷钉：纯正典报告（无键值行）不再读成 0——报告失败通道复活', () => {
+    const pureCanonical = '# 测试报告\n\n| 通过 | 100 |\n| 失败 | 5 |\n| 错误 | 2 |\n';
+    const parsed = parseReportContent(pureCanonical);
+    expect(parsed.failures).toBe(5);
+    expect(parsed.errors).toBe(2);
+    // identifyFailures 的 test-report-failure 通道依赖该计数：>0 才会进失败清单
+    const reports: TestReportSummary[] = [{ file: 'r.md', ...parsed, content: pureCanonical }];
+    const failures = identifyFailures(ok, reports);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.type).toBe('test-report-failure');
+    expect((failures[0] as Extract<AutoFixFailure, { type: 'test-report-failure' }>).failures).toBe(5);
   });
 });
 

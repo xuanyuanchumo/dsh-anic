@@ -55,9 +55,33 @@ export function seedAutoFixWorkspace(dir: string, opts: AutoFixSeedOptions): str
 }
 
 /**
- * 一份技能正则可解析的测试报告正文（auto-fix readTestReports 匹配「失败：N」
- * 键值格式——注意与 G2 管道表「| 通过 | N |」不同形，见 autoFixEngine 头注）。
+ * 一份旧键值格式测试报告正文（「失败：N」——v1.8.5-fork 前唯一可解析形态，
+ * 现为回退路径，保留验证向后兼容）。
  */
 export function testReportContent(pass: number, fail: number, error: number): string {
   return `# 测试报告\n\n## 汇总\n\n通过：${pass}\n失败：${fail}\n错误：${error}\n\n- FAIL src/foo.test.ts\n- 错误: timeout\n`;
+}
+
+/**
+ * 一份正典 §2 汇总管道表测试报告正文（「| 失败 | N |」——模板与 G2 门禁
+ * 规定的机器可读形态；D-1103 前双侧正则均不识别，读成 0 即 fail-open）。
+ */
+export function canonicalTestReportContent(pass: number, fail: number, error: number): string {
+  return [
+    '# 测试报告',
+    '',
+    '## 2. 汇总',
+    '',
+    '| 指标 | 数量 |',
+    '|---|---|',
+    `| 通过 | ${pass} |`,
+    `| 失败 | ${fail} |`,
+    `| 错误 | ${error} |`,
+    '| 跳过 | 0 |',
+    '',
+    '## 4. 失败项详情',
+    '',
+    '- FAIL src/foo.test.ts — 断言不等',
+    '- 错误: timeout',
+  ].join('\n');
 }

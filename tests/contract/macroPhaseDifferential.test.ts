@@ -5,8 +5,8 @@
  * 「两份完全相同的夹具各跑一侧」完成：比对落盘的 workflow-state.json
  * （currentPhase / phaseHistory 相位序列）与拒绝消息的逐字相等。
  */
-import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,12 @@ let base = '';
 
 beforeEach(() => {
   base = join(tmpdir(), `anic-macro-diff-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+});
+
+// F-T2（cycle-13）：原先无清理——每轮全量跑泄漏 ~20 个 anic-macro-diff-* 临时
+// 目录（cycle-13 清理时积压 74 个 anic-*）。与其余四个差分测试的 afterEach 对齐。
+afterEach(() => {
+  rmSync(base, { recursive: true, force: true });
 });
 
 interface Fixture {

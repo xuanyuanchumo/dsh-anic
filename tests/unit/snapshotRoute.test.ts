@@ -171,6 +171,7 @@ describe('registerSnapshotRoute', () => {
       expect((JSON.parse(c3.body ?? '{}') as { workspace: string }).workspace).toBe(emptyCwd);
     } finally {
       process.chdir(origCwd);
+      rmSync(emptyCwd, { recursive: true, force: true }); // F-T2：原先泄漏 anic-empty-*
     }
   });
 

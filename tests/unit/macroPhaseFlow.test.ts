@@ -4,8 +4,8 @@
  * 钉死面：描述子 15 条前向边（邻接 advance / 跳相 jump:from:to）/ 守卫
  * phase-gates-passed / native 推进 + 投影 / dryRun 零写 / replay 全等。
  */
-import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -21,6 +21,11 @@ let tmp = '';
 beforeEach(() => {
   tmp = join(tmpdir(), `anic-macro-flow-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(join(tmp, '.cycles'), { recursive: true });
+});
+
+// F-T2（cycle-13）：与其余差分测试对齐——原先无清理，每轮全量泄漏临时目录。
+afterEach(() => {
+  rmSync(tmp, { recursive: true, force: true });
 });
 
 function seedState(currentPhase: string): void {

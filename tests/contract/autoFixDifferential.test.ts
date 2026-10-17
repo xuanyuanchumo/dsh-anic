@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runAutoFixFlow } from '../../src/host/flows/autoFixFlow.ts';
-import { seedAutoFixWorkspace, PASSING_CMD, FAILING_CMD, transientCmd } from '../helpers/autoFixWorkspace.ts';
+import { seedAutoFixWorkspace, PASSING_CMD, FAILING_CMD, transientCmd, canonicalTestReportContent } from '../helpers/autoFixWorkspace.ts';
 
 let fixtureA: string; // script 侧
 let fixtureB: string; // native 侧
@@ -89,5 +89,32 @@ describe('auto-fix 孪生夹具差分（native vs script）', () => {
     const logB = readFileSync(join(fixtureB, '.cycles', 'cycles', 'cycle-1', '审计日志.md'), 'utf-8');
     expect(logA.match(/\| auto-fix-loop \| PASS \|/g)).toHaveLength(1);
     expect(logB.match(/\| auto-fix-loop \| PASS \|/g)).toHaveLength(1);
+  }, 120000);
+
+  it('D-1103 正典管道表报告夹具（命令过 + 报告 3 失败）：双侧 circuit / exit 2 / repeating —— 报告通道双侧复活', () => {
+    // 修复前双侧把 §2 管道表读成 0 → fail-open 判 pass/exit 0（假绿）；
+    // 修复后 test-report-failure 通道生效：命令过但报告红 → 桩修复无效 →
+    // 重试耗尽 → circuit（pattern=repeating：每轮同型 1 条 test-report-failure）。
+    seedTwins((d) => {
+      seedAutoFixWorkspace(d, {
+        testCmd: PASSING_CMD,
+        reports: [{ file: 'test-report.md', content: canonicalTestReportContent(10, 3, 0) }],
+      });
+    });
+    const s = runAutoFixFlow(fixtureA, { mode: 'script', maxRetries: 3 });
+    const n = runAutoFixFlow(fixtureB, { mode: 'native', maxRetries: 3 });
+    // D-1103 修复钉：不再是 fail-open 的 pass
+    expect(s.verdict).toBe('circuit');
+    expect(n.verdict).toBe('circuit');
+    expect(s.exitCode).toBe(2);
+    expect(n.exitCode).toBe(2);
+    expect(s.state).toBe('CIRCUIT');
+    expect(n.state).toBe('CIRCUIT');
+    expect(n.pattern).toBe('repeating');
+    expect(s.pattern).toBe('repeating');
+    expect(n.attemptsCount).toBe(s.attemptsCount);
+    // incident 双侧落盘
+    expect(existsSync(n.incidentPath ?? '')).toBe(true);
+    expect(readdirSync(join(fixtureA, '.cycles', 'incidents')).some((f) => f.startsWith('incident-auto-fix-fail-'))).toBe(true);
   }, 120000);
 });
