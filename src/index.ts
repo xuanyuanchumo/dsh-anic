@@ -22,6 +22,7 @@ import { registerAnicRoutes } from './host/routes/index.ts';
 import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
+import { registerBuiltinFlows } from './host/flows/gateCheckFlow.ts';
 
 export const name = 'dsh-anic';
 export const inject = ['tools', 'webServer', 'sessions', 'skills'];
@@ -35,11 +36,14 @@ export function apply(ctx: unknown): void {
     // runtime 技能注册（静态 inject 保证 skills 已就绪；stub 宿主无 skills 时
     // registerRuntimeSkill 内部探测跳过，返回 null 即无需清理）。
     c.effect(() => registerRuntimeSkill(ctx) ?? undefined, 'dsh-anic: runtime skill (ctx.skills.register)');
-    c.effect(() => registerAnicRoutes(ctx, { invocationFeed: feed }), 'dsh-anic: routes (snapshot+cycle+ledger+review+evolution+governance+self+skill+invocations)');
+    c.effect(() => registerAnicRoutes(ctx, { invocationFeed: feed }), 'dsh-anic: routes (snapshot+cycle+ledger+review+evolution+governance+self+skill+invocations+flows)');
     c.effect(() => registerAnicTools(ctx), 'dsh-anic: tools (anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check)');
+    // 内置流程注册（R3 阶段 2）：FlowRegistry 生命周期跟随插件 fiber（卸载即注销）。
+    c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check)');
   } else {
     registerRuntimeSkill(ctx);
     registerAnicRoutes(ctx, { invocationFeed: feed });
     registerAnicTools(ctx);
+    registerBuiltinFlows();
   }
 }

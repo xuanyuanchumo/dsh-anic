@@ -159,7 +159,8 @@
     "gateRecord": "门禁记录",
     "budgetEnforce": "预算强制",
     "selfInit": "自举初始化",
-    "agentsOrchestration": "智能体编排"
+    "agentsOrchestration": "智能体编排",
+    "gateCheck": "收敛门禁流程"
   },
   "gate": {
     "PASS": "通过",

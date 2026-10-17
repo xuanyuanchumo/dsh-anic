@@ -45,14 +45,16 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 - **M5-a 规模治理**：`host/governance/` Archiver（移动不删除）+ Budget（三级阈值）+ Sweep（删空+过期 .tmp）+ Prune（孤儿检测）；4 路由。
 - **M6 通用性收口 v0.1.0**：i18n 双语（zh + en，panel/flows/gate 三域）+ CHANGELOG.md + private:false。
 - **M7 自举闭环**：`host/selfBootstrap.ts` 状态机 IDLE→EVALUATING→GATE_CHECKING→FIXING→VERIFYING→CONVERGED/EXHAUSTED + `host/skillInvoker.ts` 15 脚本白名单 + 路径遍历防护；4 路由。
-- **M8 跨项目+DSH 工具**：`host/tools.ts` + `toolsPointerGateway.ts` + `toolsSkillGateway.ts` + `toolsEvolutionGateway.ts` 共 13 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status/skill/bootstrap_cycle/bootstrap_analyze）+ skillRoute 4 路由；inject=['tools','webServer','sessions','skills']。
+- **M8 跨项目+DSH 工具**：`host/tools.ts` + `toolsPointerGateway.ts` + `toolsSkillGateway.ts` + `toolsEvolutionGateway.ts` + `toolsFlowsGateway.ts` 共 14 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status/skill/bootstrap_cycle/bootstrap_analyze/autonomy_downgrade/flows_gate_check）+ skillRoute 4 路由；inject=['tools','webServer','sessions','skills']。
 - **M9 结构优化**：`host/routes/routeContext.ts` 提取共享依赖 + `routes/index.ts` 瘦身至 ~75 行纯组合 + 六域分区（data/cycle/review/evolution/governance/self）。
 - **M10 发布 v0.2.0**：CHANGELOG + README + package.json 0.2.0。
 - **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 63 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
 - **真实性审计（自举目标）**：`host/evolution/truthAudit.ts` + `truthAuditChecks.ts` — T1 真实性（文件存在）/ T2 准确性（计数+版本）/ T3 结构性（250 行模块限制）/ T4 逻辑性（路由注册+工具数）；`dualBootstrap` 评估权重 60% 基线 + 40% 审计分；GET `/anic/api/truth-audit`。
 - **数据结构优化**：snapshotCore O(n²)→O(n)（Map 替 find/some）；stateMachine O(n)→O(1)（buildGraphIndex nodeMap+predecessors 邻接表）。
-- **适配器层**：`adapters/index.ts` — FsAdapter/ExecAdapter/HttpAdapter 三接口隔离外部依赖（Q5 架构约束，eval-runner PASS）。
+- **适配器层**：`adapters/index.ts` — FsAdapter/ExecAdapter/HttpAdapter 三接口隔离外部依赖（Q5 架构约束，eval-runner PASS）+ spawnSync env 清洗（`*KEY*/*SECRET*/*TOKEN*/*PASSWORD*` 剥除）。
 - **模块化**：WorkflowGraphPanel 303→~140 行，纯渲染提取至 `features/graph/renderGraph.ts`（155 行）。
+- **P0-BODY 真实宿主请求体修复（v0.8.0）**：真实宿主 webServer 的 handler 收到的是 Node IncomingMessage 流（`dsh-host-webserver` 无 body 解析层），旧 `parseBody` 只读 `req.body` → 11 个 POST 路由的体参数在真实宿主**全部静默丢弃**（桩宿主挂对象故测试全绿）。修复：`routeContext.ts readBody()` 双形态兼容（桩对象同步 / 流式 on('data')/'end'/'error'/'close' 收集 + 1MB 上限），11 个 POST handler 全部改造；回归守卫 `tests/unit/httpBodyStreaming.test.ts`（流式分片/error settle/上限/路由级端到端）。
+- **R3 阶段 2 流程状态机引擎（v0.8.0）**：`host/flows/` — `contracts.ts`（L0：FlowDescriptor/FlowTransition/GuardFn 引用键禁内联闭包/ModuleEngine long|per-call）+ `machine.ts`（L1 纯函数：apply 唯一写点/replayEvents 崩溃恢复 INV-13/未知守卫 fail-closed）+ `registry.ts`（L3：同 id 首个胜出 no-op disposer，HMR 语义）+ `persistence.ts`（L2：投影唯一写者原子写，禁成第二真相源）+ `gateCheckFlow.ts`（首个实例：IDLE→RUNNING→PASSED/FAILED，守卫消费引擎裁决 INV-28）+ `gateCheckRunners.ts`（script 正典/native 原生/diff 双跑对账，双不写账本防双写）+ `gateEngine.ts`/`gateArtifacts.ts`/`gateTypes.ts`（G0-G3 判定逐字对齐技能 gate-check.mjs）；3 路由（GET /anic/flows、GET /anic/flows/state、POST /anic/flows/gate-check/run）+ 第 14 个工具 `anic_flows_gate_check`；**差分契约** `tests/contract/flowDifferential.test.ts`（同 fixture native vs script 逐字段全等）+ 真实宿主 diff 模式 drift=null 现场实证。
 - 冒烟 19/19 PASS · 规范门 12/12 · vitest 153/153 · typecheck 0/0 · **v0.3.0**。
 
 ## 热加载与热更新（三层机制）
@@ -205,9 +207,9 @@ dsh-anic/
 - `advanceDualBootstrap`：推进一轮，失败时产跨向提案（不互相改码，R-31）。
 - 3 路由：`POST /anic/self/dual-evaluate` / `POST /anic/self/dual-advance` / `GET /anic/self/dual-status`。
 
-### 13 DSH 工具
+### 14 DSH 工具
 
-`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）。工具计数守卫见 `truthAuditChecks.ts`（扫描 `src/host/tools*.ts` glob，不硬编码单文件）。
+`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）。工具计数守卫见 `truthAuditChecks.ts`（扫描 `src/host/tools*.ts` glob，不硬编码单文件）。
 
 ### 透明性 + 连通性增强
 

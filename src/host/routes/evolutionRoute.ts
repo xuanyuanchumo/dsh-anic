@@ -3,7 +3,7 @@
  */
 
 import type { SnapshotCtx } from '../snapshotRoute.ts';
-import { type RouteReq, parseBody } from './routeContext.ts';
+import { type RouteReq, readBody } from './routeContext.ts';
 import {
   buildTrustScores,
   recommendBand,
@@ -64,7 +64,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
 
   // POST /anic/api/breakers — 熔断检查
   reg('/anic/api/breakers', 'POST', (req: RouteReq, res: unknown) => {
-    const parsed = parseBody(req);
+    void readBody(req).then((parsed) => {
     const body: BreakerInput = {
       consecutiveFixFails: Number(parsed.consecutiveFixFails ?? 0),
       hasDoubt: Boolean(parsed.hasDoubt),
@@ -83,14 +83,16 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     const action = decideAction(band, breakers);
     const downgraded = action === 'downgrade' ? downgradeBand(band) : band;
     send(res, 200, { breakers, action, downgradedBand: downgraded });
+    });
   });
 
   // POST /anic/api/tech-debt — 从评估结果生成技术债务
   reg('/anic/api/tech-debt', 'POST', (req: RouteReq, res: unknown) => {
-    const parsed = parseBody(req);
+    void readBody(req).then((parsed) => {
     const results = Array.isArray(parsed.results) ? (parsed.results as EvalResult[]) : [];
     const entries = generateTechDebt(results);
     send(res, 200, { techDebt: entries, count: entries.length });
+    });
   });
 
   // POST /anic/autonomy/downgrade — 证据化自主级回退（R3 阶段 1 余量）。

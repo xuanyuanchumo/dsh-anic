@@ -16,6 +16,8 @@ export interface RouteReq {
   body?: string | Record<string, unknown>;
   method?: string;
   headers?: Record<string, string | string[] | undefined>;
+  /** 流式请求面（真实宿主 Node IncomingMessage）；桩宿主直接给 body。 */
+  on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
 }
 
 /** 解析请求体——字符串 JSON.parse，对象直接返回，空返回 {}（P1-7 辅助）。 */
@@ -26,6 +28,48 @@ export function parseBody(req: RouteReq): Record<string, unknown> {
   }
   if (b && typeof b === 'object') return b;
   return {};
+}
+
+/**
+ * 读 POST 请求体（真实宿主修复，P0-BODY）。
+ *
+ * 真实宿主的 webServer handler 收到的是 Node IncomingMessage —— body 以
+ * 'data'/'end' 事件流式到达，`req.body` 永远是 undefined（dsh-host-webserver
+ * 无 body 解析层，逐字验证过 lib 源码）。旧 parseBody 只读 req.body，导致
+ * 全部 11 个 POST 体参数在真实宿主被静默丢弃（测试桩直接挂 body 故全绿）。
+ *
+ * 双形态兼容：
+ *  - 桩宿主：req.body 已存在 → 同步路径立即解析（既有测试零改动）。
+ *  - 真实宿主：req.on 可用 → 收集 data 块到 end/error/close 或上限。
+ *    reviewRoute 的 `for await (chunk of req)` 是同一语义的仓库内先例。
+ */
+export const BODY_LIMIT_BYTES = 1_000_000;
+
+export function readBody(req: RouteReq, limitBytes = BODY_LIMIT_BYTES): Promise<Record<string, unknown>> {
+  if (req.body !== undefined) return Promise.resolve(parseBody(req));
+  const on = req.on;
+  if (typeof on !== 'function') return Promise.resolve({});
+  // 绑定接收者再调用——直接抽出方法会丢 this（EventEmitter 读 _events 崩溃）
+  const emitTo = (event: string, listener: (...args: unknown[]) => void): void => { on.call(req, event, listener); };
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve(parseBody({ body: Buffer.concat(chunks).toString('utf-8') }));
+    };
+    emitTo('data', (chunk?: unknown) => {
+      const buf = chunk instanceof Buffer ? chunk : Buffer.from(String(chunk ?? ''), 'utf-8');
+      chunks.push(buf);
+      total += buf.length;
+      if (total >= limitBytes) finish();
+    });
+    emitTo('end', finish);
+    emitTo('error', finish);
+    emitTo('close', finish);
+  });
 }
 
 export interface RouteContext {

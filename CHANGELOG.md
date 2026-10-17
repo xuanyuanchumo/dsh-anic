@@ -1,5 +1,46 @@
 # dsh-anic CHANGELOG
 
+## v0.8.0 — 2026-10-17
+
+R3 路线图阶段 2 落地：FlowRegistry/FlowMachine/ModuleEngine 流程状态机骨架 + gate-check 首个专属流程 + **P0-BODY 真实宿主请求体修复**（全插件 11 个 POST 路由的体参数在真实宿主被静默丢弃的 P0 缺陷）。测试 551→632 用例（42→48 文件）。真实宿主（网页端 3080）验证：三模式 flows 路由 + diff 双跑 drift=null（native/script 引擎逐字段语义全等现场实证）+ J0 8/8。
+
+### P0-BODY：真实宿主 POST 请求体全丢失（cycle-6 发现并修复）
+
+- **根因**：真实宿主 `dsh-host-webserver` 的 handler 收到原始 Node IncomingMessage —— body 以 'data'/'end' 事件流式到达，**宿主没有任何 body 解析层**（lib 源码逐字验证零命中）。旧 `parseBody` 只读 `req.body`（永远 undefined）→ **11 个 POST 路由的体参数在真实宿主全部静默丢弃**：flows 的 mode/gate/quality/record、skill/invoke 的 script/args、breakers 的全字段、tech-debt 的 results、self/iterate 的 maxRounds、ledger/append 与 seg-ledger/append 的 gate/result、cycle/init|advance|close 的参数。桩宿主测试直接挂 body 对象 → **全绿假象**（reviewRoute 的 `for await (chunk of req)` 是仓库内唯一正确先例）。
+- **修复**：`routeContext.ts` 新增 `readBody(req, limit=1MB)` 双形态兼容 —— 桩宿主（req.body 对象/字符串）同步解析零改动；真实宿主（req.on 流式）收集 data 块至 end/error/close 或上限；损坏 JSON fail-safe {}。11 个 POST handler 全部改为 `void readBody(req).then(body => ...)` 异步分派。
+- **回归守卫** `tests/unit/httpBodyStreaming.test.ts`（10 用例）：流式分片重组 / error settle 不悬挂 / 无 end 靠上限 settle / 路由级端到端（EventEmitter 假 req → breakers 字段真实进入熔断计算、tech-debt 分片 results 重组）。
+- **发现途径**：真实宿主 POST mode=native 返回 mode=script —— 正是「真实环境验证」纪律抓住的 stub/real 契约分叉。
+
+### R3 阶段 2：流程状态机引擎（FlowRegistry / FlowMachine / ModuleEngine）
+
+- **架构分层**（`src/host/flows/`，docs/anic 06 状态机引擎设计落地）：
+  - `contracts.ts`（L0）：FlowDescriptor{states,initial,transitions,persistence,engine?,scriptFallback?} / FlowTransition{from:S|'*',to,trigger,guard?} / GuardResult{ok,reason?,refusal?:'SELF_REFUSAL'} / ModuleEngine{lifecycle:'long'|'per-call',step,verify?}。四大纪律：guard 引用键禁内联闭包；apply 唯一写点；投影禁成第二真相源（INV-22）；引擎不持流程状态。
+  - `machine.ts`（L1 纯函数）：validateDescriptor / findTransition（精确边优先通配）/ canTransition（未知守卫名 fail-closed 拒绝）/ applyTransition（唯一写点）/ replayEvents（事件 from≠折叠态 → rejected 不推进；replay 不跑守卫）—— **INV-13 replay(events) 与在线状态全等**。
+  - `registry.ts`（L3）：registerFlow 非法描述子拒绝；同 id 首个胜出 + no-op disposer（ctx.skills.register 同款 HMR 语义）。
+  - `persistence.ts`（L2）：投影唯一写者原子写；损坏/形状不对 → null 绝不部分采信；isProjectionStale 按 ledgerHead 指纹。
+- **首个流程实例 gate-check**（`gateCheckFlow.ts` + `gateCheckRunners.ts`）：状态图 IDLE→RUNNING→PASSED/FAILED（RUNNING 自环崩溃恢复；PASSED/FAILED→reset→IDLE）；守卫 gate-verdict-all-pass/any-fail 消费引擎裁决负载（INV-28：FAILED 的引擎结果永远进不了 PASSED）。三执行模式：**script 正典**（技能脚本是账本正典写入者）/ **native 原生**（gateEngine 判定 + recordNative 与脚本 :204-214 同一去重语义入账）/ **diff 双跑对账**（双不写账本防双写，判定面取脚本侧正典，drift 字段报告分叉）。
+- **原生引擎** `gateEngine.ts` + `gateArtifacts.ts`：G0-G3 + 质量门判定**逐字对齐技能 gate-check.mjs**（parseTaskRows / 裁决行正则 / 汇总表正则 / QUALITY_CHECKS 映射 / SKIP|行缺失=unevaluated 不能关门 / config 缺失 fatal）；**差分契约** `tests/contract/flowDifferential.test.ts`（5 用例：全绿/红/质量三态/config 缺失/单门，同 fixture 双跑逐字段比对 pass+detail）。
+- **接线**：`src/index.ts` 第 4 个 effect（registerBuiltinFlows）；flows 域 3 路由（GET /anic/flows 注册表观测面 / GET /anic/flows/state 投影（无投影=null 不伪造）/ POST /anic/flows/gate-check/run）；第 14 个 DSH 工具 **`anic_flows_gate_check`**（toolsFlowsGateway.ts 一域一文件，mode=script|native|diff）。
+- **真实宿主实证**：POST mode=diff → **drift=null**（native 与 script 引擎在真实 codegraph 工作区逐字段语义全等）；mode=native 正确到达；breakers 流式体字段真实进入熔断计算（consecutive_fix_fail tripped=true, action=pause）。
+
+### 结构与守卫
+
+- T3 结构守卫第三次拦人：gateCheckFlow.ts 256 行 > 250 → 按域拆出 gateCheckRunners.ts（引擎侧执行器层）而非放宽守卫。
+- scriptParsers.ts 新增 parseGateLines（脚本输出 `[PASS] G0: ...` / 两格缩进质量行解析，与实跑输出验证）。
+- snapshotRoute.test.ts 路由清单 +3（flows 三条，54 条）；effect 调用数 3→4。
+- truthAuditChecks.ts walker ENOENT 容忍延续。
+
+### 验证
+
+```
+typecheck   client 0  host 0
+vitest      632/632  (48 test files)
+smoke       19/19 ALL PASS
+validate    12/12
+build       dist/client.js + dist/host.js OK
+真实宿主    flows 3 路由 + 三模式 + diff drift=null + breakers 流式体 + J0 8/8
+```
+
 ## v0.7.0 — 2026-10-17
 
 R3 路线图阶段 1 余量收口：HITL 四检查语义对齐（P0）+ 自主级决策落盘（P1）+ 真实性审计 walker 竞态修复。测试 504→551 用例（42 文件）。真实宿主（网页端 3080）端到端验证：维持路径（codegraph 工作区零写入）+ 降级写入路径（一次性夹具工作区 L4→L3 + 事故留痕）+ J0 8/8。

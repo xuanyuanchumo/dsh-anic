@@ -94,3 +94,32 @@ export function parseFixApplied(result: ScriptOutput): string | null {
     .filter(Boolean);
   return items.length > 0 ? `修复并通过: ${items.join('; ')}` : 'Fix successful. All tests now pass.';
 }
+
+/**
+ * gate-check 逐门禁行解析（阶段 2 FlowRegistry 差分模式消费）。
+ *
+ * 输出契约（gate-check.mjs:198/:219）：
+ *   门禁行   "[PASS] G0: <detail>"          —— 行首无缩进
+ *   质量行   "  [PASS] G0-Quality: <detail>" —— 恰好两格缩进
+ *   账本行   "  [LEDGER] G0 ..."             —— 前缀 [LEDGER]，天然不匹配上两条
+ * 返回 {gates, quality} 两个 Record；无匹配行（如 config 缺失的致命路径）两者皆空。
+ */
+export interface ParsedGateSide {
+  pass: boolean;
+  detail: string;
+}
+
+export function parseGateLines(result: ScriptOutput): {
+  gates: Record<string, ParsedGateSide>;
+  quality: Record<string, ParsedGateSide>;
+} {
+  const gates: Record<string, ParsedGateSide> = {};
+  const quality: Record<string, ParsedGateSide> = {};
+  for (const m of result.stdout.matchAll(/^\[(PASS|FAIL)\] (G[0-3]): (.+)$/gm)) {
+    gates[m[2] ?? ''] = { pass: m[1] === 'PASS', detail: m[3] ?? '' };
+  }
+  for (const m of result.stdout.matchAll(/^ {2}\[(PASS|FAIL)\] (G[0-3])-Quality: (.+)$/gm)) {
+    quality[m[2] ?? ''] = { pass: m[1] === 'PASS', detail: m[3] ?? '' };
+  }
+  return { gates, quality };
+}

@@ -274,6 +274,8 @@ describe('宿主入口 apply', () => {
     '/anic/self/dual-evaluate', '/anic/self/dual-advance', '/anic/self/dual-status',
     // M11 真实性审计
     '/anic/api/truth-audit',
+    // R3 阶段 2：flows 域（流程状态流转机观测面 + 运行面）
+    '/anic/flows', '/anic/flows/state', '/anic/flows/gate-check/run',
   ];
 
   it('有 effect：setup 经 effect 执行并带 label；effect 的返回 disposer 由宿主承接', () => {
@@ -285,11 +287,12 @@ describe('宿主入口 apply', () => {
     });
     (ctx as Record<string, unknown>).effect = effect;
     apply(ctx);
-    expect(effect).toHaveBeenCalledTimes(3); // skill(cycle-97) + routes + tools
+    expect(effect).toHaveBeenCalledTimes(4); // skill(cycle-97) + routes + tools + flows(R3 阶段 2)
     // label 必须点明是聚合注册（少一层即功能面缺失）
     expect(effect.mock.calls[0]?.[1]).toContain('dsh-anic: runtime skill');
     expect(effect.mock.calls[1]?.[1]).toContain('dsh-anic: routes');
     expect(effect.mock.calls[1]?.[1]).toContain('snapshot');
+    expect(effect.mock.calls[3]?.[1]).toContain('dsh-anic: builtin flows');
     // M1 全功能面：四条路由一次注册齐（少一条即功能面缺失）
     expect(registered.map((r) => r.path).sort()).toEqual([...ALL_ROUTES].sort());
     // effect 返回的清理被宿主拿走：调用 ROUTES 层（results[1]）必须**逐个**清掉
@@ -299,6 +302,8 @@ describe('宿主入口 apply', () => {
     expect(webServerDisposer).toHaveBeenCalledTimes(ALL_ROUTES.length);
     // 技能层清理可安全调用（registerRuntimeSkill 返回 null 时不得产生"非函数"爆炸）
     expect(() => { (effect.mock.results[0]?.value as () => void)(); }).not.toThrow();
+    // flows 层清理同样安全（registerBuiltinFlows 返回 disposer；重复清理幂等）
+    expect(() => { (effect.mock.results[3]?.value as () => void)(); }).not.toThrow();
   });
 
   it('无 effect：直接注册（不静默丢弃，异常宿主形态兜底）', () => {

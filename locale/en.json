@@ -159,7 +159,8 @@
     "gateRecord": "Gate Record",
     "budgetEnforce": "Budget Enforce",
     "selfInit": "Self Init",
-    "agentsOrchestration": "Agent Orchestration"
+    "agentsOrchestration": "Agent Orchestration",
+    "gateCheck": "Gate-check Flow"
   },
   "gate": {
     "PASS": "Passed",

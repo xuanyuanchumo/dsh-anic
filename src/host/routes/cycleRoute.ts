@@ -10,6 +10,7 @@
 import { resolveWorkspaceRoots, sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { initCycle, advanceCycle, closeCycle, listCycles, nextCycleNumber } from '../runtime/cycleRunner.ts';
 import { loadWorkflowGraph, loadState, initState } from '../runtime/stateMachine.ts';
+import { type RouteReq, readBody } from './routeContext.ts';
 import { join } from 'node:path';
 
 type SendFn = (res: unknown, status: number, body: unknown, requestId?: string) => void;
@@ -19,15 +20,6 @@ interface RouteDeps {
   getWorkspaceRoot: () => string | null;
 }
 
-/** 解析请求体为指定类型——安全版（P1-6 修复：消除 `as T` 不安全转换）。 */
-function body<T = Record<string, unknown>>(req: unknown): T {
-  const r = req as { body?: unknown };
-  if (typeof r.body === 'string') {
-    try { return JSON.parse(r.body) as T; } catch { return {} as T; }
-  }
-  return (r.body ?? {}) as T;
-}
-
 /** 注册 Cycle 路由（init/advance/close/state/list）。 */
 export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) | null {
   const c = ctx as SnapshotCtx;
@@ -35,32 +27,45 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
   const { send, getWorkspaceRoot } = deps;
 
   const d1 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/init', handler: (req: unknown, res: unknown) => {
+    void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot();
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
-    const { projectName } = body<{ projectName?: string }>(req);
+    const projectName = typeof parsed.projectName === 'string' ? parsed.projectName : undefined;
     const info = initCycle(cyclesDir, projectName);
     send(res, 200, { ok: true, ...info });
+    });
   }});
 
   const d2 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/advance', handler: (req: unknown, res: unknown) => {
+    void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot();
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
-    const { cycleNumber, nodeId, ...record } = body<{ cycleNumber: number; nodeId: string; gateApproved?: boolean; gate?: string; gateName?: string; result?: 'PASS' | 'FAIL'; detail?: string }>(req);
+    const cycleNumber = Number(parsed.cycleNumber);
+    const nodeId = typeof parsed.nodeId === 'string' ? parsed.nodeId : '';
+    const record: { gateApproved?: boolean; gate?: string; gateName?: string; result?: 'PASS' | 'FAIL'; detail?: string } = {};
+    if (typeof parsed.gateApproved === 'boolean') record.gateApproved = parsed.gateApproved;
+    if (typeof parsed.gate === 'string') record.gate = parsed.gate;
+    if (typeof parsed.gateName === 'string') record.gateName = parsed.gateName;
+    if (parsed.result === 'PASS' || parsed.result === 'FAIL') record.result = parsed.result;
+    if (typeof parsed.detail === 'string') record.detail = parsed.detail;
     if (!cycleNumber || !nodeId || !Number.isInteger(cycleNumber) || cycleNumber < 1) { send(res, 400, { error: 'cycleNumber (positive integer) and nodeId required' }); return; }
     const result = advanceCycle(cyclesDir, cycleNumber, nodeId, record);
     send(res, result.ok ? 200 : 409, result);
+    });
   }});
 
   const d3 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/close', handler: (req: unknown, res: unknown) => {
+    void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot();
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
-    const { cycleNumber } = body<{ cycleNumber: number }>(req);
+    const cycleNumber = Number(parsed.cycleNumber);
     if (!cycleNumber || !Number.isInteger(cycleNumber) || cycleNumber < 1) { send(res, 400, { error: 'cycleNumber (positive integer) required' }); return; }
     const result = closeCycle(cyclesDir, cycleNumber);
     send(res, result.ok ? 200 : 409, result);
+    });
   }});
 
   const d4 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/state', handler: (_req: unknown, res: unknown) => {

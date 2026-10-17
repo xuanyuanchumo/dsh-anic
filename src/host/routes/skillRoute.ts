@@ -5,7 +5,7 @@
 
 import path from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
-import { type RouteReq, parseBody } from './routeContext.ts';
+import { type RouteReq, readBody } from './routeContext.ts';
 import { resolveWorkspaceRoots, sendJson } from '../snapshotRoute.ts';
 import {
   isAllowedScript,
@@ -38,7 +38,7 @@ export function registerSkillRoutes(
 
     // POST /anic/skill/invoke — invoke a skill script on a workspace
     reg('/anic/skill/invoke', (req, res) => {
-      const body = parseBody(req);
+      void readBody(req).then((body) => {
       const script = typeof body.script === 'string' ? body.script : '';
       const args: string[] = Array.isArray(body.args) ? (body.args as string[]) : [];
       const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
@@ -72,11 +72,12 @@ export function registerSkillRoutes(
         timedOut: result.timedOut,
         durationMs: result.durationMs,
       });
+      });
     }),
 
     // POST /anic/evaluate — cross-project evaluation
     reg('/anic/evaluate', (req, res) => {
-      const body = parseBody(req);
+      void readBody(req).then((body) => {
       const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
       const dimensions = typeof body.dimensions === 'string' ? body.dimensions : undefined;
 
@@ -97,11 +98,12 @@ export function registerSkillRoutes(
         timedOut: result.timedOut,
         durationMs: result.durationMs,
       });
+      });
     }),
 
     // POST /anic/iterate — cross-project iteration
     reg('/anic/iterate', (req, res) => {
-      const body = parseBody(req);
+      void readBody(req).then((body) => {
       const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
 
       const wsCheck = validateWorkspace(workspace);
@@ -130,6 +132,7 @@ export function registerSkillRoutes(
           stdout: gateResult.stdout.slice(0, 4000),
           timedOut: gateResult.timedOut,
         },
+      });
       });
     }),
   ];

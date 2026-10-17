@@ -20,6 +20,7 @@ import {
 import { makeToolOutput } from './toolsSlot.ts';
 import { registerPointerTools } from './toolsPointerGateway.ts';
 import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
+import { registerFlowsTools } from './toolsFlowsGateway.ts';
 
 interface HostContext {
   tools?: ToolsSlot;
@@ -169,6 +170,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   // 进化域工具（anic_autonomy_downgrade）拆分至 toolsEvolutionGateway.ts
   disposers.push(...registerEvolutionTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+
+  // Flows 域工具（anic_flows_gate_check，R3 阶段 2）拆分至 toolsFlowsGateway.ts
+  disposers.push(...registerFlowsTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
 
   // Tool: anic_status — get full org status panorama + recent flow tracker records
   disposers.push(tools.register({

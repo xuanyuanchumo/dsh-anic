@@ -6,7 +6,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
-import { type RouteReq, parseBody } from './routeContext.ts';
+import { type RouteReq, readBody } from './routeContext.ts';
 import { resolveWorkspaceRoots, sendJson } from '../snapshotRoute.ts';
 import {
   type BootstrapState,
@@ -113,7 +113,7 @@ export function registerSelfBootstrapRoutes(
 
     // POST /anic/self/iterate — full micro-iteration (eval→gate→tech-debt)
     reg('/anic/self/iterate', (req, res) => {
-      const body = parseBody(req);
+      void readBody(req).then((body) => {
       const maxRounds = typeof body.maxRounds === 'number' ? body.maxRounds : 3;
 
       const roots = resolveWorkspaceRoots(ctx);
@@ -180,6 +180,7 @@ export function registerSelfBootstrapRoutes(
         techDebtProposals: fixApplied ? [fixApplied] : [],
         converged: state.status === 'CONVERGED',
         exhausted: state.status === 'EXHAUSTED',
+      });
       });
     }),
 

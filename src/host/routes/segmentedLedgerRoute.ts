@@ -11,6 +11,7 @@ import {
   isDuplicateSegmented,
   listSegmentFiles,
 } from '../runtime/segmentedLedger.ts';
+import { type RouteReq, readBody } from './routeContext.ts';
 
 const LEDGER_SEG_DIR = 'gates'; // .cycles/gates/ 下放 head.json + seg-*.jsonl
 
@@ -59,6 +60,7 @@ export function registerSegmentedLedgerRoute(
   // POST /anic/api/seg-ledger/append — 追加（幂等查重）
   disposers.push(
     c.webServer.register({ kind: 'exact', path: '/anic/api/seg-ledger/append', handler: (req: unknown, res: unknown) => {
+      void readBody(req as RouteReq).then((body) => {
       const root = opts.getWorkspaceRoot();
       if (!root) return opts.send(res, 404, { error: 'workspace not found' });
       const dir = resolveLedgerDir(root);
@@ -66,34 +68,37 @@ export function registerSegmentedLedgerRoute(
       // 初始化（幂等）
       initSegmentedLedger(dir);
 
-      // 解析 body
-      const r = req as { body?: unknown };
-      const body = r.body as { gate?: string; gateName?: string; result?: string; detail?: string } | undefined;
-      if (!body || !body.gate || !body.result) {
+      // 解析 body（readBody 兼容真实宿主流式与桩宿主对象两形态）
+      const gate = typeof body.gate === 'string' ? body.gate : '';
+      const result = typeof body.result === 'string' ? body.result : '';
+      const gateName = typeof body.gateName === 'string' ? body.gateName : '';
+      const detail = typeof body.detail === 'string' ? body.detail : '';
+      if (!gate || !result) {
         return opts.send(res, 400, { error: 'missing gate or result' });
       }
 
       // 幂等查重
       if (
         isDuplicateSegmented(dir, {
-          gate: body.gate,
-          gateName: body.gateName ?? '',
-          result: body.result,
-          detail: body.detail ?? '',
+          gate,
+          gateName,
+          result,
+          detail,
         })
       ) {
         return opts.send(res, 409, { error: 'duplicate entry (idempotent reject)' });
       }
 
       const { entry, head } = appendToSegmented(dir, {
-        gate: body.gate,
-        gateName: body.gateName ?? '',
-        result: body.result,
-        detail: body.detail ?? '',
+        gate,
+        gateName,
+        result,
+        detail,
         timestamp: new Date().toISOString(),
       });
 
       opts.send(res, 201, { entry, head });
+      });
     }}) as () => void,
   );
 

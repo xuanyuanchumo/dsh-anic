@@ -30,6 +30,7 @@ import { registerNativeRoute } from './nativeRoute.ts';
 import { registerDualBootstrapRoute } from './dualBootstrapRoute.ts';
 import { registerTruthAuditRoute } from './truthAuditRoute.ts';
 import { registerInvocationRoute } from './invocationRoute.ts';
+import { registerFlowsRoute } from './flowsRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
@@ -112,6 +113,9 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
     disposers.push(...registerDualBootstrapRoute({ ctx: c, send, getWorkspaceRoot, pluginDir }));
     disposers.push(...registerTruthAuditRoute(c, send));
   }
+
+  // ── flows 域（R3 阶段 2：流程状态流转机观测面 + 运行面）──
+  disposers.push(...registerFlowsRoute(c, send, { getWorkspaceRoot }));
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;
