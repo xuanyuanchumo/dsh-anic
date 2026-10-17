@@ -163,7 +163,11 @@ try {
   });
   const t = probe.t;
   record('J0-3 遥测通道', !!t && t.registered === true, t ? `registered=${t.registered} registerCount=${t.registerCount}` : 'window.__ANIC_TAB_SPIKE__ 不存在');
-  record('J0-2 图渲染', probe.hasSvg && probe.circles >= 100 && probe.lines >= 100 && t && t.nodes > 0,
+  // cycle-10 强不变量：渲染 = 遥测（面板 live 到达后同步 spike.nodes/edges——
+  // 旧断言只查 circles>=100，在会话工作区 .cycles 较小时假红、在遥测陈旧时假绿
+  // （cycle-9 实录 175 圆 vs 169 遥测即后者）。现在要求逐数相等：画的就是报的。
+  record('J0-2 图渲染', probe.hasSvg && probe.circles >= 20 && probe.lines >= 20 && !!t && t.nodes > 0
+    && probe.circles === t.nodes && probe.lines === t.edges,
     `svg=${probe.hasSvg} circles=${probe.circles} lines=${probe.lines} 遥测 nodes=${t?.nodes} edges=${t?.edges}`);
 } catch (e) {
   record('J0-2 图渲染', false, String(e).slice(0, 160));

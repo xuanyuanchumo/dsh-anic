@@ -163,7 +163,8 @@
     "agentsOrchestration": "Agent Orchestration",
     "flowsView": "Flow Machines Panel",
     "gateCheck": "Gate-check Flow",
-    "macroPhase": "Macro-phase Flow", "archive": "Archive Flow",
+    "macroPhase": "Macro-phase Flow",
+    "archive": "Archive Flow",
     "panelTitle": "Flow Machines (FlowRegistry · {total} flows)",
     "state": "current: {state}",
     "neverRun": "never run (registered, no projection yet)",
@@ -172,7 +173,8 @@
     "lastEvent": "last transition {trigger}: {from} → {to}",
     "history": "{count} transitions recorded",
     "disabled": "Flow-machines panel is off (data routes and flows themselves are unaffected)",
-    "summary": "running {running} · terminal {terminal} · never-run {neverRun}"
+    "summary": "running {running} · terminal {terminal} · never-run {neverRun}",
+    "hitl": "HITL Three-phase Flow"
   },
   "gate": {
     "PASS": "Passed",

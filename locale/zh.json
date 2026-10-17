@@ -163,7 +163,8 @@
     "agentsOrchestration": "智能体编排",
     "flowsView": "流程状态机面板",
     "gateCheck": "收敛门禁流程",
-    "macroPhase": "宏观循环流程", "archive": "归档流程",
+    "macroPhase": "宏观循环流程",
+    "archive": "归档流程",
     "panelTitle": "流程状态机（FlowRegistry · {total} 流程）",
     "state": "当前态：{state}",
     "neverRun": "从未运行（注册表已收录，尚无投影）",
@@ -172,7 +173,8 @@
     "lastEvent": "最近转移 {trigger}: {from} → {to}",
     "history": "已记录 {count} 次转移",
     "disabled": "流程状态机面板已关闭（数据路由与流程本身不受影响）",
-    "summary": "运行中 {running} · 终态 {terminal} · 未运行 {neverRun}"
+    "summary": "运行中 {running} · 终态 {terminal} · 未运行 {neverRun}",
+    "hitl": "HITL 三段修复流程"
   },
   "gate": {
     "PASS": "通过",

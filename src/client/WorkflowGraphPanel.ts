@@ -22,7 +22,7 @@ import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID } from './features/pref
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
-import { fetchJsonGuarded, isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
+import { fetchJsonGuarded, isObjectLike, isFlowStatus, syncTelemetryCounts } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
@@ -128,6 +128,7 @@ export function WorkflowGraphPanel(): ReactElement {
           const json = (await res.json()) as GraphData & { generatedAt?: string; counts?: { nodes: number; edges: number } };
           if (!Array.isArray(json.nodes) || !Array.isArray(json.edges)) { setState((s) => ({ source: s.source, line: t('panel.sourceMalformed') })); return; }
           setData({ nodes: json.nodes, edges: json.edges });
+          syncTelemetryCounts(json.nodes.length, json.edges.length);
           // 学得工作区根（encodeURIComponent 形式）：后续请求回带（见 wsHeaders 注释）。
           const learned = res.headers?.get?.('X-ANIC-Workspace');
           if (learned && workspaceRef.current === null) {

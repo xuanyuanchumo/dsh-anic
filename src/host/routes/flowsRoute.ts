@@ -8,15 +8,18 @@
  *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘、不 inferPhase 回写）
  *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
  *  - POST /anic/flows/archive/run           归档流程（--cycle/--clean/--list 语义；mode=native/script）
+ *  - POST /anic/flows/hitl/run              HITL 三段修复流程（gate=all|H1-H4；mode=native/script；R3 阶段 4）
  *
  * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
- * 「已有 ≥2 个真实实例才引入契约层」的纪律）。
+ * 「已有 ≥2 个真实实例才引入契约层」的纪律；第 4 个实例已到，仍维持静态分派：
+ * 各流程参数域差异大（gate/cycle/target/dryRun），抽象的参数税大于分派税）。
  */
 import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
 import { runGateFlow, type GateFlowMode } from '../flows/gateCheckFlow.ts';
 import { runMacroPhaseFlow, statusMacroPhase, type MacroFlowMode } from '../flows/macroPhaseFlow.ts';
 import { runArchiveFlow, type ArchiveFlowMode } from '../flows/archiveFlow.ts';
+import { runHitlFlow, type HitlFlowMode, type HitlGateArg } from '../flows/hitlFlow.ts';
 import { PHASE_IDS } from '../flows/macroPhaseEngine.ts';
 import { loadFlowProjection } from '../flows/persistence.ts';
 import { readBody, type RouteReq } from './routeContext.ts';
@@ -179,6 +182,28 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
         timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
       });
       send(res, result.ok ? 200 : 422, result);
+    });
+  });
+
+  // POST /anic/flows/hitl/run — HITL 三段修复流程（R3 阶段 4 后半）
+  reg('/anic/flows/hitl/run', (req, res) => {
+    void readBody(req as RouteReq).then((body) => {
+      const root = deps.getWorkspaceRoot(req);
+      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      const mode: HitlFlowMode = body.mode === 'script' ? 'script' : 'native';
+      const gateStr = typeof body.gate === 'string' ? body.gate : 'all';
+      if (gateStr !== 'all' && !/^H[1-4]$/.test(gateStr)) {
+        return send(res, 400, { error: `ANIC_ROUTE_BAD_HITL_GATE:${gateStr}` });
+      }
+      const gate: HitlGateArg = gateStr === 'H1' || gateStr === 'H2' || gateStr === 'H3' || gateStr === 'H4' ? gateStr : 'all';
+      const result = runHitlFlow(root, {
+        gate,
+        mode,
+        timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
+      });
+      // 状态码语义：pass→200 / fail→422 / circuit→409（exit 2 = 需要人类介入，BLOCKED）
+      const code = result.verdict === 'pass' ? 200 : result.verdict === 'circuit' ? 409 : 422;
+      send(res, code, result);
     });
   });
 

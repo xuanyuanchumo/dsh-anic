@@ -278,6 +278,7 @@ describe('宿主入口 apply', () => {
     '/anic/flows', '/anic/flows/status', '/anic/flows/state', '/anic/flows/gate-check/run',
     '/anic/flows/macro-phase/status', '/anic/flows/macro-phase/advance',
     '/anic/flows/archive/run',
+    '/anic/flows/hitl/run',
   ];
 
   it('有 effect：setup 经 effect 执行并带 label；effect 的返回 disposer 由宿主承接', () => {

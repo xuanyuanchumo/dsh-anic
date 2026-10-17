@@ -31,3 +31,14 @@ export function isObjectLike(value: unknown): value is Record<string, unknown> {
 export function isFlowStatus(value: unknown): value is { flows: unknown[] } {
   return isObjectLike(value) && Array.isArray(value['flows']);
 }
+
+/**
+ * 遥测同步（cycle-10）：live 数据到达后把 spike 计数更新为实际渲染面。
+ * spike.nodes/edges 初值是嵌入快照计数（集成注册时的渲染源）——不更新的话
+ * 遥测永远停留在构建期数字，J0 的「渲染=遥测」不变量在 live≠嵌入时必然裂缝
+ * （cycle-9 实录 175 圆 vs 169 陈旧遥测）。诚实遥测：报的就是画的。
+ */
+export function syncTelemetryCounts(nodes: number, edges: number): void {
+  const spike = (window as unknown as { __ANIC_TAB_SPIKE__?: { nodes: number; edges: number } }).__ANIC_TAB_SPIKE__;
+  if (spike) { spike.nodes = nodes; spike.edges = edges; }
+}

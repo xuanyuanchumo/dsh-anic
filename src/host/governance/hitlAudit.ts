@@ -163,7 +163,9 @@ export function checkH3(workspaceRoot: string): HitlResult {
   const latest = latestCycleDir(cyclesDir);
   const ledgerExists = existsSync(join(cyclesDir, 'gates', 'ledger.json'));
   const entries = ledgerExists ? loadLedger(cyclesDir) : [];
-  const auditLogExists = latest !== null && existsSync(join(cyclesDir, 'cycles', latest, '审计日志.md'));
+  // latestCycleDir 返回完整路径（gateEngine.ts:44 同款陷阱注记）——直接 join 文件名，
+  // 不能再拼 'cycles' 前缀（会把绝对路径当目录名拼出碎路径，恒 existsSync=false）
+  const auditLogExists = latest !== null && existsSync(join(latest, '审计日志.md'));
   return evaluateH3(latest, ledgerExists, entries, auditLogExists);
 }
 
