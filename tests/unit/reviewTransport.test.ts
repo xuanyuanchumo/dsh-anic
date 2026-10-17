@@ -33,24 +33,34 @@ const REQUEST: ReviewRequest = {
   ],
 };
 
-/** 构造一个可编程的 stub LlmRuntime，记录每次 stream 的调用。 */
-function makeRuntime(script: ((call: number) => { text?: string; error?: { code: string; message: string } })[]): {
+/**
+ * 构造一个可编程的 stub LlmRuntime，记录每次 stream 的调用。
+ * cycle-9 真机取证修正：错误块的真实形状是
+ * `{type:'finish', reason:{kind:'error'|'aborted', failure:{code,message}}}`
+ * （dsh-llm StreamChunk），旧 `{error:{...}}}$` 形状在真实宿主上不存在。
+ */
+function makeRuntime(script: ((call: number) => { text?: string; reason?: { kind?: string; failure?: { code: string; message: string } } })[]): {
   runtime: LlmRuntime;
   calls: { provider: string; model: string; purpose?: unknown }[];
 } {
   const calls: { provider: string; model: string; purpose?: unknown }[] = [];
   let n = 0;
   const runtime: LlmRuntime = {
-    async *stream(opts): AsyncIterable<{ text?: string; error?: { code: string; message: string } }> {
+    async *stream(opts): AsyncIterable<{ text?: string; reason?: { kind?: string; failure?: { code: string; message: string } } }> {
       calls.push({ provider: opts.provider, model: opts.model, purpose: (opts as { purpose?: unknown }).purpose });
       const step = script[Math.min(n, script.length - 1)];
       n++;
       const chunk = step(n);
       yield chunk;
     },
-    listProviders: () => ['stub'],
+    listProviders: () => [{ id: 'stub', name: 'Stub' }],
   };
   return { runtime, calls };
+}
+
+/** 按真实协议造一个 finish-error 块。 */
+function errChunk(code: string, message: string): { reason: { kind: string; failure: { code: string; message: string } } } {
+  return { reason: { kind: 'error', failure: { code, message } } };
 }
 
 const VALID = JSON.stringify({ verdict: 'approve', evidenceIds: ['e1'], notes: 'ok' });
@@ -129,7 +139,7 @@ describe('reviewTransport · fail-closed（绝不 approve）', () => {
 describe('reviewTransport · F39 错误码分派', () => {
   it('CONTEXT_WINDOW_EXCEEDED → 缩证据重试恰一次', async () => {
     const { runtime, calls } = makeRuntime([
-      () => ({ error: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'too long' } }),
+      () => errChunk('CONTEXT_WINDOW_EXCEEDED', 'too long'),
       () => ({ text: VALID }),
     ]);
     const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
@@ -142,7 +152,7 @@ describe('reviewTransport · F39 错误码分派', () => {
 
   it('TOO_MANY_TOKENS 同样可重试', async () => {
     const { runtime, calls } = makeRuntime([
-      () => ({ error: { code: 'TOO_MANY_TOKENS', message: 'x' } }),
+      () => errChunk('TOO_MANY_TOKENS', 'x'),
       () => ({ text: VALID }),
     ]);
     await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
@@ -151,7 +161,7 @@ describe('reviewTransport · F39 错误码分派', () => {
 
   it('QUOTA_EXCEEDED → 立即 doubt，不重试（不再消耗配额）', async () => {
     const { runtime, calls } = makeRuntime([
-      () => ({ error: { code: 'QUOTA_EXCEEDED', message: 'out of quota' } }),
+      () => errChunk('QUOTA_EXCEEDED', 'out of quota'),
     ]);
     const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
     expect(calls).toHaveLength(1);
@@ -161,14 +171,23 @@ describe('reviewTransport · F39 错误码分派', () => {
   });
 
   it('NO_ADAPTER → 立即 doubt，不重试', async () => {
-    const { runtime, calls } = makeRuntime([() => ({ error: { code: 'NO_ADAPTER', message: 'none' } })]);
+    const { runtime, calls } = makeRuntime([() => errChunk('NO_ADAPTER', 'none')]);
     const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
     expect(calls).toHaveLength(1);
     expect(v.verdict).toBe('doubt');
   });
 
+  it('MISSING_CREDENTIAL（真机实测码）→ 立即 doubt，不重试', async () => {
+    // 真机取证：无头宿主无 API key 时 deepseek-official 路由的终态错误。
+    const { runtime, calls } = makeRuntime([() => errChunk('MISSING_CREDENTIAL', 'no API key for provider route "deepseek-official"')]);
+    const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
+    expect(calls).toHaveLength(1);
+    expect(v.verdict).toBe('doubt');
+    expect(v.notes).toContain('不可重试');
+  });
+
   it('未知错误码 → doubt 且原样透传码（绝不吞掉证据）', async () => {
-    const { runtime, calls } = makeRuntime([() => ({ error: { code: 'WEIRD_NEW_CODE', message: 'who knows' } })]);
+    const { runtime, calls } = makeRuntime([() => errChunk('WEIRD_NEW_CODE', 'who knows')]);
     const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
     expect(calls).toHaveLength(1);
     expect(v.verdict).toBe('doubt');
@@ -178,7 +197,7 @@ describe('reviewTransport · F39 错误码分派', () => {
   it('可重试码但只有 1 条证据 → 不重试（缩无可缩）', async () => {
     const oneEvidence: ReviewRequest = { ...REQUEST, evidence: [{ id: 'e1', content: 'only' }] };
     const { runtime, calls } = makeRuntime([
-      () => ({ error: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'too long' } }),
+      () => errChunk('CONTEXT_WINDOW_EXCEEDED', 'too long'),
     ]);
     const v = await runLlmReview(runtime, CARD, oneEvidence, 'p', 'm');
     expect(calls).toHaveLength(1);
@@ -187,11 +206,29 @@ describe('reviewTransport · F39 错误码分派', () => {
 
   it('重试仍失败 → 返回第二次的 doubt（不无限重试）', async () => {
     const { runtime, calls } = makeRuntime([
-      () => ({ error: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'again' } }),
-      () => ({ error: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'still' } }),
+      () => errChunk('CONTEXT_WINDOW_EXCEEDED', 'again'),
+      () => errChunk('CONTEXT_WINDOW_EXCEEDED', 'still'),
     ]);
     const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
     expect(calls).toHaveLength(2);
     expect(v.verdict).toBe('doubt');
+  });
+
+  it('真实协议 text-delta 形态收集正文（type 字段区分，reasoning 不误收）', async () => {
+    // 真机形状：正文带 type:'text-delta'，思考块 type:'reasoning-delta' 带 text
+    // 但不是可见正文 —— 收集器必须靠 type 区分，否则 reasoning 会混进协议文本。
+    const runtime: LlmRuntime = {
+      async *stream(): AsyncIterable<{ type?: string; text?: string }> {
+        yield { type: 'reasoning-delta', text: '思考过程不算正文' };
+        yield { type: 'text-delta', text: VALID.slice(0, 10) };
+        yield { type: 'text-delta', text: VALID.slice(10) };
+        yield { type: 'block-end', block: null } as unknown as { type: string };
+        yield { type: 'finish', reason: { kind: 'stop' } } as unknown as { type: string };
+      },
+      listProviders: () => [{ id: 'stub' }],
+    };
+    const v = await runLlmReview(runtime, CARD, REQUEST, 'p', 'm');
+    expect(v.verdict).toBe('approve');
+    expect(v.evidenceIds).toEqual(['e1']);
   });
 });

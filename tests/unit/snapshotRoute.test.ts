@@ -275,7 +275,7 @@ describe('宿主入口 apply', () => {
     // M11 真实性审计
     '/anic/api/truth-audit',
     // R3 阶段 2：flows 域（流程状态流转机观测面 + 运行面）
-    '/anic/flows', '/anic/flows/state', '/anic/flows/gate-check/run',
+    '/anic/flows', '/anic/flows/status', '/anic/flows/state', '/anic/flows/gate-check/run',
     '/anic/flows/macro-phase/status', '/anic/flows/macro-phase/advance',
     '/anic/flows/archive/run',
   ];

@@ -28,7 +28,8 @@ export interface OrgStatusJson {
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
   /** configuredBand 为 P1 修复新增的可选字段：配置声明的自主级（与 currentBand 分离，降级时可观测） */
   autonomy: { currentBand: string; configuredBand?: string; breakers: string[]; action: string };
-  band: { current: string; trend: string };
+  /** weViolations 为 cycle-9 新增的可选字段：WE 8 规则违例（bandDetector 检测结果的可观测面）。rule 是数字 1-8（技能同形）。 */
+  band: { current: string; trend: string; weViolations?: Array<{ rule: number; index?: number; value?: number; desc?: string }> };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
 }
@@ -145,6 +146,21 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
         createElement('span', { style: { color: bandColor(status.band.current) } }, status.band.current),
         t('org.trend', { trend: status.band.trend }),
       ),
+      // WE 8 规则违例（cycle-7 移植、cycle-9 接线）：违例事实被采集却不可见
+      // —— 性能带异常的「为什么」必须白盒（warn/alarm 判定依据）。
+      status.band.weViolations !== undefined && status.band.weViolations.length > 0
+        ? createElement(
+            'ul',
+            { className: 'anic-org-we', style: UL, 'data-anic-we-count': String(status.band.weViolations.length) },
+            ...status.band.weViolations.slice(0, 5).map((v, i) =>
+              createElement('li', { key: `we-${String(i)}`, style: { ...P, color: token('anic-warn-text') } },
+                v.desc ?? `WE 规则 ${String(v.rule)}`),
+            ),
+            status.band.weViolations.length > 5
+              ? createElement('li', { key: 'we-more', style: P }, t('org.weMore', { count: String(status.band.weViolations.length - 5) }))
+              : null,
+          )
+        : null,
     ),
     createElement(
       'section',

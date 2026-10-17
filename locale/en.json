@@ -121,6 +121,7 @@
     "breaker": "⚠ {breaker}",
     "bandTitle": "Band detection",
     "trend": " · trend: {trend}",
+    "weMore": "…{count} more WE violations",
     "flowsTitle": "Flow switches",
     "selfInit": "Self init",
     "orchestration": "Agent orchestration",
@@ -160,8 +161,18 @@
     "budgetEnforce": "Budget Enforce",
     "selfInit": "Self Init",
     "agentsOrchestration": "Agent Orchestration",
+    "flowsView": "Flow Machines Panel",
     "gateCheck": "Gate-check Flow",
-    "macroPhase": "Macro-phase Flow", "archive": "Archive Flow"
+    "macroPhase": "Macro-phase Flow", "archive": "Archive Flow",
+    "panelTitle": "Flow Machines (FlowRegistry · {total} flows)",
+    "state": "current: {state}",
+    "neverRun": "never run (registered, no projection yet)",
+    "engine": "engine {engine}",
+    "fallback": "script fallback {script}",
+    "lastEvent": "last transition {trigger}: {from} → {to}",
+    "history": "{count} transitions recorded",
+    "disabled": "Flow-machines panel is off (data routes and flows themselves are unaffected)",
+    "summary": "running {running} · terminal {terminal} · never-run {neverRun}"
   },
   "gate": {
     "PASS": "Passed",

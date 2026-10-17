@@ -8,38 +8,58 @@
  */
 
 import type { AgentCard } from '../agents.ts';
+import { extractJsonCandidate } from './jsonExtract.ts';
 
 // ── 类型 ────────────────────────────────────────────────
 
-/** LLM 运行时最小契约（转录自 M0-② spike host-llm-service.md） */
+/** LLM 运行时最小契约（转录自 M0-② spike host-llm-service.md；cycle-9 按真机修正） */
 export interface LlmRuntime {
   stream(opts: GenerateOptions): AsyncIterable<LlmChunk>;
-  listProviders(): string[];
+  /** 真实形状：LlmProviderInfo[]（{id, name}）——不是 string[]。 */
+  listProviders(): Array<{ id: string; name?: string }>;
+  /** 可选：provider 的模型目录（LlmModelInfo[]；真机有此方法，桩可以没有）。 */
+  listModels?(provider: string): Promise<Array<{ id?: string }>>;
 }
 
 /**
- * 宿主 GenerateOptions 的最小契约子集。
+ * 宿主 GenerateOptions 的最小契约子集（cycle-9 真机取证修正）。
  *
- * P0-1（已修）：`purpose` 在宿主侧是**闭合枚举**，权威定义见
- * `@deepseek-ai/dsh-llm/lib/types/types.d.ts:530`：
- *     purpose?: 'compaction' | 'session-title';
- * 此前本文件把 `purpose?: string` 并传 `'review'`，既不被宿主承认，又让
- * 「传错值」在类型层不可拦。现在把它逐字转录为同一闭合枚举 —— 传任何
- * 枚举外的值都会在 `pnpm run typecheck` 阶段报错。
+ * 权威形状：`@deepseek-ai/dsh-llm/lib/types/types.d.ts:489` GenerateOptions。
+ * 两处真机修正：
+ *   1. `messages[].content` 是 **ContentBlock[]**（`{type:'text',text}` 数组），
+ *      不是纯字符串——字符串会在请求组装期炸 `content.some is not a function`
+ *      （dsh-llm/lib/index.js:594 对 content 做 .some 扫 image 块）。
+ *   2. one-shot 调用方的系统提示走专用 `systemPrompt` 槽位（adapters 把它映射
+ *      到 provider 的 system slot，排在 messages 之前）——不是塞 system role 消息。
  *
- * 归因策略（R-27）：**不**借用宿主的 purpose 字段做 ANIC 评审归因；
- * 归因走 ANIC 自己的账本（`{provider, model, promptDigest, evidenceIds}`）。
+ * P0-1（已修）：`purpose` 在宿主侧是**闭合枚举**（'compaction' | 'session-title'），
+ * ANIC 不传（'review' 不被承认）。归因走 ANIC 自己的账本（ReviewAttribution）。
  */
 export interface GenerateOptions {
   provider: string;
   model: string;
-  messages: { role: 'system' | 'user'; content: string }[];
+  /** one-shot 系统提示专用槽位（agent 卡的 systemPrompt 放这里）。 */
+  systemPrompt?: string;
+  messages: { role: 'user'; content: Array<{ type: 'text'; text: string }> }[];
   purpose?: 'compaction' | 'session-title';
 }
 
+/**
+ * 宿主流式块的最小子集（cycle-9 真机取证修正）。
+ *
+ * 权威形状：`@deepseek-ai/dsh-llm/lib/types/types.d.ts` StreamChunk 联合。
+ * 本插件只消费两形态，其余（block-start/reasoning-delta/usage 等）透传忽略：
+ *   - `{type:'text-delta', text}` → 可见正文
+ *   - `{type:'finish', reason:{kind:'error'|'aborted', failure:{code,message}}}`
+ *     → 终点错误（reasoning-delta 的 text 是思考过程，**不**算评审正文）
+ * 旧契约 `{error:{code,message}}` 在真实宿主上**不存在**——错误一律走
+ * finish 块的 reason.failure（真机踩坑：此前按旧形状收流，错误被静默吞成空响应）。
+ * 测试桩可以发不带 type 的裸 `{text}`（宽容收集，见 reviewTransport）。
+ */
 export interface LlmChunk {
+  type?: string;
   text?: string;
-  error?: { code: string; message: string };
+  reason?: { kind?: string; failure?: { code: string; message: string } };
 }
 
 /** 评审请求 */
@@ -139,13 +159,24 @@ export function probeLlm(ctx: unknown): LlmRuntime | null {
 // ── 闭合协议校验 ────────────────────────────────────────
 
 /**
+ * 选默认 provider / 解析默认模型已拆到 `providerResolve.ts`（cycle-9，
+ * T3 结构守卫）：「宿主路由解析」与「闭合协议校验」分属两域。
+ */
+
+/**
  * 校验 LLM 返回的闭合 JSON。
  * INV-23：任一不满足 → doubt（fail-closed，绝不 approve）。
+ *
+ * cycle-9：传输包裹宽容化——整串/围栏/平衡子串三种形态提取（见
+ * `jsonExtract.ts` 头注释），**提取出的对象仍须过下方闭合 schema**，
+ * fail-closed 纪律不因提取而放松。
  */
 export function validateReviewJson(raw: string): ReviewVerdict | null {
+  const candidate = extractJsonCandidate(raw);
+  if (candidate === null) return null; // 提不出合法 JSON → doubt
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(candidate);
   } catch {
     return null; // JSON 解析失败 → doubt
   }

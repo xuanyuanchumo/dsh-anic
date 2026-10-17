@@ -1,5 +1,39 @@
 # dsh-anic CHANGELOG
 
+## v0.11.0 — 2026-10-17
+
+R3 路线图阶段 4 前半：**multiAgentTier2 LLM 评审通道**（15 角色真模型评审）+ **流程状态机面板可视化**（flows 分区第 10 开关）+ **Tier-2 真机排障三连环**（桩宿主假绿系列第三批）。测试 713→744 用例（55→58 文件）。真实宿主验证：Tier-2 15 角色全走真 LLM 通道（deepseek-official/deepseek-flash，MISSING_CREDENTIAL 诚实终态）、flows/status 一站式、DevTools 面板三分区实渲染、J0 8/8。
+
+### Tier-2 真机排障三连环（cycle-9 发现并修复）
+
+桩宿主全绿但真机 `/anic/multi-agent-gate` 三连报错——三根因全是「桩契约 ≠ 宿主真实协议」：
+
+1. **「LLM 返回不符合闭合 JSON 协议」**：validateReviewJson 只接受整串严格 JSON.parse；真机响应常含 ```json 围栏或散文前缀。新文件 `src/host/llm/jsonExtract.ts`：extractJsonCandidate（整串→围栏块→花括号平衡扫描跳过字符串字面量）。**闭合 schema 校验不放松**——提取 ≠ 放行。
+2. **「（空响应）」**：旧 LlmChunk 契约 `{error:{code,message}}` 在真实宿主不存在。权威类型（dsh-llm types.d.ts:141-146）：流式 chunk 正文是 `type:'text-delta'` 的 `text`（**reasoning-delta 的 text 不是正文**）；错误终点是 `{type:'finish', reason:{kind:'error'|'aborted', failure:{code,message}}}`。reviewTransport 正文收集条件与错误分派全部重写。
+3. **「content.some is not a function」**：`messages[].content` 必须是 `ContentBlock[]`（`{type:'text',text}` 数组）非纯字符串（dsh-llm index.js:594 扫 image 块）；系统提示走 `GenerateOptions.systemPrompt` 专用槽位（adapters 映射到 provider system slot）。
+
+### provider/model 诚实解析（新 src/host/llm/providerResolve.ts）
+
+真实宿主 22 条 LLM 路由**全为有名 id，无 'default'**——字面 default 解析必失败。pickProvider（显式指定 > 注册表首条 > 字面 default）+ resolveModel（显式 > 目录首条 > default，**由宿主给诚实错误，ANIC 不猜**）。reviewRoute 响应新增 providers[] 诊断字段（Tier-2 判定依据可见——动态白盒）。
+
+### R3 阶段 4 前半：multiAgentTier2.ts LLM 评审通道
+
+- runAllGatesWithLlm：probe 模式探测 → 零证据门跳过 LLM → 逐门逐角色 runLlmReview → 证据接地纪律（INV-23 幻觉引用过滤 + approve 降 doubt）→ TIER2_CONFIDENCE 映射 → 授权带越界不烧配额 → 单角色失败独立降级（不拖垮整轮）。
+- LlmRuntime 契约升级：listProviders 返回 `Array<{id,name?}>` + 可选 `listModels?(provider)→Promise<Array<{id?}>>`（LlmProviderInfo/LlmModelInfo 宿主同形）。
+
+### 流程状态机面板可视化（动态白盒）
+
+- `renderFlows.ts`：三流程行（label + 引擎 + 技能回退 + 当前态 + 最近转移 + 计数汇总）；「从未运行」诚实空态（projection=null 不伪造 IDLE）；data-anic-flows-wrap / data-anic-flow 钩子。
+- orgStatus band.weViolations 接线（WeViolation.rule 是 **number 1-8** 非字符串——renderOrgStatus 类型修正）；无违例时不渲染违例分区（诚实空态）。
+- `GET /anic/flows/status` 一站式路由；flow.flowsView 第 10 开关；fetchJson.ts 形状守卫（T3 拆分 WorkflowGraphPanel 257→245 行）。
+
+### 验证
+
+- typecheck exit 0；**run-tests ALL GREEN（58 文件 744 用例）**；smoke 全绿；validate 12/12；build 成功。
+- 新增测试文件：renderFlows.test.ts（6）/ orgWeViolations.test.ts（5）/ multiAgentTier2.test.ts（8，listProviders 桩改对象形）；reviewEngine.test.ts 扩展 pickProvider（3）+ resolveModel（3）+ validateReviewJson 提取族（散文前缀/围栏/字符串字面量花括号/提取≠放行/不完整左括号）；reviewTransport.test.ts 重写为真实协议形态（errChunk helper + reason.failure 终点 + reasoning-delta 不误收正文，17 用例）。
+- 真实宿主（dsh 0.2.0-rc.2 web 3080）：Tier-2 15 角色全走真 LLM 通道（provider=deepseek-official model=deepseek-flash——listModels 目录首条真实解析），终态 error[MISSING_CREDENTIAL]（无头测试宿主无凭据的诚实结果，链路全通）；flows/status 3 流程（gate-check FAILED / macro-phase 从未运行 / archive BLOCKED 6 转移）；org band normal/stable/weViolations=[]；DevTools 面板 flows/invocations/org 三分区实渲染断言；J0 8/8 PASS。
+- 桌面端：junction 指向新 dist（含 flows 路由）已确认；宿主进程持旧内存 bundle——承载当前会话不宜重启，P2 债务移交下轮。
+
 ## v0.10.0 — 2026-10-17
 
 R3 路线图阶段 3 后半：**archive 归档流程**（第 3 个专属流程状态机）+ 真实宿主验证揭出的两个 P0：**P0-GOV-ROOT**（4 条治理路由自 M5-a 起在真实宿主恒 400 空体——从未工作过）与 **P0-BODY 残留三处**。测试 684→713 用例（52→55 文件）。真实宿主验证：flows 注册表 3 流程、governance 4 路由复活（400→200）、J0 8/8。

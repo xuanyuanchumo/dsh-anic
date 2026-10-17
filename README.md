@@ -6,10 +6,11 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
-## 当前形态（M1..M11 全功能面，v0.3.0）
+## 当前形态（M1..M11 + R3 流程状态机，v0.11.0）
 
 - 客户端贡献：`conversation.view` 顶层标签 `ANIC`（`kind:'list'` 可叠加，不顶掉既有标签）。
 - 渲染真实 `.cycles/`：138 节点 / 164 边 / 57 cycles / 56 条账本事件（`autonomy L4`）。
+- 流程状态机（R3）：FlowRegistry 3 流程（gate-check/macro-phase/archive）专属状态机 + 模块引擎；面板 flows 分区实时可视化；Tier-2 多智能体 LLM 评审通道（真模型逐门逐角色）。
 - 零 bundle 依赖（react 之外全部外置或内联）；SVG 渲染，无布局引擎。
 
 ### M1 四路由 + 三面板区 + 九开关 + 十五 agent 卡
@@ -55,6 +56,7 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 - **模块化**：WorkflowGraphPanel 303→~140 行，纯渲染提取至 `features/graph/renderGraph.ts`（155 行）。
 - **P0-BODY 真实宿主请求体修复（v0.8.0）**：真实宿主 webServer 的 handler 收到的是 Node IncomingMessage 流（`dsh-host-webserver` 无 body 解析层），旧 `parseBody` 只读 `req.body` → 11 个 POST 路由的体参数在真实宿主**全部静默丢弃**（桩宿主挂对象故测试全绿）。修复：`routeContext.ts readBody()` 双形态兼容（桩对象同步 / 流式 on('data')/'end'/'error'/'close' 收集 + 1MB 上限），11 个 POST handler 全部改造；回归守卫 `tests/unit/httpBodyStreaming.test.ts`（流式分片/error settle/上限/路由级端到端）。
 - **R3 阶段 2 流程状态机引擎（v0.8.0）**：`host/flows/` — `contracts.ts`（L0：FlowDescriptor/FlowTransition/GuardFn 引用键禁内联闭包/ModuleEngine long|per-call）+ `machine.ts`（L1 纯函数：apply 唯一写点/replayEvents 崩溃恢复 INV-13/未知守卫 fail-closed）+ `registry.ts`（L3：同 id 首个胜出 no-op disposer，HMR 语义）+ `persistence.ts`（L2：投影唯一写者原子写，禁成第二真相源）+ `gateCheckFlow.ts`（首个实例：IDLE→RUNNING→PASSED/FAILED，守卫消费引擎裁决 INV-28）+ `gateCheckRunners.ts`（script 正典/native 原生/diff 双跑对账，双不写账本防双写）+ `gateEngine.ts`/`gateArtifacts.ts`/`gateTypes.ts`（G0-G3 判定逐字对齐技能 gate-check.mjs）；3 路由（GET /anic/flows、GET /anic/flows/state、POST /anic/flows/gate-check/run）+ 第 14 个工具 `anic_flows_gate_check`；**差分契约** `tests/contract/flowDifferential.test.ts`（同 fixture native vs script 逐字段全等）+ 真实宿主 diff 模式 drift=null 现场实证。
+- **R3 阶段 4 前半 Tier-2 LLM 评审通道（v0.11.0）**：`multiAgentTier2.ts` 逐门逐角色真模型评审（证据接地 INV-23 幻觉引用过滤 + 授权带越界不烧配额 + 单角色失败独立降级）+ `llm/jsonExtract.ts`（围栏/花括号平衡扫描，闭合 schema 不放松）+ `llm/providerResolve.ts`（宿主无名 default 事实下的诚实解析）+ LlmChunk/GenerateOptions 契约按 dsh-llm 权威类型重写（systemPrompt 槽位 + ContentBlock[] + reason.failure 终点）+ `GET /anic/flows/status` 一站式 + 面板 flows 分区（第 10 开关）+ org band.weViolations（rule:number）接线；真机 15 角色全走真 LLM 通道实证（MISSING_CREDENTIAL 诚实终态）。
 - 冒烟 19/19 PASS · 规范门 12/12 · vitest 153/153 · typecheck 0/0 · **v0.3.0**。
 
 ## 热加载与热更新（三层机制）

@@ -8,7 +8,7 @@ import { loadWorkspaceConfig } from '../config.ts';
 import { loadLedger } from '../runtime/ledger.ts';
 import { buildTrustScores, recommendBand, type AutonomyBand, type LedgerEntryForTrust } from './trustModel.ts';
 import { checkBreakers, decideAction, type BreakerInput } from './autonomyGovernor.ts';
-import { loadBandHistory, detectTrend } from './bandDetector.ts';
+import { loadBandHistory, detectTrend, detectWeViolations, type WeViolation } from './bandDetector.ts';
 import { collectBreakerSignals } from './breakerSignals.ts';
 
 export interface OrgStatus {
@@ -16,7 +16,7 @@ export interface OrgStatus {
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
   autonomy: { currentBand: string; configuredBand: string; breakers: string[]; action: string };
-  band: { current: string; trend: string };
+  band: { current: string; trend: string; weViolations: WeViolation[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
 }
@@ -83,13 +83,16 @@ export function runOrgStatus(workspaceRoot: string, options: {
   // P3（已修）：trend 原为硬编码 'stable' —— bandDetector.detectTrend 早已实现
   // 却从未被接线（R3 双真相源审计 #10）。现在从真实 band-history 分数序列推导。
   const bandTrend = detectTrend(bandHistory.map((e) => e.score));
+  // WE 8 规则（cycle-7 移植）的可观测面：org 面板此前只显示 current/trend，
+  // 违例事实被采集却不可见 —— 动态白盒要求「能涉及的方面都可见」。
+  const weViolations = detectWeViolations(bandHistory.map((e) => e.score));
 
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
     trust: { scores: trustScores, recommendedBand },
     autonomy: { currentBand: band, configuredBand, breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id), action },
-    band: { current: bandCurrent, trend: bandTrend },
+    band: { current: bandCurrent, trend: bandTrend, weViolations },
     flows: options.flows ?? { selfInit: true, agentsOrchestration: true },
     timestamp: new Date().toISOString(),
   };

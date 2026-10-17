@@ -41,7 +41,7 @@ export interface PrefsFile {
   flows: Record<string, boolean>;
 }
 
-/** 9 个 flow 开关（与 docs/anic/13 §2.2 逐行对应，新增开关必须同时更新该表） */
+/** 10 个 flow 开关（与 docs/anic/13 §2.2 逐行对应 + cycle-9 新增 flowsView，新增开关必须同时更新该表） */
 export const FLOWS: readonly FlowDefinition[] = [
   { id: 'flow.workflowTab', label: 'ANIC 可视化标签', layers: ['user', 'workspace', 'deployment'], degradation: 'unregister 槽位（既有 disposer 路径）；宿主路由/工具照常' },
   { id: 'flow.stepTrace', label: '白盒流程分区', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
@@ -52,6 +52,9 @@ export const FLOWS: readonly FlowDefinition[] = [
   { id: 'flow.budgetEnforce', label: '预算熔断', layers: ['workspace', 'deployment'], degradation: '降级为只告警不熔断（显示风险横幅）' },
   { id: 'flow.selfInit', label: '自举命令', layers: ['workspace', 'deployment'], degradation: '命令返回响亮禁用提示' },
   { id: 'flow.agentsOrchestration', label: '子代理编排流', layers: ['workspace', 'deployment'], degradation: '编排配方标记停用；工具面照常（手动编排不受影响）' },
+  // cycle-9（D10 宿主域接线）：flows 状态面板分区。路由 /anic/flows/status 与
+  // 状态机本身不关（核心链路），只关面板分区 —— 关闭形态契约与 stepTrace 同款。
+  { id: 'flow.flowsView', label: '流程状态机面板', layers: ['user', 'workspace', 'deployment'], degradation: '分区隐藏，其余分区/数据不受影响' },
 ];
 
 export const FLOW_IDS: readonly string[] = FLOWS.map((f) => f.id);

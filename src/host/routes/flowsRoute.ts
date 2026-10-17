@@ -2,6 +2,7 @@
  * Flows 域路由（R3 阶段 2/3）—— 流程状态流转机的观测面 + 运行面。
  *
  *  - GET  /anic/flows                       注册表列表（描述子可序列化投影）
+ *  - GET  /anic/flows/status                一站式：全部流程 + 各自当前投影（面板消费）
  *  - GET  /anic/flows/state?flow=<id>       当前投影（无投影 = 从未运行过，不伪造）
  *  - POST /anic/flows/gate-check/run        运行 gate-check 流程（mode=script/native/diff）
  *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘、不 inferPhase 回写）
@@ -59,6 +60,28 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   // GET /anic/flows — 注册表观测面
   reg('/anic/flows', (_req, res) => {
     send(res, 200, { flows: listFlows().map(descriptorView), total: listFlows().length });
+  });
+
+  // GET /anic/flows/status — 一站式观测面（D10 宿主域接线：客户端面板消费）
+  //
+  // 单流程 /anic/flows/state 面板侧要发 N 次请求；本路由一次返回全部
+  // 注册流程 + 各自投影（无投影 = 从未运行过，如实为 null 不伪造 IDLE）。
+  reg('/anic/flows/status', (req, res) => {
+    const root = deps.getWorkspaceRoot(req);
+    const cyclesDir = root ? `${root}/.cycles` : null;
+    const flows = listFlows().map((d) => ({
+      ...descriptorView(d),
+      projection: cyclesDir && existsSync(cyclesDir)
+        ? loadFlowProjection(cyclesDir, d.id)
+        : null,
+    }));
+    send(res, 200, {
+      flows,
+      total: flows.length,
+      running: flows.filter((f) => f.projection?.current === 'RUNNING').length,
+      terminal: flows.filter((f) => f.projection && f.projection.current !== 'RUNNING').length,
+      neverRun: flows.filter((f) => f.projection === null).length,
+    });
   });
 
   // GET /anic/flows/state?flow=<id> — 单流程当前投影

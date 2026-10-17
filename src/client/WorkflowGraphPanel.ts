@@ -20,7 +20,9 @@ import { renderStepTrace, type StepTraceJson } from './features/stepTrace/render
 import { renderDiagnostics, type SelfCheckJson } from './features/diagnostics/renderDiagnostics.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID } from './features/prefs/prefsDrawer.ts';
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
+import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
+import { fetchJsonGuarded, isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
@@ -32,6 +34,7 @@ const SNAPSHOT_URL = '/anic/api/workflow-snapshot';
 const STEP_TRACE_URL = '/anic/api/step-trace';
 const SELF_CHECK_URL = '/anic/api/self-check';
 const ORG_STATUS_URL = '/anic/org-status';
+const FLOWS_STATUS_URL = '/anic/flows/status';
 
 interface FetchState { source: 'embedded' | 'live'; line: string; }
 
@@ -95,6 +98,8 @@ export function WorkflowGraphPanel(): ReactElement {
   const [flowTick, setFlowTick] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
   const [orgStatus, setOrgStatus] = useState<OrgStatusJson | null>(null);
+  // D10 宿主域接线（cycle-9）：流程状态机面板的数据源（null = 未拉取，不伪造空态）
+  const [flowsStatus, setFlowsStatus] = useState<FlowStatusJson | null>(null);
   const inFlight = useRef(false);
   const [reloadKey, setReloadKey] = useState(0);
   // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
@@ -150,13 +155,11 @@ export function WorkflowGraphPanel(): ReactElement {
           setCheck(json); setCheckLine(json.allOk ? t('panel.allOk') : t('panel.someFailed'));
         } catch (e) { setCheck(null); setCheckLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
       })(),
-      (async (): Promise<void> => {
-        try {
-          const res = await fetch(ORG_STATUS_URL, { headers: wsHeaders() });
-          if (!res.ok) { setOrgStatus(null); return; }
-          setOrgStatus((await res.json()) as OrgStatusJson);
-        } catch { setOrgStatus(null); }
-      })(),
+      // org / flows 两个分区只需「有数据 / 无数据」，无行级文案 —— 用形状守卫
+      // 助手收敛重复形态（fetchJsonGuarded：非 2xx/网络失败/形状不符 → null）。
+      fetchJsonGuarded<OrgStatusJson>(ORG_STATUS_URL, (v): v is OrgStatusJson => isObjectLike(v), wsHeaders()).then(setOrgStatus),
+      // D10：流程状态机一站式观测面（路由缺失/形状非法 → null，分区不渲染）
+      fetchJsonGuarded<FlowStatusJson>(FLOWS_STATUS_URL, (v): v is FlowStatusJson => isFlowStatus(v), wsHeaders()).then(setFlowsStatus),
     ];
     try { await Promise.all(tasks); } finally { inFlight.current = false; }
   }, []);
@@ -166,6 +169,7 @@ export function WorkflowGraphPanel(): ReactElement {
   const resolved = resolveFlows({ user: parseRawPrefs(readPrefsRaw()).prefs.flows });
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
   const diagnosticsOn = resolved.flows['flow.diagnostics']?.enabled ?? true;
+  const flowsViewOn = resolved.flows['flow.flowsView']?.enabled ?? true;
   // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
   // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
@@ -232,6 +236,11 @@ export function WorkflowGraphPanel(): ReactElement {
         )
       : createElement('div', { 'data-anic-diagnostics-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('panel.diagDisabled')),
     orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } }, renderOrgStatus(orgStatus)) : null,
+    // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
+    // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
+    flowsViewOn
+      ? renderFlows(flowsStatus)
+      : createElement('div', { 'data-anic-flowsview-disabled': 'true', style: { fontSize: 11, color: token('anic-warn-text'), padding: '6px 10px', borderTop: `1px solid ${token('anic-border')}` } }, t('flows.disabled')),
     renderNodeDetail(selectedNode),
   );
 }

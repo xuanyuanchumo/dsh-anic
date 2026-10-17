@@ -10,7 +10,7 @@ import { runBandDetection, loadBandHistory } from '../evolution/bandDetector.ts'
 import { runOrgStatus } from '../evolution/orgStatus.ts';
 import { runFactBaseVerify } from '../governance/factBaseVerify.ts';
 import { runPlanSync } from '../governance/planSync.ts';
-import { runAllGates } from '../llm/multiAgentGate.ts';
+import { runAllGatesWithLlm } from '../llm/multiAgentTier2.ts';
 import { collectGateEvidence, latestConvergenceVerdicts, CONVERGENCE_GATES } from '../llm/gateEvidence.ts';
 import { runFixLoop } from '../evolution/fixLoop.ts';
 import { verifyLedger } from '../runtime/ledger.ts';
@@ -95,13 +95,17 @@ export function registerNativeRoute(
   // R3 阶段 1：currentBand 从 config.yml（INV-25 唯一 loader）读出后传入
   // runAllGates —— 卡片授权带超出当前自主级的 agent 以 SELF_REFUSAL 拒绝
   // 出裁决（此前授权带只有字段没有执行点）。
-  reg('POST', '/anic/multi-agent-gate', (_req, res) => {
+  //
+  // R3 阶段 4 前半（cycle-9）：runAllGates → runAllGatesWithLlm。probeLlm
+  // 可用时逐门逐角色跑真 LLM 评审（Tier-2），不可用整体降级 Tier-1 并在
+  // summary.tier 诚实标注。handler 因此 async（webServer 槽位支持异步）。
+  reg('POST', '/anic/multi-agent-gate', async (_req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const evidenceByGate = collectGateEvidence(root);
     const currentBand = loadWorkspaceConfig(join(root, '.cycles')).values.autonomyLevel;
-    const results = runAllGates(deps.agentCards, evidenceByGate, { currentBand });
+    const { results, summary } = await runAllGatesWithLlm(ctx, deps.agentCards, evidenceByGate, { currentBand });
     deps.send(
       res,
       200,
@@ -110,6 +114,7 @@ export function registerNativeRoute(
         allPassed: results.every((g) => g.passed),
         currentBand,
         evidenceCounts: Object.fromEntries(Object.entries(evidenceByGate).map(([k, v]) => [k, v.length])),
+        summary,
       },
       rid,
     );
