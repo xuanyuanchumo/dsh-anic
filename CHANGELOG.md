@@ -1,5 +1,24 @@
 # dsh-anic CHANGELOG
 
+## v0.6.0 — 2026-10-17
+
+R3 路线图阶段 1（L4 自主性执行点落地）：八熔断信号采集层 + SELF_REFUSAL 授权带 + 2×P3。测试 485→504 用例（40 文件）。真实宿主（网页端 3080）端到端验证 + J0 8/8。
+
+### L4 自主性修复（R3 缺口矩阵 P0 两项收口）
+
+- **八熔断信号采集层**（`src/host/evolution/breakerSignals.ts` 新建，133 行）：此前 `orgStatus.ts` 用 `DEFAULT_BREAKER_INPUT`（全零）喂 `checkBreakers`——8 条判定实现了但**输入恒零，真实工作区上熔断从未触发过**。现从真实文件采集（正则与技能侧 `org-status.mjs:25-82` CB1-CB8 逐字对齐）：CB1 `.cycles/incidents/` 文件名含 `auto-fix-fail` 计数→consecutiveFixFails；CB2 账本末 4 条 `result==='FAIL'` 且 detail 空/含 ambiguous→hasDoubt（包裹/裸数组双形态，损坏 fail-safe 归零）；CB3/CB4 文件名 `H1|H2`+`circuit`；CB5 band-history 末 2 条 `band==='alarm'`；CB6/CB7 config 原文 `/human_override:\s*(L3|true)/i` 与 `/session_timeout:\s*(\d+)/`；CB8 `circuit`>3 / `retry` 计数。**诚实性纪律**：`contextUsagePercent` 恒 0——宿主不向插件暴露上下文占用，没有来源就不伪造。
+- **SELF_REFUSAL 授权带执行点**（`multiAgentGate.ts`）：`runGate`/`runAllGates` 新增 `options.currentBand`——卡片 `autonomyBand` 超出当前带的 agent **拒绝出裁决**（doubt/0 分/空证据，notes 前缀 `SELF_REFUSAL` + 中文说明）。此前 AgentCard.autonomyBand 字段存在且被校验 `/^L[1-4]$/`，但**全仓无代码把它与当前自主级比较**——L4 卡片在 L2 工作区照样投票。`nativeRoute.ts` 的 `POST /anic/multi-agent-gate` 从 config.yml（INV-25 唯一 loader）读 `autonomy_level` 传入；响应体新增 `currentBand` 字段。不传 currentBand 等价旧行为（向后兼容）。
+- **P3 FlowTracker INVOKING 死值**：`startFlow` 现写 `'INVOKING'`（原直接 RUNNING），新增 `markRunning()` 幂等推进 INVOKING→RUNNING；`toolsSkillGateway.ts` 的 anic_skill 在 invokeSkillScript 前（spawn 分界）调用。docs/anic/17:103 声称的 INVOKING→RUNNING 两相跟踪首次真实落地；`activeFlows` 含 INVOKING+RUNNING。
+- **P3 bandTrend 硬编码**：`orgStatus.ts` 的 trend 从硬编码 `'stable'` 改为 `detectTrend(bandHistory.map(e => e.score))`——`bandDetector.detectTrend` 早已实现却从未被接线（R3 双真相源审计 #10）。
+
+### 测试与验证
+
+- vitest **40 文件 504/504**（+breakerSignals 10 用例 +SELF_REFUSAL 6 用例 +flowTracker 两相 3 用例 +orgStatus 信号流入 2 用例；修复装卡瘦身 Map 假绿隐患——只装 {id} 的 Map 会让授权带断言因 `BAND_ORDER[undefined] > n === false` 静默假绿）。
+- truthAuditChecks requiredFiles 补登 `orgStatus.ts`/`breakerSignals.ts`（真实性审计随结构演进同步）。
+- 真实宿主（dsh 0.2.0-rc.2 web 3080，新 bundle 重启加载）：`GET /anic/org-status` → `currentBand=L4/configuredBand=L4`（config 读出）+ trend 由真实 band-history 推导；`POST /anic/multi-agent-gate` → `currentBand=L4` + `evidenceCounts={intent:1,spec:1,plan:1,pr:5,release:8}` + 真实裁决（release reject：cycle-99 缺审计日志.md 与非功能验证报告.md——真实工件缺失，未伪造 PASS）。
+- **J0 探针 8/8 PASS**。
+- gate-check `--record`：All gates PASSED（G0 16 rows / G1 8 tasks / G2 504 零失败 / G3 build passed + Q1-Q8 全过）。
+
 ## v0.5.0 — 2026-10-17
 
 前端体验族 P1 全量收口 + 两大 P2 修复。测试 465→485 用例（+2 文件）。全部经真实宿主（网页端 3080）功能级验证。

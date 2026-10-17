@@ -8,7 +8,8 @@ import { loadWorkspaceConfig } from '../config.ts';
 import { loadLedger } from '../runtime/ledger.ts';
 import { buildTrustScores, recommendBand, type AutonomyBand, type LedgerEntryForTrust } from './trustModel.ts';
 import { checkBreakers, decideAction, type BreakerInput } from './autonomyGovernor.ts';
-import { loadBandHistory } from './bandDetector.ts';
+import { loadBandHistory, detectTrend } from './bandDetector.ts';
+import { collectBreakerSignals } from './breakerSignals.ts';
 
 export interface OrgStatus {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
@@ -19,19 +20,6 @@ export interface OrgStatus {
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
 }
-
-const DEFAULT_BREAKER_INPUT: BreakerInput = {
-  consecutiveFixFails: 0,
-  hasDoubt: false,
-  userDataUnisolated: false,
-  destructiveNoRollback: false,
-  perfUnrecovered: false,
-  humanRequestsL3: false,
-  unattendedHours: 0,
-  contextUsagePercent: 0,
-  totalRetries: 0,
-  totalBreakerTrips: 0,
-};
 
 export function runOrgStatus(workspaceRoot: string, options: {
   currentBand?: string;
@@ -79,14 +67,22 @@ export function runOrgStatus(workspaceRoot: string, options: {
   const recommendedBand = recommendBand(band, avgTrust);
 
   // Autonomy
-  const breakerInput: BreakerInput = { ...DEFAULT_BREAKER_INPUT, ...options.breakersInput };
+  //
+  // R3 阶段 1（已修）：此前 `DEFAULT_BREAKER_INPUT` 全零 —— checkBreakers 的 8 条
+  // 判定从未在真实工作区触发过（纯函数 + 恒零输入 = 永不熔断）。现在由
+  // collectBreakerSignals 从真实文件采集（incidents/账本/band-history/config.yml，
+  // 对齐技能侧 org-status.mjs:25-82 CB1-CB8），显式 options.breakersInput 仍可
+  // 覆盖（测试与持有更丰富信号的调用方优先）。
+  const breakerInput: BreakerInput = { ...collectBreakerSignals(workspaceRoot), ...options.breakersInput };
   const breakerResults = checkBreakers(breakerInput);
   const action = decideAction(band, breakerResults);
 
   // Band
   const bandHistory = loadBandHistory(workspaceRoot);
   const bandCurrent = bandHistory.length > 0 ? (bandHistory[bandHistory.length - 1]?.band ?? 'normal') : 'normal';
-  const bandTrend = 'stable';
+  // P3（已修）：trend 原为硬编码 'stable' —— bandDetector.detectTrend 早已实现
+  // 却从未被接线（R3 双真相源审计 #10）。现在从真实 band-history 分数序列推导。
+  const bandTrend = detectTrend(bandHistory.map((e) => e.score));
 
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },

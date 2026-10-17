@@ -22,6 +22,7 @@ import {
   finishFlow,
   recentFlows,
   activeFlows,
+  markRunning,
   flowStats,
   type FlowTrackerState,
 } from '../../src/host/runtime/flowTracker.ts';
@@ -37,12 +38,12 @@ afterEach(() => {
 });
 
 describe('FlowTracker — 基本生命周期', () => {
-  it('startFlow 创建 RUNNING 记录并持久化', () => {
+  it('startFlow 创建 INVOKING 记录并持久化（P3 两相修复：脚本未 spawn 前）', () => {
     const state = initialFlowTrackerState();
     const { state: s1, flowId } = startFlow(tempDir, state, 'eval-runner', '/ws', ['--dimensions', 'E1']);
     expect(flowId).toMatch(/^eval-runner-.+-1$/);
     expect(s1.flows).toHaveLength(1);
-    expect(s1.flows[0].status).toBe('RUNNING');
+    expect(s1.flows[0].status).toBe('INVOKING');
     expect(s1.flows[0].script).toBe('eval-runner');
     expect(s1.flows[0].args).toEqual(['--dimensions', 'E1']);
     expect(s1.counter).toBe(1);
@@ -51,6 +52,19 @@ describe('FlowTracker — 基本生命周期', () => {
     const loaded = loadFlowTracker(tempDir);
     expect(loaded.flows).toHaveLength(1);
     expect(loaded.flows[0].flowId).toBe(flowId);
+  });
+
+  it('markRunning 推进 INVOKING → RUNNING（幂等：非 INVOKING 不动）', () => {
+    const { state: s1, flowId } = startFlow(tempDir, initialFlowTrackerState(), 'eval-runner', '/ws', []);
+    const s2 = markRunning(tempDir, s1, flowId);
+    expect(s2.flows[0]?.status).toBe('RUNNING');
+    // 幂等：已 RUNNING 再调不报错也不回退
+    const s3 = markRunning(tempDir, s2, flowId);
+    expect(s3.flows[0]?.status).toBe('RUNNING');
+    // 终态后调 markRunning 不得复活
+    const done = finishFlow(tempDir, s3, flowId, { exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 5 });
+    const afterDone = markRunning(tempDir, done, flowId);
+    expect(afterDone.flows[0]?.status).toBe('DONE');
   });
 
   it('finishFlow exitCode=0 → DONE', () => {
@@ -93,12 +107,19 @@ describe('FlowTracker — 查询', () => {
     expect(recent[2].flowId).toContain('-3');
   });
 
-  it('activeFlows 只返回 RUNNING', () => {
+  it('activeFlows 返回 INVOKING 与 RUNNING（已受理未终结的全部）', () => {
     const { state: s1, flowId: id1 } = startFlow(tempDir, initialFlowTrackerState(), 'eval-runner', '/ws', []);
     const { state: s2, flowId: id2 } = startFlow(tempDir, s1, 'gate-check', '/ws', []);
-    const s3 = finishFlow(tempDir, s2, id1, { exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 10 });
-    expect(activeFlows(s3)).toHaveLength(1);
-    expect(activeFlows(s3)[0].flowId).toBe(id2);
+    const s3 = markRunning(tempDir, s2, id2);
+    const s4 = finishFlow(tempDir, s3, id1, { exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 10 });
+    // id1 终结；id2 在 RUNNING（markRunning 推进过）
+    expect(activeFlows(s4)).toHaveLength(1);
+    expect(activeFlows(s4)[0].flowId).toBe(id2);
+    expect(activeFlows(s4)[0].status).toBe('RUNNING');
+    // 未 markRunning 的 INVOKING 也算活跃
+    const { state: s5 } = startFlow(tempDir, s4, 'org-status', '/ws', []);
+    expect(activeFlows(s5).map((f) => f.status)).toContain('INVOKING');
+    expect(activeFlows(s5)).toHaveLength(2);
   });
 
   it('flowStats 按脚本分组', () => {

@@ -5,6 +5,7 @@ import {
   heuristicEvaluate,
   runGate,
   runAllGates,
+  SELF_REFUSAL,
   GATE_THRESHOLDS,
   GATE_NAMES,
   type AgentVerdict,
@@ -25,7 +26,9 @@ import { join } from 'node:path';
 const CARDS_DIR = join(process.cwd(), 'assets', 'agents');
 
 /**
- * 从 assets/agents 真实装载角色卡。
+ * 真实角色卡装载（读 assets/agents 原始 JSON，**保留全部字段**——
+ * 特别是 autonomyBand；只装 {id} 的瘦身 Map 会让 SELF_REFUSAL 测试
+ * 因 `BAND_ORDER[undefined] > n === false` 而静默假绿）。
  *
  * 键必须取**卡内 `id` 字段**（形如 `anic.agent.intent.planner`），
  * 而不是由文件名拼（`intent-planner.json` → `anic.agent.intent-planner`）。
@@ -33,13 +36,13 @@ const CARDS_DIR = join(process.cwd(), 'assets', 'agents');
  * 全部查不到的卡，从而静默退化成「空裁决集」路径——测试会以假绿通过
  * 「缺卡不崩」却永远测不到真实的 3 卡路径。
  */
-function loadAgentCards(): Map<string, { id: string }> {
-  const map = new Map<string, { id: string }>();
+function loadAgentCards(): Map<string, Record<string, unknown> & { id: string }> {
+  const map = new Map<string, Record<string, unknown> & { id: string }>();
   for (const file of readdirSync(CARDS_DIR)) {
     if (!file.endsWith('.json')) continue;
-    const raw = JSON.parse(readFileSync(join(CARDS_DIR, file), 'utf-8')) as { id?: string };
+    const raw = JSON.parse(readFileSync(join(CARDS_DIR, file), 'utf-8')) as Record<string, unknown> & { id?: string };
     if (typeof raw.id !== 'string' || raw.id === '') continue;
-    map.set(raw.id, { id: raw.id });
+    map.set(raw.id, raw);
   }
   return map;
 }
@@ -228,5 +231,92 @@ describe('multiAgentGate · 真实角色卡装载与全门运行', () => {
     expect(r.aggregate).toBe('doubt');
     expect(r.trustScore).toBe(0);
     expect(r.passed).toBe(false);
+  });
+});
+
+describe('multiAgentGate · SELF_REFUSAL 授权带执行点（R3 阶段 1）', () => {
+  /** 合成卡（intent 门）：便于构造混合授权带（真实 15 张卡全是 L2）。 */
+  const synthCard = (role: 'planner' | 'implementer' | 'reviewer', band: 'L1' | 'L2' | 'L3' | 'L4') => ({
+    id: `anic.agent.intent.${role}`,
+    role,
+    gate: 'intent' as const,
+    systemPrompt: `synthetic intent/${role}`,
+    toolsAllowlist: ['anic_evaluate'],
+    autonomyBand: band,
+    outputContract: 'closed json',
+    escalation: 'on doubt',
+  });
+
+  it('卡片授权带超出当前自主级 → SELF_REFUSAL 拒绝出裁决（不计入 approve）', () => {
+    const cards = new Map([
+      ['anic.agent.intent.planner', synthCard('planner', 'L3')],
+      ['anic.agent.intent.implementer', synthCard('implementer', 'L2')],
+      ['anic.agent.intent.reviewer', synthCard('reviewer', 'L4')],
+    ]);
+    const evidence: EvidenceItem[] = [{ id: 'e1', content: '', result: 'PASS' }];
+    const r = runGate('intent', cards, evidence, { currentBand: 'L2' });
+    const refused = r.verdicts.filter((v) => v.notes.startsWith('SELF_REFUSAL'));
+    expect(refused.map((v) => v.role).sort()).toEqual(['planner', 'reviewer']);
+    for (const v of refused) {
+      expect(v.verdict).toBe('doubt');
+      expect(v.confidence).toBe(0);
+      expect(v.evidenceIds).toEqual([]);
+      expect(v.notes).toContain('超出当前自主级 L2');
+    }
+    // 未越带的 implementer 正常出裁决
+    const implementer = r.verdicts.find((v) => v.role === 'implementer')!;
+    expect(implementer.notes.startsWith('SELF_REFUSAL')).toBe(false);
+    // 1/3 approve 不足 threshold=2 → 门不过（越带收紧而非静默放行）
+    expect(r.passed).toBe(false);
+  });
+
+  it('currentBand 高于全部卡片 → 无拒绝（等价旧路径）', () => {
+    const cards = new Map([
+      ['anic.agent.intent.planner', synthCard('planner', 'L2')],
+      ['anic.agent.intent.implementer', synthCard('implementer', 'L2')],
+    ]);
+    const evidence: EvidenceItem[] = [{ id: 'e1', content: '', result: 'PASS' }];
+    const r = runGate('intent', cards, evidence, { currentBand: 'L4' });
+    expect(r.verdicts.every((v) => !v.notes.startsWith('SELF_REFUSAL'))).toBe(true);
+    // 2/2 approve ≥ threshold=2 → 过
+    expect(r.passed).toBe(true);
+  });
+
+  it('不传 currentBand → 授权带不启用（向后兼容，旧调用零变化）', () => {
+    const cards = new Map([
+      ['anic.agent.intent.planner', synthCard('planner', 'L4')],
+      ['anic.agent.intent.implementer', synthCard('implementer', 'L4')],
+    ]);
+    const evidence: EvidenceItem[] = [{ id: 'e1', content: '', result: 'PASS' }];
+    const r = runGate('intent', cards, evidence);
+    expect(r.verdicts.every((v) => !v.notes.startsWith('SELF_REFUSAL'))).toBe(true);
+    expect(r.passed).toBe(true);
+  });
+
+  it('真实 15 张卡（全 L2）在 currentBand=L2 下全部正常出裁决', () => {
+    const cards = loadAgentCards();
+    const evidence: Record<string, EvidenceItem[]> = {};
+    for (const gate of GATE_NAMES) evidence[gate] = [{ id: `${gate}-1`, content: '', result: 'PASS' }];
+    const results = runAllGates(cards, evidence, { currentBand: 'L2' });
+    for (const r of results) {
+      expect(r.verdicts).toHaveLength(3);
+      expect(r.verdicts.every((v) => !v.notes.startsWith('SELF_REFUSAL'))).toBe(true);
+    }
+  });
+
+  it('真实 15 张卡（全 L2）在 currentBand=L1 下全部 SELF_REFUSAL', () => {
+    const cards = loadAgentCards();
+    const evidence: Record<string, EvidenceItem[]> = {};
+    for (const gate of GATE_NAMES) evidence[gate] = [{ id: `${gate}-1`, content: '', result: 'PASS' }];
+    const results = runAllGates(cards, evidence, { currentBand: 'L1' });
+    for (const r of results) {
+      expect(r.verdicts.every((v) => v.notes.startsWith('SELF_REFUSAL'))).toBe(true);
+      expect(r.passed).toBe(false);
+      expect(r.trustScore).toBe(0);
+    }
+  });
+
+  it('SELF_REFUSAL 常量导出稳定（路由层与账本留痕共用）', () => {
+    expect(SELF_REFUSAL).toBe('SELF_REFUSAL');
   });
 });

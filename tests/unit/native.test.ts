@@ -204,6 +204,33 @@ describe('orgStatus', () => {
     expect(['L1', 'L2', 'L3', 'L4']).toContain(result.autonomy.configuredBand);
     expect(result.autonomy.currentBand).toBe(result.autonomy.configuredBand);
   });
+
+  it('R3 阶段 1：真实 incidents 信号流入 API 响应（熔断不再恒零）', () => {
+    mkdirSync(join(TMP, '.cycles', 'incidents'), { recursive: true });
+    writeFileSync(join(TMP, '.cycles', 'incidents', 'incident-H1-circuit-e2e.md'), '# incident\n', 'utf-8');
+    const result = runOrgStatus(TMP, {});
+    expect(result.autonomy.breakers).toContain('user_data_unisolated');
+    // 严重熔断 → 动作至少 pause（decideAction 契约）
+    expect(['pause', 'downgrade']).toContain(result.autonomy.action);
+  });
+
+  it('R3 阶段 1：band-history 分数序列驱动 trend（不再硬编码 stable）', () => {
+    mkdirSync(join(TMP, '.cycles'), { recursive: true });
+    writeFileSync(
+      join(TMP, '.cycles', 'band-history.json'),
+      JSON.stringify([0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.7, 0.8].map((score, i) => ({ cycle: i + 1, score, timestamp: '2026-01-01', band: 'warn' as const }))),
+      'utf-8',
+    );
+    const improving = runOrgStatus(TMP, {});
+    expect(improving.band.trend).toBe('improving');
+    writeFileSync(
+      join(TMP, '.cycles', 'band-history.json'),
+      JSON.stringify([0.9, 0.9, 0.9, 0.9, 0.9, 0.8, 0.7, 0.6].map((score, i) => ({ cycle: i + 1, score, timestamp: '2026-01-01', band: 'normal' as const }))),
+      'utf-8',
+    );
+    const degrading = runOrgStatus(TMP, {});
+    expect(degrading.band.trend).toBe('degrading');
+  });
 });
 
 describe('skillInvoker inline', () => {

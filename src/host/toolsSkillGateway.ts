@@ -25,6 +25,7 @@ import {
 import {
   loadFlowTracker,
   startFlow,
+  markRunning,
   finishFlow,
   recentFlows,
   flowStats,
@@ -135,6 +136,9 @@ export function registerSkillGatewayTools(
       let trackerState = loadFlowTracker(cyclesDir);
       const { state: startedState, flowId } = startFlow(cyclesDir, trackerState, script, ws, extraArgs);
       trackerState = startedState;
+
+      // P3：INVOKING → RUNNING 的真实分界——脚本目录已解析、spawn 即将发生。
+      trackerState = markRunning(cyclesDir, trackerState, flowId);
 
       const result = invokeSkillScript(scriptsDir, script, extraArgs, ws, timeout);
 

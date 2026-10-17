@@ -142,12 +142,24 @@ export const GATE_THRESHOLDS: Readonly<Record<GateName, number>> = {
   release: 3,
 };
 
-/** 运行单门多代理评估。 */
+/** 自主级大小序（L1 < L2 < L3 < L4）。 */
+const BAND_ORDER: Readonly<Record<'L1' | 'L2' | 'L3' | 'L4', number>> = { L1: 1, L2: 2, L3: 3, L4: 4 };
+
+/** 授权带越界标记（notes 前缀；INV-28 同族：拒绝要留痕）。 */
+export const SELF_REFUSAL = 'SELF_REFUSAL';
+
+/** 运行单门多代理评估。
+ *
+ * options.currentBand（R3 阶段 1）：当前工作区自主级。提供时，卡片的
+ * `autonomyBand` 超出当前带的 agent **拒绝出裁决**（SELF_REFUSAL，doubt/0 分/
+ * 空证据）—— 授权带此前只有字段没有执行点，L4 卡片在 L2 工作区照样投票。
+ * 拒绝不计入 approve，门自然更难过（越带调用收紧而非静默放行）。
+ */
 export function runGate(
   gate: GateName,
   agentCards: Map<string, AgentCard>,
   evidence: EvidenceItem[],
-  options?: { llmResults?: AgentVerdict[] },
+  options?: { llmResults?: AgentVerdict[]; currentBand?: 'L1' | 'L2' | 'L3' | 'L4' },
 ): GateResult {
   const threshold = GATE_THRESHOLDS[gate];
   const verdicts: AgentVerdict[] = [];
@@ -156,6 +168,19 @@ export function runGate(
     const cardId = `anic.agent.${gate}.${role}`;
     const card = agentCards.get(cardId);
     if (!card) continue;
+
+    // 授权带执行点（R3 阶段 1）：卡片要求的自主级超出当前带 → 拒绝出裁决
+    if (options?.currentBand && BAND_ORDER[card.autonomyBand] > BAND_ORDER[options.currentBand]) {
+      verdicts.push({
+        role,
+        verdict: 'doubt',
+        confidence: 0,
+        evidenceIds: [],
+        notes: `${SELF_REFUSAL}: 卡片授权带 ${card.autonomyBand} 超出当前自主级 ${options.currentBand}，该 agent 拒绝出裁决（12 §2.6 授权带）`,
+        tier: 'Tier-1',
+      });
+      continue;
+    }
 
     // 优先使用 LLM 结果（Tier-2），否则 Tier-1 启发式
     const llmResult = options?.llmResults?.find((v) => v.role === role);
@@ -174,6 +199,7 @@ export function runGate(
 export function runAllGates(
   agentCards: Map<string, AgentCard>,
   evidenceByGate: Record<string, EvidenceItem[]>,
+  options?: { currentBand?: 'L1' | 'L2' | 'L3' | 'L4' },
 ): GateResult[] {
-  return GATE_NAMES.map((gate) => runGate(gate, agentCards, evidenceByGate[gate] ?? []));
+  return GATE_NAMES.map((gate) => runGate(gate, agentCards, evidenceByGate[gate] ?? [], options));
 }

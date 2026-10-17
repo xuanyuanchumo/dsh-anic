@@ -14,6 +14,7 @@ import { runAllGates } from '../llm/multiAgentGate.ts';
 import { collectGateEvidence, latestConvergenceVerdicts, CONVERGENCE_GATES } from '../llm/gateEvidence.ts';
 import { runFixLoop } from '../evolution/fixLoop.ts';
 import { verifyLedger } from '../runtime/ledger.ts';
+import { loadWorkspaceConfig } from '../config.ts';
 import type { AgentCard } from '../agents.ts';
 
 const log = createScoped('anic:route:native');
@@ -90,18 +91,24 @@ export function registerNativeRoute(
   // 有效裁决。现改为由 `collectGateEvidence()` 从**真实工件与真实账本**装配
   // 结构化证据（带 PASS/FAIL 三态）。缺失的工件产出 FAIL 而非静默跳过：
   // 「门禁要求的东西不存在」是确定的失败事实（INV-23）。
+  //
+  // R3 阶段 1：currentBand 从 config.yml（INV-25 唯一 loader）读出后传入
+  // runAllGates —— 卡片授权带超出当前自主级的 agent 以 SELF_REFUSAL 拒绝
+  // 出裁决（此前授权带只有字段没有执行点）。
   reg('POST', '/anic/multi-agent-gate', (_req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot();
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const evidenceByGate = collectGateEvidence(root);
-    const results = runAllGates(deps.agentCards, evidenceByGate);
+    const currentBand = loadWorkspaceConfig(join(root, '.cycles')).values.autonomyLevel;
+    const results = runAllGates(deps.agentCards, evidenceByGate, { currentBand });
     deps.send(
       res,
       200,
       {
         gates: results,
         allPassed: results.every((g) => g.passed),
+        currentBand,
         evidenceCounts: Object.fromEntries(Object.entries(evidenceByGate).map(([k, v]) => [k, v.length])),
       },
       rid,

@@ -34,7 +34,7 @@ function countFilesRecursive(dir: string): number {
 export function auditTruthfulness(pluginDir: string): TruthAuditResult {
   const findings: AuditFinding[] = [];
   const requiredDirs = ['src/host/runtime','src/host/evolution','src/host/governance','src/host/llm','src/host/routes','src/shared','src/client/features','src/adapters'];
-  const requiredFiles = ['src/host/tools.ts','src/host/config.ts','src/host/logger.ts','src/host/skillInvoker.ts','src/host/selfBootstrap.ts','src/host/dualBootstrap.ts','src/shared/flows.ts','src/shared/errors.ts','src/shared/fs-safe.ts','src/shared/snapshotCore.ts','src/shared/stepTrace.ts','src/adapters/index.ts','src/client/WorkflowGraphPanel.ts','src/client/integrations/WorkflowTabIntegration.ts'];
+  const requiredFiles = ['src/host/tools.ts','src/host/config.ts','src/host/logger.ts','src/host/skillInvoker.ts','src/host/selfBootstrap.ts','src/host/dualBootstrap.ts','src/host/evolution/orgStatus.ts','src/host/evolution/breakerSignals.ts','src/shared/flows.ts','src/shared/errors.ts','src/shared/fs-safe.ts','src/shared/snapshotCore.ts','src/shared/stepTrace.ts','src/adapters/index.ts','src/client/WorkflowGraphPanel.ts','src/client/integrations/WorkflowTabIntegration.ts'];
   let passCount = 0;
   for (const dir of requiredDirs) {
     const exists = existsSync(join(pluginDir, dir));

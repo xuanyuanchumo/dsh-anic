@@ -87,7 +87,12 @@ function trimFlows(flows: FlowRecord[]): FlowRecord[] {
   return flows.slice(flows.length - MAX_FLOWS);
 }
 
-/** 创建新流程记录（INVOKING 状态）并持久化。 */
+/** 创建新流程记录（INVOKING 状态——脚本定位/校验通过但尚未 spawn）并持久化。
+ *
+ * P3（已修）：'INVOKING' 此前是声明未赋值的死值（startFlow 直接写 'RUNNING'，
+ * docs/anic/17:103 声称跟踪 INVOKING→RUNNING 与源码冲突）。现在两相真实落地：
+ * INVOKING = 调用已受理、脚本即将 spawn；markRunning() 在 spawn 前推进到 RUNNING。
+ */
 export function startFlow(
   cyclesDir: string,
   state: FlowTrackerState,
@@ -103,7 +108,7 @@ export function startFlow(
     script,
     workspace,
     args,
-    status: 'RUNNING',
+    status: 'INVOKING',
     startedAt: now,
   };
   const newState: FlowTrackerState = {
@@ -112,6 +117,17 @@ export function startFlow(
   };
   saveFlowTracker(cyclesDir, newState);
   return { state: newState, flowId };
+}
+
+/** 推进 INVOKING → RUNNING（spawn 前调用；幂等：非 INVOKING 状态不动）。 */
+export function markRunning(cyclesDir: string, state: FlowTrackerState, flowId: string): FlowTrackerState {
+  const flows = state.flows.map((f) => {
+    if (f.flowId !== flowId || f.status !== 'INVOKING') return f;
+    return { ...f, status: 'RUNNING' as FlowStatus };
+  });
+  const newState: FlowTrackerState = { flows, counter: state.counter };
+  saveFlowTracker(cyclesDir, newState);
+  return newState;
 }
 
 /** 完成流程记录（设置终态 + 输出 + 耗时）并持久化。 */
@@ -151,9 +167,9 @@ export function recentFlows(state: FlowTrackerState, limit = 20): FlowRecord[] {
   return state.flows.slice(-limit).reverse();
 }
 
-/** 查询活跃流程（status=RUNNING）。 */
+/** 查询活跃流程（INVOKING 或 RUNNING——已受理未终结的全部）。 */
 export function activeFlows(state: FlowTrackerState): FlowRecord[] {
-  return state.flows.filter((f) => f.status === 'RUNNING');
+  return state.flows.filter((f) => f.status === 'INVOKING' || f.status === 'RUNNING');
 }
 
 /** 统计：按脚本分组计数 + 成功率。 */
