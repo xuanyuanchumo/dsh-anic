@@ -7,11 +7,17 @@ const MAX_FILE_LINES = 250;
 
 function collectTsFiles(dir: string, base: string = ''): { path: string; lines: number }[] {
   const files: { path: string; lines: number }[] = [];
-  if (!existsSync(dir)) return files;
-  for (const entry of readdirSync(dir)) {
+  // 并行 vitest 下 tests/unit/tmp-* 夹具可能在本 walk 与 stat 之间被其它用例清理
+  // （实测竞态：skillReplaceE2E 清理 tmp-skill-replace-e2e 时 truthAudit 正在 walk）。
+  // 消失中的条目直接跳过——消失的夹具不是真实性发现。
+  let entries: string[] = [];
+  try { entries = readdirSync(dir); } catch { return files; }
+  for (const entry of entries) {
     const full = join(dir, entry);
     const rel = base ? `${base}/${entry}` : entry;
-    if (statSync(full).isDirectory()) files.push(...collectTsFiles(full, rel));
+    let isDir = false;
+    try { isDir = statSync(full).isDirectory(); } catch { continue; }
+    if (isDir) files.push(...collectTsFiles(full, rel));
     else if (entry.endsWith('.ts')) {
       const lines = readFileSync(full, 'utf8').split('\n').length;
       files.push({ path: rel, lines });
@@ -21,11 +27,14 @@ function collectTsFiles(dir: string, base: string = ''): { path: string; lines: 
 }
 
 function countFilesRecursive(dir: string): number {
-  if (!existsSync(dir)) return 0;
   let count = 0;
-  for (const entry of readdirSync(dir)) {
+  let entries: string[] = [];
+  try { entries = readdirSync(dir); } catch { return 0; }
+  for (const entry of entries) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) count += countFilesRecursive(full);
+    let isDir = false;
+    try { isDir = statSync(full).isDirectory(); } catch { continue; }
+    if (isDir) count += countFilesRecursive(full);
     else count++;
   }
   return count;
@@ -34,7 +43,7 @@ function countFilesRecursive(dir: string): number {
 export function auditTruthfulness(pluginDir: string): TruthAuditResult {
   const findings: AuditFinding[] = [];
   const requiredDirs = ['src/host/runtime','src/host/evolution','src/host/governance','src/host/llm','src/host/routes','src/shared','src/client/features','src/adapters'];
-  const requiredFiles = ['src/host/tools.ts','src/host/config.ts','src/host/logger.ts','src/host/skillInvoker.ts','src/host/selfBootstrap.ts','src/host/dualBootstrap.ts','src/host/evolution/orgStatus.ts','src/host/evolution/breakerSignals.ts','src/shared/flows.ts','src/shared/errors.ts','src/shared/fs-safe.ts','src/shared/snapshotCore.ts','src/shared/stepTrace.ts','src/adapters/index.ts','src/client/WorkflowGraphPanel.ts','src/client/integrations/WorkflowTabIntegration.ts'];
+  const requiredFiles = ['src/host/tools.ts','src/host/toolsEvolutionGateway.ts','src/host/config.ts','src/host/logger.ts','src/host/skillInvoker.ts','src/host/selfBootstrap.ts','src/host/dualBootstrap.ts','src/host/evolution/orgStatus.ts','src/host/evolution/breakerSignals.ts','src/host/evolution/autonomyActions.ts','src/host/governance/hitlAudit.ts','src/shared/flows.ts','src/shared/errors.ts','src/shared/fs-safe.ts','src/shared/snapshotCore.ts','src/shared/stepTrace.ts','src/adapters/index.ts','src/client/WorkflowGraphPanel.ts','src/client/integrations/WorkflowTabIntegration.ts'];
   let passCount = 0;
   for (const dir of requiredDirs) {
     const exists = existsSync(join(pluginDir, dir));

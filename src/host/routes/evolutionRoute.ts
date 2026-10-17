@@ -17,6 +17,9 @@ import {
   type BreakerInput,
 } from '../evolution/autonomyGovernor.ts';
 import { generateTechDebt, type EvalResult } from '../evolution/patchEngine.ts';
+import { runAutonomyFallback } from '../evolution/autonomyActions.ts';
+import { newRequestId } from '../logger.ts';
+import { resolveWorkspaceRoots } from '../snapshotRoute.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
 
@@ -88,6 +91,23 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     const results = Array.isArray(parsed.results) ? (parsed.results as EvalResult[]) : [];
     const entries = generateTechDebt(results);
     send(res, 200, { techDebt: entries, count: entries.length });
+  });
+
+  // POST /anic/autonomy/downgrade — 证据化自主级回退（R3 阶段 1 余量）。
+  // 与 POST /anic/api/breakers 的纯决策视图不同：这是技能 cmdAutoFallback 的插件等价物，
+  // 写入 config.yml + Post-Verify 回读 + 事故留痕（autonomyActions.ts）。
+  // 拒绝（无熔断证据 / L1/L2 地板 / config 缺失）一律 200 + action 字段区分——
+  // 调用本身被正确执行，结局是「维持」，不是 HTTP 层错误。
+  reg('/anic/autonomy/downgrade', 'POST', (req: RouteReq, res: unknown) => {
+    const requestId = newRequestId();
+    let root: string | null = null;
+    try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
+    if (!root) {
+      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+      return;
+    }
+    const result = runAutonomyFallback(root);
+    send(res, 200, result, requestId);
   });
 
   return disposers;

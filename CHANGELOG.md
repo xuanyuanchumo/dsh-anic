@@ -1,5 +1,40 @@
 # dsh-anic CHANGELOG
 
+## v0.7.0 — 2026-10-17
+
+R3 路线图阶段 1 余量收口：HITL 四检查语义对齐（P0）+ 自主级决策落盘（P1）+ 真实性审计 walker 竞态修复。测试 504→551 用例（42 文件）。真实宿主（网页端 3080）端到端验证：维持路径（codegraph 工作区零写入）+ 降级写入路径（一次性夹具工作区 L4→L3 + 事故留痕）+ J0 8/8。
+
+### HITL H1-H4 语义对齐（R3 阶段 1 余量 P0，对齐技能 hitl-audit.mjs:53-155）
+
+- **旧四检查全部错位**：旧 H1=敏感文件名扫描（无 .gitignore 保护判定）；旧 H2=.gitignore 三字面量覆盖（实为技能 H1 的子检查）；旧 H3=diff 破坏性命令扫描（技能没有的检查）；旧 H4=verifyLedger 哈希链（技能 H4 的证据子项）。
+- **重写 `host/governance/hitlAudit.ts`**（evaluateH1-H4 纯函数核心 + IO 包装）：
+  - H1 敏感数据保护（技能 53-87）：变更文件（git diff HEAD~1 → 失败回退 git status --porcelain，技能同款回退链）命中 `['.env','credentials','secret','password','token','api_key']` 且未被 .gitignore 保护（basename/全路径两路）→ fail+熔断；.env 落盘独立通道。
+  - H2 破坏性操作/回滚保障（技能 89-113 + 插件增强）：无破坏性短路 pass；>10 文件 fail；有变更无 git 历史 fail；**插件增强**：diff 新增行破坏性命令扫描（rm -rf/DROP TABLE/DELETE FROM/TRUNCATE/git push --force/git reset --hard）保留且优先报。
+  - H3 门禁全绿 + 审计日志（技能 115-131）：无 cycle/无账本 fail；账本末 4 条 slice(-4) 须 G0-G3 全 PASS；最新 cycle 须有 审计日志.md。
+  - H4 门禁裁决仲裁（技能 133-155 + 插件增强）：末 4 条 FAIL 且无 detail → 冲突 fail+熔断；**插件增强**：保留哈希链校验（INV-20），冲突优先于链断裂报告。
+  - `HitlResult` 新增 `circuit: boolean`（对齐技能熔断语义）；`runHitlAudit` 返回 `{ checks, allPassed, anyCircuit }`。
+- 新契约套件 `tests/unit/hitlAuditContract.test.ts`（26 用例）钉死对齐语义，任何一条被改回旧形态立刻变红。
+
+### 自主级决策落盘（R3 阶段 1 余量 P1，对齐技能 org-status.mjs cmdAutoFallback:549-660）
+
+- **新 `host/evolution/autonomyActions.ts`**：`runAutonomyFallback(workspaceRoot)` 完整流程 = collectBreakerSignals（cycle-4 八熔断采集层）→ checkBreakers → 地板判定（L1/L2 触发熔断也拒绝，技能 exit 1 对齐，判定先于 decideAction）→ decideAction → 降级写入 → **Post-Verify 回读**（技能 S-7 纪律：写入 → 回读 → 按回读事实判定，绝不无条件声称已降级）→ 事故留痕。
+- 降级路径：L4→L3 / L3→L2 一步；事故文件 `incident-auto-fallback-<ts>.md` 对齐技能命名与内容结构（只陈述回读到的真实级别）。
+- 无证据不动作（INV-28 精神）：零熔断信号 → maintained，config 与 incidents 均零写入（真实宿主实测 codegraph 工作区零写入）。
+- 边界（登记于交付清单）：不把自主级事件写 gates/ledger.json（混入 AUTONOMY 条目会污染 H3 的 slice(-4) 门窗口——技能同款「两载体」缺陷，修复属 R3 阶段 2 FlowRegistry）；技能 Phase 1/2 诊断/自动修复（技能侧自身实现是坏的）R3 阶段 4 再补。
+- **新 DSH 工具 `anic_autonomy_downgrade`**（第 13 个，`host/toolsEvolutionGateway.ts` 进化域网关一域一文件）：模型可调用 = 轨迹可见；动作有证据围栏。
+- **新路由 `POST /anic/autonomy/downgrade`**（evolutionRoute.ts）：与 POST /anic/api/breakers 的纯决策视图互补——这是技能 cmdAutoFallback 的插件等价物（写入 + 回读 + 留痕）。
+
+### 修复
+
+- **真实性审计 walker 竞态（P2）**：`truthAuditChecks.ts` 的 collectTsFiles/countFilesRecursive 在并行 vitest 下 statSync 撞上 skillReplaceE2E 清理 tmp 夹具 → ENOENT 崩测试。walker 改为 ENOENT 容忍（消失中的条目跳过——消失的夹具不是真实性发现）。
+- `snapshotRoute.test.ts` 路由清单契约 +1（/anic/autonomy/downgrade，48→49）。
+- T3 结构守卫真实拦人记录：autonomyActions.ts 初版 254 行被拦 → 压缩头注释至 247 行（守卫不改，改代码）。
+
+### 验证
+
+- typecheck exit 0；validate 12/12；vitest 42 文件 551 用例全绿（+47：hitlAuditContract 26 + autonomyActions 21）；smoke 19 ALL PASS。
+- 真实宿主（dsh 0.2.0-rc.2 web 3080）：`POST /anic/autonomy/downgrade` 两路径实测——codegraph 工作区 `{action:'maintained', currentBand:'L4', trippedBreakers:[]}` 零写入；一次性夹具工作区（L4 + human_override:true）`{action:'downgraded', observedBand:'L3'}` + config 改写 + incident-auto-fallback-*.md 落盘（磁盘事实验证）。J0 探针 8/8 PASS。
+
 ## v0.6.0 — 2026-10-17
 
 R3 路线图阶段 1（L4 自主性执行点落地）：八熔断信号采集层 + SELF_REFUSAL 授权带 + 2×P3。测试 485→504 用例（40 文件）。真实宿主（网页端 3080）端到端验证 + J0 8/8。

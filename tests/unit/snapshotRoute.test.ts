@@ -260,6 +260,8 @@ describe('宿主入口 apply', () => {
     '/anic/api/seg-ledger', '/anic/api/seg-ledger/append', '/anic/api/seg-ledger/verify', '/anic/api/seg-ledger/init',
     '/anic/review',
     '/anic/api/trust', '/anic/api/autonomy', '/anic/api/breakers', '/anic/api/tech-debt',
+    // R3 阶段 1 余量：证据化自主级回退（技能 cmdAutoFallback 插件等价物）
+    '/anic/autonomy/downgrade',
     '/anic/governance/archive', '/anic/governance/budget', '/anic/governance/sweep', '/anic/governance/prune',
     // M7 自举闭环
     '/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status',
