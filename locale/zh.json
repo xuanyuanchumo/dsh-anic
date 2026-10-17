@@ -160,7 +160,8 @@
     "budgetEnforce": "预算强制",
     "selfInit": "自举初始化",
     "agentsOrchestration": "智能体编排",
-    "gateCheck": "收敛门禁流程"
+    "gateCheck": "收敛门禁流程",
+    "macroPhase": "宏观循环流程"
   },
   "gate": {
     "PASS": "通过",

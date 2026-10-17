@@ -1,17 +1,20 @@
 /**
- * Flows 域路由（R3 阶段 2）—— 流程状态流转机的观测面 + 运行面。
+ * Flows 域路由（R3 阶段 2/3）—— 流程状态流转机的观测面 + 运行面。
  *
- *  - GET  /anic/flows                    注册表列表（描述子可序列化投影）
- *  - GET  /anic/flows/:id/state          当前投影（无投影 = 从未运行过，不伪造）
- *  - POST /anic/flows/gate-check/run     运行 gate-check 流程（mode=script/native/diff）
+ *  - GET  /anic/flows                       注册表列表（描述子可序列化投影）
+ *  - GET  /anic/flows/state?flow=<id>       当前投影（无投影 = 从未运行过，不伪造）
+ *  - POST /anic/flows/gate-check/run        运行 gate-check 流程（mode=script/native/diff）
+ *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘、不 inferPhase 回写）
+ *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
  *
- * 设计注记：运行入口按流程 id 静态分派（阶段 2 只有 gate-check；FlowRegistry
- * 泛型运行入口留到阶段 3 macroPhase 接入时再抽象——「已有 ≥2 个真实实例才
- * 引入契约层」的纪律）。
+ * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
+ * 「已有 ≥2 个真实实例才引入契约层」的纪律）。
  */
 import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
 import { runGateFlow, type GateFlowMode } from '../flows/gateCheckFlow.ts';
+import { runMacroPhaseFlow, statusMacroPhase, type MacroFlowMode } from '../flows/macroPhaseFlow.ts';
+import { PHASE_IDS } from '../flows/macroPhaseEngine.ts';
 import { loadFlowProjection } from '../flows/persistence.ts';
 import { readBody, type RouteReq } from './routeContext.ts';
 
@@ -92,6 +95,39 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
         timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
       });
       if (result.error) return send(res, 500, { error: `ANIC_ROUTE_FLOW_ERROR:${result.error}`, ...result });
+      send(res, 200, result);
+    });
+  });
+
+  // GET /anic/flows/macro-phase/status — 宏观六相只读视图
+  reg('/anic/flows/macro-phase/status', (req, res) => {
+    const root = deps.getWorkspaceRoot(req);
+    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    send(res, 200, statusMacroPhase(root));
+  });
+
+  // POST /anic/flows/macro-phase/advance — 宏观相位推进
+  reg('/anic/flows/macro-phase/advance', (req, res) => {
+    void readBody(req as RouteReq).then((body) => {
+      const root = deps.getWorkspaceRoot(req);
+      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      const mode = typeof body.mode === 'string' && ['script', 'native'].includes(body.mode)
+        ? body.mode as MacroFlowMode
+        : 'script';
+      const target = typeof body.target === 'string' ? body.target : undefined;
+      if (target !== undefined && !PHASE_IDS.includes(target)) {
+        return send(res, 400, { error: `ANIC_ROUTE_BAD_PHASE:${target}`, validPhases: PHASE_IDS });
+      }
+      if (body.dryRun === true && mode === 'script') {
+        return send(res, 400, { error: 'ANIC_ROUTE_DRYRUN_NATIVE_ONLY' });
+      }
+      const result = runMacroPhaseFlow(root, {
+        target,
+        mode,
+        dryRun: body.dryRun === true,
+        timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
+      });
+      if (result.error) return send(res, 422, result);
       send(res, 200, result);
     });
   });

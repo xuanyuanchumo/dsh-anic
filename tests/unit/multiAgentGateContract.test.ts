@@ -70,16 +70,19 @@ describe('multiAgentGate · P0-9 空裁决集不得产生 NaN', () => {
     expect(roundTrip.trustScore).not.toBeNull();
   });
 
-  it('非空裁决集行为不变（回归基线）', () => {
-    const mk = (verdict: 'approve' | 'reject' | 'doubt'): AgentVerdict => ({
+  it('非空裁决集行为（P2 语义对齐后：trustScore = agent 置信度均值）', () => {
+    const mk = (verdict: 'approve' | 'reject' | 'doubt', confidence = 0.8): AgentVerdict => ({
       role: 'planner',
       verdict,
-      confidence: 0.8,
+      confidence,
       evidenceIds: [],
       notes: '',
       tier: 'Tier-1',
     });
-    expect(aggregateVerdicts([mk('approve'), mk('approve')], 2).trustScore).toBe(100);
+    // 技能 multi-agent-gate.mjs:221-222：trustScore = round(avgConfidence*100)
+    // （R3 阶段 3 语义对齐：原 approve 占比式对全 approve 低置信度集谎报满分）
+    expect(aggregateVerdicts([mk('approve'), mk('approve')], 2).trustScore).toBe(80);
+    expect(aggregateVerdicts([mk('approve', 0.6), mk('approve', 0.6), mk('approve', 0.6)], 2).trustScore).toBe(60);
     expect(aggregateVerdicts([mk('approve'), mk('doubt')], 2).verdict).toBe('doubt');
     expect(aggregateVerdicts([mk('reject'), mk('approve')], 2).verdict).toBe('reject');
   });

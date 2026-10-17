@@ -160,7 +160,8 @@
     "budgetEnforce": "Budget Enforce",
     "selfInit": "Self Init",
     "agentsOrchestration": "Agent Orchestration",
-    "gateCheck": "Gate-check Flow"
+    "gateCheck": "Gate-check Flow",
+    "macroPhase": "Macro-phase Flow"
   },
   "gate": {
     "PASS": "Passed",

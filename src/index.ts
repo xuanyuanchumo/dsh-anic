@@ -22,7 +22,7 @@ import { registerAnicRoutes } from './host/routes/index.ts';
 import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
-import { registerBuiltinFlows } from './host/flows/gateCheckFlow.ts';
+import { registerBuiltinFlows } from './host/flows/builtin.ts';
 
 export const name = 'dsh-anic';
 export const inject = ['tools', 'webServer', 'sessions', 'skills'];
@@ -38,8 +38,8 @@ export function apply(ctx: unknown): void {
     c.effect(() => registerRuntimeSkill(ctx) ?? undefined, 'dsh-anic: runtime skill (ctx.skills.register)');
     c.effect(() => registerAnicRoutes(ctx, { invocationFeed: feed }), 'dsh-anic: routes (snapshot+cycle+ledger+review+evolution+governance+self+skill+invocations+flows)');
     c.effect(() => registerAnicTools(ctx), 'dsh-anic: tools (anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check)');
-    // 内置流程注册（R3 阶段 2）：FlowRegistry 生命周期跟随插件 fiber（卸载即注销）。
-    c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check)');
+    // 内置流程注册（R3 阶段 2/3）：FlowRegistry 生命周期跟随插件 fiber（卸载即注销）。
+    c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check + macro-phase)');
   } else {
     registerRuntimeSkill(ctx);
     registerAnicRoutes(ctx, { invocationFeed: feed });

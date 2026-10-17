@@ -17,7 +17,6 @@
 import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
-import { registerFlow } from './registry.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
 import type { GateCheckResult } from './gateTypes.ts';
 import { runNativeSide, runScriptSide, recordNative, type EngineSide } from './gateCheckRunners.ts';
@@ -56,11 +55,7 @@ export const GATE_CHECK_GUARDS: Record<string, GuardFn> = {
   },
 };
 
-/** 注册内置流程（插件 apply 期调用一次；返回 disposer）。 */
-export function registerBuiltinFlows(): () => void {
-  const dispose = registerFlow(GATE_CHECK_FLOW);
-  return () => { dispose?.(); };
-}
+/** 注册入口已移至 builtin.ts（R3 阶段 3 起多流程聚合；避免反向依赖）。 */
 
 export type GateFlowMode = 'script' | 'native' | 'diff';
 

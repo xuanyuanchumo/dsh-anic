@@ -37,13 +37,20 @@ export interface GateResult {
  * 而 NaN 会污染 trustModel 的升降级建议（`NaN >= 85` 恒 false → 永远不升级，
  * 且序列化进账本后 JSON 变成 `null`）。空裁决集必须显式返回 0 分并保持
  * `doubt` —— 「没有证据 ≠ 通过」（INV-23 同族纪律）。
+ *
+ * P2 语义对齐（R3 阶段 3，已修）：trustScore 原为 approve 占比
+ * `approve/total*100`，与技能 `multi-agent-gate.mjs:221-222` 的
+ * `trustScore = Math.round(avgConfidence * 100)`（agent 置信度均值）冲突。
+ * 例：3 agent 全 approve（Tier-1 置信度 0.6）—— 旧式报 100 分（看起来
+ * 满分），技能语义报 60 分（启发式置信度的诚实值）。语义对齐技能侧。
  */
 export function aggregateVerdicts(verdicts: AgentVerdict[], threshold: number): { verdict: GateVerdict; trustScore: number; passed: boolean } {
   if (verdicts.length === 0) return { verdict: 'doubt', trustScore: 0, passed: false };
   const approve = verdicts.filter((v) => v.verdict === 'approve').length;
   const reject = verdicts.filter((v) => v.verdict === 'reject').length;
   const verdict: GateVerdict = approve >= threshold ? 'approve' : reject > 0 ? 'reject' : 'doubt';
-  const trustScore = Math.round((approve / verdicts.length) * 100);
+  const avgConfidence = verdicts.reduce((s, v) => s + v.confidence, 0) / verdicts.length;
+  const trustScore = Math.round(avgConfidence * 100);
   return { verdict, trustScore, passed: verdict === 'approve' };
 }
 

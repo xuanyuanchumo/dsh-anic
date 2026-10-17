@@ -1,5 +1,31 @@
 # dsh-anic CHANGELOG
 
+## v0.9.0 — 2026-10-17
+
+R3 路线图阶段 3 前半：**macroPhase 宏观循环流程**（第 2 个专属流程状态机）+ 两项 P2 债务收口（bandDetector Western Electric 8 规则逐字移植、multiAgentGate trustScore 语义对齐）。测试 632→684 用例（48→52 文件）。真实宿主验证：flows 注册表 2 流程、macro-phase 双模式 advance 消息与技能逐字相等、J0 8/8。
+
+### R3 阶段 3：macroPhase 流程（各流程插件化 × 专属状态流转机 × 模块引擎）
+
+- **macroPhaseEngine.ts**：PHASES 6 相表逐字同技能 workflow-state.mjs:17-28（plan[G0]/design[G0]/build[G1]/test[G2]/deploy[G3]/maintain[]）；advanceMacro 全语义（回退拒/同相拒/未知 target/非法当前相位/末相 final exit 0/门未过 exit 1 带 passed 名单/dryRun 零写入；失败路径零写入）；readGateResults 用技能「曾通过语义」（任一历史 PASS 放行——与 gateEvidence.latestConvergenceVerdicts 的「每门最新」刻意并存，不偷偷收紧）。
+- **macroPhaseFlow.ts**：15 条前向边（5 邻接 advance + 10 跳相 jump:from:to）全带 phase-gates-passed 守卫；**禁回退由图形状承载**（全部 from 序 < to 序，无运行时回退检查）；native/script 双模式（script=workflow-state.mjs 正典写入者；守卫拒绝时 drift=true）；statusMacroPhase 只读（不复制技能 cmdStatus 的 inferPhase 回写——该回写对 deploy/maintain 永远推不出来，是技能侧缺陷不复制）；replayEvents 重建全等（INV-13）。
+- **builtin.ts** 聚合（避免 gateCheckFlow←macroPhaseFlow 反向依赖）；flowsRoute +2 路由（macro-phase/status 只读 + macro-phase/advance）；第 15 个 DSH 工具 **anic_flows_advance**（target/mode/dryRun）。
+- **孪生夹具差分契约**（macroPhaseDifferential 5 用例）：advance 是写动作不能同目录双跑——两份相同夹具各跑一侧（spawn 真技能脚本 vs native 引擎），比对落盘 workflow-state.json 逐字段全等。
+
+### P2 双修
+
+- **bandDetector WE 8 规则**（band-detector.mjs:117-203 逐字移植）：单点 3σ / 2-of-3 同侧 2σ / 4-of-5 同侧 1σ / 8 点中心线同侧 / 6 点单调 / 14 点交替 / 15 点 1σ 内（变异过小）/ 8 点 1σ 外（变异过大）；stdDev=0 或空序列短路；BandResult 增 weViolations（中文 desc 与技能同形）。
+- **multiAgentGate trustScore 语义对齐**（multi-agent-gate.mjs:221-222）：`approve/total*100` → `Math.round(avgConfidence*100)`。行为变更（诚实方向）：全 approve 低置信度集从谎报 100 分变为诚实 60 分，升级判定更保守。
+
+### 修复的两个缺陷（一个源码 + 一个测试设计）
+
+- 源码：runMacroPhaseFlow dryRun 分支漏拼 `to`（dryRun 结果可观测性缺失）。
+- 测试：replay 全等用例原设计「重置状态回 plan 再跑」会重复 plan→design 而非推进 design→build——改为连续两次推进（plan→design→build），事件序列 rebuild 后 rejected=[]。
+
+### 验证
+
+- typecheck exit 0；**run-tests ALL GREEN（52 文件 684 用例）**；smoke 19/19；validate 12/12；build 成功。
+- 真实宿主（dsh 0.2.0-rc.2 web 3080）：flows 注册表 2 流程完整描述子；macro-phase/status 读真实验证场（complete/cycle-92/48 条相位史）；advance native 422 与 script 模式拒绝消息**逐字相等**（`Invalid current phase: complete`——技能 parity 现场实证）；dryRun-on-script 400；gate-check diff 回归正常；J0 8/8 PASS。
+
 ## v0.8.0 — 2026-10-17
 
 R3 路线图阶段 2 落地：FlowRegistry/FlowMachine/ModuleEngine 流程状态机骨架 + gate-check 首个专属流程 + **P0-BODY 真实宿主请求体修复**（全插件 11 个 POST 路由的体参数在真实宿主被静默丢弃的 P0 缺陷）。测试 551→632 用例（42→48 文件）。真实宿主（网页端 3080）验证：三模式 flows 路由 + diff 双跑 drift=null（native/script 引擎逐字段语义全等现场实证）+ J0 8/8。

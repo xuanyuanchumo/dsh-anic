@@ -62,7 +62,9 @@ describe('multiAgentGate', () => {
     ];
     const result = aggregateVerdicts(v, 2);
     expect(result.verdict).toBe('approve');
-    expect(result.trustScore).toBe(67);
+    // P2 语义对齐（R3 阶段 3）：技能 multi-agent-gate.mjs:221-222
+    // trustScore = round(avgConfidence*100) = round((0.8+0.7+0.4)/3*100) = 63
+    expect(result.trustScore).toBe(63);
     expect(result.passed).toBe(true);
   });
 
