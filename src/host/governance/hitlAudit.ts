@@ -16,7 +16,8 @@
  *      【插件增强，技能侧无】保留 diff 新增行破坏性命令扫描（rm -rf/DROP
  *      TABLE/DELETE FROM/TRUNCATE/git push --force/git reset --hard），命中即
  *      fail——方向是更严而非更松。
- *   H3 门禁全绿：账本末 4 条含 G0-G3 全部 PASS + 最新 cycle 有 审计日志.md。
+ *   H3 门禁全绿：每门最新条目 G0-G3 全 PASS（per-gate-latest，去重免疫）+
+ *      最新 cycle 有 审计日志.md。
  *   H4 门禁裁决仲裁：账本末 4 条存在 FAIL 且无 detail → 冲突 fail；
  *      【插件增强，INV-20 执行点】保留 verifyLedger 哈希链校验，断裂即 fail。
  *
@@ -88,15 +89,21 @@ export function evaluateH2(changedFiles: string[], hasGitHistory: boolean, destr
   return { check: 'H2', passed: true, circuit: false, detail: 'No destructive operations detected' };
 }
 
-/** H3：账本末 4 条 G0-G3 全绿 + 最新 cycle 有 审计日志.md。 */
+/**
+ * H3：每门最新条目 G0-G3 全绿（per-gate-latest，去重免疫）+ 最新 cycle 有 审计日志.md。
+ *
+ * v1.8.4-fork 对齐（技能侧已同步修复）：gate-check 对 result+detail 全同的门去重不重录，
+ * 与旧「末 4 条窗口」语义互斥——连续两个证据文本相同的全绿收口后窗口必然缺门，造成
+ * 结构性误熔断（自家账本三次复现实证）。每门取最新条目判定，对去重免疫。
+ */
 export function evaluateH3(latestCycle: string | null, ledgerExists: boolean, ledgerEntries: LedgerEntry[], auditLogExists: boolean): HitlResult {
   if (!latestCycle) return { check: 'H3', passed: false, circuit: true, detail: 'No cycle directory' };
   if (!ledgerExists) return { check: 'H3', passed: false, circuit: true, detail: 'No gate ledger (G0-G3 not evaluated)' };
-  const recent = ledgerEntries.slice(-4);
-  const passedGates = recent.filter((e) => e.result === 'PASS').map((e) => e.gate);
-  if (!CONVERGENCE_GATES.every((g) => passedGates.includes(g))) {
-    const missing = CONVERGENCE_GATES.filter((g) => !passedGates.includes(g));
-    return { check: 'H3', passed: false, circuit: true, detail: `Gates not all green: missing ${missing.join(', ')}` };
+  const perGateLatest = new Map<string, LedgerEntry>();
+  for (const e of ledgerEntries) perGateLatest.set(e.gate, e);
+  const notGreen = CONVERGENCE_GATES.filter((g) => perGateLatest.get(g)?.result !== 'PASS');
+  if (notGreen.length > 0) {
+    return { check: 'H3', passed: false, circuit: true, detail: `Gates not all green: missing ${notGreen.join(', ')}` };
   }
   if (!auditLogExists) return { check: 'H3', passed: false, circuit: true, detail: 'No audit log' };
   return { check: 'H3', passed: true, circuit: false, detail: 'All gates green, audit log present' };

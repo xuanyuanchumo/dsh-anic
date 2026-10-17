@@ -140,7 +140,7 @@ describe('H3 门禁全绿 + 审计日志（对齐技能 hitl-audit.mjs:115-131�
     expect(r.detail).toBe('No audit log');
   });
 
-  it('窗口严格取末 4 条（第 5 条之前的 G2 PASS 不算数——技能同款 slice(-4)）', () => {
+  it('per-gate-latest：G2 最新条目 FAIL → fail（后写覆盖为最新）', () => {
     const entries = [
       entry('G0', 'PASS'), entry('G1', 'PASS'), entry('G2', 'PASS'), entry('G3', 'PASS'),
       entry('G0', 'PASS'), entry('G1', 'PASS'), entry('G2', 'FAIL', 'regression'), entry('G3', 'PASS'),
@@ -148,6 +148,26 @@ describe('H3 门禁全绿 + 审计日志（对齐技能 hitl-audit.mjs:115-131�
     const r = evaluateH3('cycle-1', true, entries, true);
     expect(r.passed).toBe(false);
     expect(r.detail).toContain('missing G2');
+  });
+
+  it('per-gate-latest 去重免疫（v1.8.4-fork）：末 4 条窗口缺 G1 但每门最新全 PASS → pass（旧窗口语义误熔断）', () => {
+    // 场景还原：gate-check 对 result+detail 全同的门去重不重录——cycle-1 全绿四门后，
+    // cycle-2 只有 G0 两次 detail 变化被录入（G1/G2/G3 detail 全同被去重），末 4 条窗口
+    // [G2, G3, G0', G0''] 缺 G1。每门最新全 PASS，per-gate-latest 判定应为 pass。
+    const entries = [
+      entry('G0', 'PASS'), entry('G1', 'PASS'), entry('G2', 'PASS'), entry('G3', 'PASS'),
+      entry('G0', 'PASS', 'new detail A'), entry('G0', 'PASS', 'new detail B'),
+    ];
+    const r = evaluateH3('cycle-1', true, entries, true);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toBe('All gates green, audit log present');
+  });
+
+  it('per-gate-latest：某门从未录入 → fail 列出缺失门', () => {
+    const entries = [entry('G0', 'PASS'), entry('G1', 'PASS'), entry('G2', 'PASS')];
+    const r = evaluateH3('cycle-1', true, entries, true);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain('missing G3');
   });
 });
 

@@ -174,7 +174,8 @@
     "history": "{count} transitions recorded",
     "disabled": "Flow-machines panel is off (data routes and flows themselves are unaffected)",
     "summary": "running {running} · terminal {terminal} · never-run {neverRun}",
-    "hitl": "HITL Three-phase Flow"
+    "hitl": "HITL Three-phase Flow",
+    "autoFix": "Auto-fix Loop Flow"
   },
   "gate": {
     "PASS": "Passed",

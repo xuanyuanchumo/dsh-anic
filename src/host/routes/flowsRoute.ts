@@ -9,10 +9,11 @@
  *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
  *  - POST /anic/flows/archive/run           归档流程（--cycle/--clean/--list 语义；mode=native/script）
  *  - POST /anic/flows/hitl/run              HITL 三段修复流程（gate=all|H1-H4；mode=native/script；R3 阶段 4）
+ *  - POST /anic/flows/auto-fix/run          自动修复循环流程（maxRetries/testCmd；mode=native/script；R3 阶段 5）
  *
  * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
  * 「已有 ≥2 个真实实例才引入契约层」的纪律；第 4 个实例已到，仍维持静态分派：
- * 各流程参数域差异大（gate/cycle/target/dryRun），抽象的参数税大于分派税）。
+ * 各流程参数域差异大（gate/cycle/target/dryRun/maxRetries），抽象的参数税大于分派税）。
  */
 import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
@@ -20,6 +21,7 @@ import { runGateFlow, type GateFlowMode } from '../flows/gateCheckFlow.ts';
 import { runMacroPhaseFlow, statusMacroPhase, type MacroFlowMode } from '../flows/macroPhaseFlow.ts';
 import { runArchiveFlow, type ArchiveFlowMode } from '../flows/archiveFlow.ts';
 import { runHitlFlow, type HitlFlowMode, type HitlGateArg } from '../flows/hitlFlow.ts';
+import { runAutoFixFlow, type AutoFixFlowMode } from '../flows/autoFixFlow.ts';
 import { PHASE_IDS } from '../flows/macroPhaseEngine.ts';
 import { loadFlowProjection } from '../flows/persistence.ts';
 import { readBody, type RouteReq } from './routeContext.ts';
@@ -204,6 +206,28 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
       // 状态码语义：pass→200 / fail→422 / circuit→409（exit 2 = 需要人类介入，BLOCKED）
       const code = result.verdict === 'pass' ? 200 : result.verdict === 'circuit' ? 409 : 422;
       send(res, code, result);
+    });
+  });
+
+  // POST /anic/flows/auto-fix/run — 自动修复循环流程（R3 阶段 5，第 5 流程）
+  reg('/anic/flows/auto-fix/run', (req, res) => {
+    void readBody(req as RouteReq).then((body) => {
+      const root = deps.getWorkspaceRoot(req);
+      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      const mode: AutoFixFlowMode = body.mode === 'script' ? 'script' : 'native';
+      const maxRetries = typeof body.maxRetries === 'number' && Number.isInteger(body.maxRetries) && body.maxRetries > 0 && body.maxRetries <= 10
+        ? body.maxRetries
+        : undefined;
+      const testCmd = typeof body.testCmd === 'string' && body.testCmd.trim() !== '' ? body.testCmd : undefined;
+      const result = runAutoFixFlow(root, {
+        mode,
+        maxRetries,
+        testCmd,
+        timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
+      });
+      // 状态码语义：pass→200 / circuit→409（exit 2 = 重试耗尽需人类介入）/ 前置错误→400
+      if (result.exitCode === 1 && result.error) return send(res, 400, result);
+      send(res, result.verdict === 'pass' ? 200 : 409, result);
     });
   });
 

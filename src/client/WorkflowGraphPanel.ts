@@ -22,6 +22,7 @@ import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID } from './features/pref
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
+import { usePolledSection } from './features/live/usePolledSection.ts';
 import { fetchJsonGuarded, isObjectLike, isFlowStatus, syncTelemetryCounts } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
@@ -156,11 +157,7 @@ export function WorkflowGraphPanel(): ReactElement {
           setCheck(json); setCheckLine(json.allOk ? t('panel.allOk') : t('panel.someFailed'));
         } catch (e) { setCheck(null); setCheckLine(t('panel.fetchFailedWith', { error: e instanceof Error ? e.message : String(e) })); }
       })(),
-      // org / flows 两个分区只需「有数据 / 无数据」，无行级文案 —— 用形状守卫
-      // 助手收敛重复形态（fetchJsonGuarded：非 2xx/网络失败/形状不符 → null）。
-      fetchJsonGuarded<OrgStatusJson>(ORG_STATUS_URL, (v): v is OrgStatusJson => isObjectLike(v), wsHeaders()).then(setOrgStatus),
-      // D10：流程状态机一站式观测面（路由缺失/形状非法 → null，分区不渲染）
-      fetchJsonGuarded<FlowStatusJson>(FLOWS_STATUS_URL, (v): v is FlowStatusJson => isFlowStatus(v), wsHeaders()).then(setFlowsStatus),
+      // org/flows 分区已移交 usePolledSection（P2 真机修复：随轮询刷新）
     ];
     try { await Promise.all(tasks); } finally { inFlight.current = false; }
   }, []);
@@ -174,6 +171,11 @@ export function WorkflowGraphPanel(): ReactElement {
   // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
   // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
+  // org/flows 分区轮询（P2 真机修复）：autoRefresh 开 → 4s；关 → 仅首拍
+  usePolledSection([
+    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => setOrgStatus(v as OrgStatusJson) },
+    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => setFlowsStatus(v as FlowStatusJson) },
+  ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。

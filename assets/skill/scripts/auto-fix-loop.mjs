@@ -3,7 +3,10 @@
 // 核心原则：不可直接降级/熔断，先进行问题评估研究找出根本原因修复完善优化
 // 用法: node scripts/auto-fix-loop.mjs <project-dir> [--max-retries N] [--test-cmd "..."]
 
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+// v1.8.4-fork（dsh-anic 本地修复，未同步上游）：import 列表补 readdirSync——
+// readTestReports（:62）在 test-reports 目录存在时调用它，原 import 缺失致
+// ReferenceError 崩溃（exit 1，真机 cycle-11 复现）。
+import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';

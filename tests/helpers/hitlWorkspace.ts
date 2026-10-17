@@ -35,3 +35,8 @@ export function seedGreenLedger(dir: string): void {
     appendEntry(cyclesDir, { gate: g, gateName: `${g} 收敛门`, result: 'PASS', detail: 'All checks passed' });
   }
 }
+
+/** 追加单条账本条目（用于构造去重/乱序窗口等非标准形态，哈希链保持有效）。 */
+export function appendLedgerEntry(dir: string, gate: string, result: 'PASS' | 'FAIL', detail?: string): void {
+  appendEntry(join(dir, '.cycles'), { gate, gateName: `${gate} 收敛门`, result, detail });
+}

@@ -174,7 +174,8 @@
     "history": "已记录 {count} 次转移",
     "disabled": "流程状态机面板已关闭（数据路由与流程本身不受影响）",
     "summary": "运行中 {running} · 终态 {terminal} · 未运行 {neverRun}",
-    "hitl": "HITL 三段修复流程"
+    "hitl": "HITL 三段修复流程",
+    "autoFix": "自动修复循环流程"
   },
   "gate": {
     "PASS": "通过",

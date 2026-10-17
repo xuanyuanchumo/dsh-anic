@@ -115,12 +115,16 @@ function checkH3(projectDir, configContent) {
   }
 
   const ledger = JSON.parse(readFileSync(gateLedgerPath, 'utf-8'));
-  const recentEntries = ledger.entries.slice(-4);
-  const passedGates = recentEntries.filter(e => e.result === 'PASS').map(e => e.gate);
-  const allGatesPassed = ['G0', 'G1', 'G2', 'G3'].every(g => passedGates.includes(g));
+  // v1.8.4-fork（dsh-anic 本地修复，未同步上游）：gate-check.mjs 对 result+detail 全同的
+  // 门去重不重录，与「末 4 条窗口」互斥——连续两个证据文本相同的全绿收口后，窗口会缺门
+  // 造成结构性误熔断（dsh-anic 自家账本三次复现实证）。改为 per-gate-latest：每门取最新
+  // 条目判定全绿，对去重免疫。
+  const perGateLatest = {};
+  for (const e of ledger.entries) perGateLatest[e.gate] = e;
+  const allGatesPassed = ['G0', 'G1', 'G2', 'G3'].every(g => perGateLatest[g] && perGateLatest[g].result === 'PASS');
 
   if (!allGatesPassed) {
-    const missing = ['G0', 'G1', 'G2', 'G3'].filter(g => !passedGates.includes(g));
+    const missing = ['G0', 'G1', 'G2', 'G3'].filter(g => !perGateLatest[g] || perGateLatest[g].result !== 'PASS');
     return { pass: false, detail: `Gates not all green: missing ${missing.join(', ')}`, circuit: true };
   }
 

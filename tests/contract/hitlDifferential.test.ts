@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSy
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runHitlFlow } from '../../src/host/flows/hitlFlow.ts';
-import { seedGitRepo, seedCycle, seedGreenLedger, AUDIT_HEADER } from '../helpers/hitlWorkspace.ts';
+import { seedGitRepo, seedCycle, seedGreenLedger, appendLedgerEntry, AUDIT_HEADER } from '../helpers/hitlWorkspace.ts';
 
 let fixtureA: string; // script 侧
 let fixtureB: string; // native 侧
@@ -121,5 +121,29 @@ describe('hitl 孪生夹具差分（native vs script）', () => {
     expect(logA.match(/\| H[1-4] \| PASS \|/g)).toHaveLength(4);
     expect(logB.match(/\| H[1-4] \| PASS \|/g)).toHaveLength(4);
     expect(logA.startsWith(AUDIT_HEADER.slice(0, -1))).toBe(true);
+  });
+  it('H3 per-gate-latest 去重免疫（v1.8.4-fork 双侧修复）：末 4 条窗口缺门但每门最新全 PASS → 双侧 pass', () => {
+    seedTwins((d) => {
+      seedGitRepo(d);
+      seedCycle(d, true);
+      // 场景：cycle-1 全绿四门后，后续收口只有 G0 detail 变化被录入（G1/G2/G3 被
+      // gate-check 去重不重录）——末 4 条窗口 [G2, G3, G0', G0''] 缺 G1。
+      // 旧窗口语义双侧都误熔断；per-gate-latest 双侧都应 pass。
+      seedGreenLedger(d);
+      appendLedgerEntry(d, 'G0', 'PASS', 'cycle-2 evidence changed A');
+      appendLedgerEntry(d, 'G0', 'PASS', 'cycle-2 evidence changed B');
+    });
+    const s = runHitlFlow(fixtureA, { mode: 'script' });
+    const n = runHitlFlow(fixtureB, { mode: 'native' });
+    expect(s.verdict).toBe('pass');
+    expect(n.verdict).toBe('pass');
+    expect(s.state).toBe('PASSED');
+    expect(n.state).toBe('PASSED');
+    // 双侧 H3 检查均为 pass 且 detail 一致
+    const sH3 = s.checks.find((c) => c.gate === 'H3');
+    const nH3 = n.checks.find((c) => c.gate === 'H3');
+    expect(nH3?.pass).toBe(true);
+    expect(sH3?.pass).toBe(true);
+    expect(nH3?.detail).toBe(sH3?.detail);
   });
 });

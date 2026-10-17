@@ -22,6 +22,7 @@ import { registerPointerTools } from './toolsPointerGateway.ts';
 import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
 import { registerFlowsTools } from './toolsFlowsGateway.ts';
 import { registerHitlTools } from './toolsHitlGateway.ts';
+import { registerAutoFixTools } from './toolsAutoFixGateway.ts';
 
 interface HostContext {
   tools?: ToolsSlot;
@@ -177,6 +178,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   // HITL 三段修复工具（anic_flows_hitl，R3 阶段 4）拆分至 toolsHitlGateway.ts
   disposers.push(...registerHitlTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+
+  // 自动修复循环工具（anic_flows_auto_fix，R3 阶段 5）拆分至 toolsAutoFixGateway.ts
+  disposers.push(...registerAutoFixTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
 
   // Tool: anic_status — get full org status panorama + recent flow tracker records
   disposers.push(tools.register({
