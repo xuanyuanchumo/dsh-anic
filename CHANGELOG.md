@@ -1,5 +1,37 @@
 # dsh-anic CHANGELOG
 
+## v0.10.0 — 2026-10-17
+
+R3 路线图阶段 3 后半：**archive 归档流程**（第 3 个专属流程状态机）+ 真实宿主验证揭出的两个 P0：**P0-GOV-ROOT**（4 条治理路由自 M5-a 起在真实宿主恒 400 空体——从未工作过）与 **P0-BODY 残留三处**。测试 684→713 用例（52→55 文件）。真实宿主验证：flows 注册表 3 流程、governance 4 路由复活（400→200）、J0 8/8。
+
+### P0-GOV-ROOT：治理路由真实宿主整体死亡（cycle-8 发现并修复）
+
+- **根因**：governanceRoute 的本地 `resolveRoot` 裸读 `ctx.workspaceRegistry` 属性 —— 真实 Cordis fiber 中该服务不在静态 inject（postmortem-0001 R2 同款），**属性访问本身抛异常** → dsh-host-webserver 统一 catch 后回 `400 空体`。**archive/budget/sweep/prune 全部 4 条治理路由自 M5-a 起在真实宿主从未工作过**。桩宿主 ctx 是普通对象（无 getter），属性访问不抛 → 测试全绿假象。快照路由的同款访问有 try/catch 包裹（snapshotRoute.ts:69-75），故该模式从未在其他路由暴露。
+- **修复**：删除本地 resolveRoot，治理路由改用 `buildRouteContext` 共享 `getWorkspaceRoot`（cycle-3 硬化版）——顺带获得 X-ANIC-Workspace 桌面多会话纠偏。
+- **实证**：真实宿主 budget/prune 400→200；POST archive list 返回 65 active 循环。
+
+### P0-BODY 残留三处（cycle-6 修复清单的漏网）
+
+- governanceRoute 的 archive/sweep 两 handler 与 selfInitRoute 的 `--name` 透传仍读 `req.body`（真实宿主恒 undefined → 体参数静默丢弃）。全部改 `readBody` 流式兼容；httpBodyStreaming +2 流式守卫钉死（sweep 用例走临时工作区——`removeEmptyDirs` 无条件运行，绝不能在真实 .cycles 上跑测试）。
+
+### R3 阶段 3 后半：archive 流程（第 3 个专属流程状态机）
+
+- **archiveEngine.ts**：技能 archive-cycle.mjs（146 行）逐字语义。isCycleComplete **与 G1 共用 gateArtifacts.parseTaskRows**（「G1 说完成、归档说没完成」分叉的根治面）；拒绝路径零文件系统写入；归档后账本逐字节不变（INV-9）；clean 数值序留新（keep 默认 5，只删 archive/ 子树——active 循环永不触碰）。
+- **archiveFlow.ts**：IDLE→RUNNING→DONE/BLOCKED 状态机 + **BLOCKED→RUNNING 重试恢复边**（修复任务后重跑无需手动 reset——无此边时成功重跑的事件会被丢弃，状态机与引擎事实脱节）；守卫 engine-ok/engine-blocked 消费引擎裁决（INV-28：失败永远进不了 DONE）；script 模式消息 stdout 空时回退 stderr（技能 console.error 通道事实）。
+- 接线：builtin.ts 聚合（3 流程）；flowsRoute +POST /anic/flows/archive/run；**第 16 个 DSH 工具 anic_flows_archive**；governanceRoute /anic/governance/archive 委托新引擎。
+- **孪生夹具差分契约**（archiveDifferential 4 用例）：归档是写动作不能同目录双跑——两份相同夹具各跑一侧（spawn 真技能脚本 vs native 引擎），比对落盘归档目录与拒绝消息逐字相等。
+- **旧 archiver.ts 删除**：阈值式批量判据与技能不同、扫描目录层级错误（.cycles 顶层而非 .cycles/cycles/——标准工作区恒空转）、无 clean/list；P0-GOV-ROOT 使其在真实宿主从未可达。死代码删除而非并存。
+
+### 技能行为事实两则（差分测试逼出，忠实保留不美化）
+
+- 归档成功的循环重跑报 `not found`（技能检查顺序：existsSync(源) 先于 existsSync(归档目标)——源目录已移走必先撞 not-found 分支）。
+- 技能把错误打在 stderr（console.error）——script 模式消息需 stderr 回退。
+
+### 验证
+
+- typecheck exit 0；**run-tests ALL GREEN（55 文件 713 用例）**；smoke 19/19；validate 12/12；build 成功。
+- 真实宿主（dsh 0.2.0-rc.2 web 3080）：flows 注册表 3 流程；archive list 65 active；cycle-999 双模式（native/script）拒绝消息**逐字相等**；BLOCKED→RUNNING 重试边现场触发；gate-check diff 回归 drift=null；**governance 4 路由复活**；J0 8/8 PASS。
+
 ## v0.9.0 — 2026-10-17
 
 R3 路线图阶段 3 前半：**macroPhase 宏观循环流程**（第 2 个专属流程状态机）+ 两项 P2 债务收口（bandDetector Western Electric 8 规则逐字移植、multiAgentGate trustScore 语义对齐）。测试 632→684 用例（48→52 文件）。真实宿主验证：flows 注册表 2 流程、macro-phase 双模式 advance 消息与技能逐字相等、J0 8/8。

@@ -136,3 +136,69 @@ describe('路由级端到端：POST /anic/api/breakers 收到流式体', () => {
     expect(debts.map((d) => d.dimension)).toEqual(['E2']);
   });
 });
+
+describe('路由级端到端：P0-BODY 残留三处（cycle-8 修复）', () => {
+  /**
+   * cycle-8 发现：cycle-6 的 P0-BODY 修复漏了 3 个 handler ——
+   * governanceRoute 的 archive/sweep 与 selfInitRoute 的 --name 透传
+   * 仍直接读 req.body（真实宿主恒 undefined）。以下用流式 req 钉死。
+   */
+
+  function makeFakeHost(workspacePath?: string) {
+    const registered: Array<{ path: string; handler: (req: unknown, res: unknown) => void }> = [];
+    const fakeCtx = {
+      webServer: {
+        register: (r: { path: string; handler: (req: unknown, res: unknown) => void }) => {
+          registered.push(r);
+          return () => { registered.pop(); };
+        },
+      },
+      workspaceRegistry: { list: () => [{ path: workspacePath ?? process.cwd() }] },
+    };
+    return { registered, fakeCtx };
+  }
+
+  it('governance/archive：流式体 list=true 到达 archive 流程（修复前恒走旧阈值批量）', async () => {
+    const { registered, fakeCtx } = makeFakeHost();
+    let captured: { status: number; body: Record<string, unknown> } | null = null;
+    const send = (_r: unknown, status: number, body: Record<string, unknown>): void => { captured = { status, body }; };
+    const { registerGovernanceRoute } = await import('../../src/host/routes/governanceRoute.ts');
+    registerGovernanceRoute(fakeCtx as never, { send, getWorkspaceRoot: () => process.cwd() });
+
+    const h = registered.find((r) => r.path === '/anic/governance/archive');
+    expect(h).toBeDefined();
+    // cwd 有 .cycles → 不走 404；list 只读 → action==='list' 证明 body 真的到了 handler
+    h!.handler(streamReq(['{"list":', 'true}']), {});
+    await new Promise((r) => setTimeout(r, 20));
+    expect(captured).not.toBeNull();
+    expect(captured!.body.action).toBe('list');
+    expect(captured!.body.flowId).toBe('archive');
+  });
+
+  it('governance/sweep：流式体 removeTmpFiles=false 到达 SweepOptions（修复前恒空对象）', async () => {
+    // 用临时工作区（removeEmptyDirs 无条件运行——绝不能在真实 .cycles 上跑测试）
+    const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const tmpWs = mkdtempSync(join(tmpdir(), 'anic-sweep-stream-'));
+    mkdirSync(join(tmpWs, '.cycles'), { recursive: true });
+    try {
+      const { registered, fakeCtx } = makeFakeHost(tmpWs);
+      let captured: { status: number; body: Record<string, unknown> } | null = null;
+      const send = (_r: unknown, status: number, body: Record<string, unknown>): void => { captured = { status, body }; };
+      const { registerGovernanceRoute } = await import('../../src/host/routes/governanceRoute.ts');
+      registerGovernanceRoute(fakeCtx as never, { send, getWorkspaceRoot: () => tmpWs });
+
+      const h = registered.find((r) => r.path === '/anic/governance/sweep');
+      expect(h).toBeDefined();
+      // removeTmpFiles=false → walk 分支关闭：removedTmpFiles 恒空（与默认真分支可区分）
+      h!.handler(streamReq(['{"removeTmpFiles":false}']), {});
+      await new Promise((r) => setTimeout(r, 20));
+      expect(captured).not.toBeNull();
+      expect(captured!.status).toBe(200);
+      expect((captured!.body as { removedTmpFiles?: string[] }).removedTmpFiles).toEqual([]);
+    } finally {
+      rmSync(tmpWs, { recursive: true, force: true });
+    }
+  });
+});

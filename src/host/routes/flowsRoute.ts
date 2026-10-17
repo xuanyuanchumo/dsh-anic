@@ -6,6 +6,7 @@
  *  - POST /anic/flows/gate-check/run        运行 gate-check 流程（mode=script/native/diff）
  *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘、不 inferPhase 回写）
  *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
+ *  - POST /anic/flows/archive/run           归档流程（--cycle/--clean/--list 语义；mode=native/script）
  *
  * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
  * 「已有 ≥2 个真实实例才引入契约层」的纪律）。
@@ -14,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
 import { runGateFlow, type GateFlowMode } from '../flows/gateCheckFlow.ts';
 import { runMacroPhaseFlow, statusMacroPhase, type MacroFlowMode } from '../flows/macroPhaseFlow.ts';
+import { runArchiveFlow, type ArchiveFlowMode } from '../flows/archiveFlow.ts';
 import { PHASE_IDS } from '../flows/macroPhaseEngine.ts';
 import { loadFlowProjection } from '../flows/persistence.ts';
 import { readBody, type RouteReq } from './routeContext.ts';
@@ -129,6 +131,31 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
       });
       if (result.error) return send(res, 422, result);
       send(res, 200, result);
+    });
+  });
+
+  // POST /anic/flows/archive/run — 归档流程（R3 阶段 3 后半）
+  reg('/anic/flows/archive/run', (req, res) => {
+    void readBody(req as RouteReq).then((body) => {
+      const root = deps.getWorkspaceRoot(req);
+      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      const mode: ArchiveFlowMode = body.mode === 'script' ? 'script' : 'native';
+      if (body.cycle !== undefined && typeof body.cycle !== 'number') {
+        return send(res, 400, { error: 'ANIC_ROUTE_BAD_CYCLE: expect number' });
+      }
+      if (body.keep !== undefined && typeof body.keep !== 'number') {
+        return send(res, 400, { error: 'ANIC_ROUTE_BAD_KEEP: expect number' });
+      }
+      // 无参缺省 list（只读安全缺省）；archive 需显式 cycle，clean 需显式 clean:true
+      const result = runArchiveFlow(root, {
+        cycle: typeof body.cycle === 'number' ? body.cycle : undefined,
+        clean: body.clean === true,
+        keep: typeof body.keep === 'number' ? body.keep : undefined,
+        list: body.cycle === undefined && body.clean !== true,
+        mode,
+        timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
+      });
+      send(res, result.ok ? 200 : 422, result);
     });
   });
 

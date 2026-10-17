@@ -8,10 +8,12 @@
 import { registerFlow } from './registry.ts';
 import { GATE_CHECK_FLOW } from './gateCheckFlow.ts';
 import { MACRO_PHASE_FLOW } from './macroPhaseFlow.ts';
+import { ARCHIVE_FLOW } from './archiveFlow.ts';
 
 /** 注册全部内置流程（插件 apply 期调用一次；返回聚合 disposer）。 */
 export function registerBuiltinFlows(): () => void {
   const d1 = registerFlow(GATE_CHECK_FLOW);
   const d2 = registerFlow(MACRO_PHASE_FLOW);
-  return () => { d2?.(); d1?.(); };
+  const d3 = registerFlow(ARCHIVE_FLOW);
+  return () => { d3?.(); d2?.(); d1?.(); };
 }

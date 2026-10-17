@@ -66,7 +66,7 @@ export function loadMacroState(workspaceRoot: string): MacroStateFile | null {
 }
 
 /** 数值序列出 cycle 目录名（cycle-10 > cycle-9；技能 v1.8.3 同款修复）。 */
-function listCycleNames(cyclesDir: string): string[] {
+export function listCycleNames(cyclesDir: string): string[] {
   if (!existsSync(cyclesDir)) return [];
   try {
     return readdirSync(cyclesDir)

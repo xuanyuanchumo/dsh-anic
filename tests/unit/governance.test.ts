@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { archiveOldCycles } from '../../src/host/governance/archiver.ts';
 import { checkBudget } from '../../src/host/governance/budget.ts';
 import { sweepCycles } from '../../src/host/governance/sweep.ts';
 import { pruneCheck } from '../../src/host/governance/prune.ts';
@@ -17,32 +16,11 @@ afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
-describe('archiver', () => {
-  it('归档旧 cycle（移动不删除）', () => {
-    mkdirSync(join(workDir, 'cycle-1'), { recursive: true });
-    mkdirSync(join(workDir, 'cycle-2'), { recursive: true });
-    mkdirSync(join(workDir, 'cycle-3'), { recursive: true });
-    writeFileSync(join(workDir, 'cycle-1', 'meta.json'), '{}');
-
-    const result = archiveOldCycles(workDir, { olderThanRounds: 1, currentCycleNumber: 3 });
-    expect(result.archived).toContain('cycle-1');
-    expect(result.archived).toContain('cycle-2');
-    expect(result.skipped).toContain('cycle-3');
-    expect(readdirSync(join(workDir, 'archive'))).toContain('cycle-1');
-  });
-
-  it('不归档当前及未来 cycle', () => {
-    mkdirSync(join(workDir, 'cycle-5'), { recursive: true });
-    const result = archiveOldCycles(workDir, { olderThanRounds: 10, currentCycleNumber: 5 });
-    expect(result.archived).toEqual([]);
-    expect(result.skipped).toContain('cycle-5');
-  });
-
-  it('无 cycle 目录时返回空', () => {
-    const result = archiveOldCycles(workDir);
-    expect(result.archived).toEqual([]);
-  });
-});
+// archiver（旧阈值式批量归档）已于 R3 阶段 3 后半删除：
+// 治理路由 /anic/governance/archive 改为委托 flows/archiveFlow（技能 archive-cycle
+// 逐字语义 + 完成判定与 G1 共用解析器）。归档测试移居
+// tests/unit/archiveEngine.test.ts + tests/unit/archiveFlow.test.ts +
+// tests/contract/archiveDifferential.test.ts。
 
 describe('budget', () => {
   it('正常大小 → normal', () => {

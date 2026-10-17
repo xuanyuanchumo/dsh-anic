@@ -92,8 +92,9 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
   // ── evolution 域 ──
   disposers.push(...registerEvolutionRoute(c, send));
 
-  // ── governance 域 ──
-  disposers.push(...registerGovernanceRoute(c, send));
+  // ── governance 域 ──（P0-GOV-ROOT：改传共享 getWorkspaceRoot——本地 resolveRoot
+  //   的裸 ctx.workspaceRegistry 属性访问在真实 fiber 抛异常，4 路由恒 400 空体）
+  disposers.push(...registerGovernanceRoute(c, { send, getWorkspaceRoot }));
 
   // ── self 域（M7 自举 + M8 跨项目 + 技能自动安装）──
   disposers.push(...registerSelfBootstrapRoutes(c, send));

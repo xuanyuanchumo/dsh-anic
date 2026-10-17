@@ -161,7 +161,7 @@
     "selfInit": "Self Init",
     "agentsOrchestration": "Agent Orchestration",
     "gateCheck": "Gate-check Flow",
-    "macroPhase": "Macro-phase Flow"
+    "macroPhase": "Macro-phase Flow", "archive": "Archive Flow"
   },
   "gate": {
     "PASS": "Passed",

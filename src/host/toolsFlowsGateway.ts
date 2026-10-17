@@ -8,6 +8,10 @@
  * anic_flows_advance —— 宏观六相推进（R3 阶段 3：plan→design→build→test→
  * deploy→maintain 单向流转；守卫 = 当前相门禁曾在账本 PASS）。
  *
+ * anic_flows_archive —— 归档流程（R3 阶段 3 后半：--cycle N 归档已完成循环 /
+ * clean 清理旧归档 / list 清单；完成判定与 G1 共用同一任务行解析器——
+ * 「G1 说完成、归档说没完成」分叉的根治面；账本只追加永不触碰 INV-9）。
+ *
  * 模型可调用 = DSH 轨迹可见（tool/call + tool/result）；状态推进进
  * .cycles/flows/*.json 投影（GET /anic/flows/state 可查）。
  */
@@ -15,6 +19,7 @@ import { genericCall, genericResult } from './presentation.ts';
 import { makeToolOutput, type ToolRegistration, type ToolsSlot } from './toolsSlot.ts';
 import { runGateFlow, type GateFlowMode } from './flows/gateCheckFlow.ts';
 import { runMacroPhaseFlow, type MacroFlowMode } from './flows/macroPhaseFlow.ts';
+import { runArchiveFlow } from './flows/archiveFlow.ts';
 import { PHASE_IDS } from './flows/macroPhaseEngine.ts';
 import { validateWorkspace } from './skillInvoker.ts';
 
@@ -141,6 +146,66 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         ...(result.dryRun === true ? { dryRun: true } : {}),
         ...(result.drift === true ? { drift: true } : {}),
         events: result.events,
+        ...(result.stdout !== undefined ? { stdout: result.stdout.slice(0, 8000) } : {}),
+      };
+    },
+  }) ?? null);
+
+  // Tool: anic_flows_archive — 归档流程（R3 阶段 3 后半）
+  disposers.push(deps.register({
+    name: 'anic_flows_archive',
+    description:
+      'Run the ANIC archive flow: archive a completed cycle (cycle=N), clean old archives (clean=true, keep=<N> default 5), '
+      + 'or list the cycle inventory (list=true / no arguments). '
+      + 'Completeness uses the SAME task-row parser as gate G1 (no G1-says-done-but-archive-disagrees fork). '
+      + 'The gate ledger is never touched (append-only hash chain). '
+      + 'mode=native (default) runs the TypeScript engine; mode=script runs the canonical skill archive-cycle script. '
+      + 'Returns ok, affected cycles, flow state (IDLE/RUNNING/DONE/BLOCKED) and the human-readable refusal message on failure.',
+    output: makeToolOutput(),
+    parameters: {
+      type: 'object',
+      properties: {
+        workspace: { type: 'string', description: 'Target project directory (defaults to current workspace)' },
+        cycle: { type: 'number', description: 'Cycle number to archive (e.g. 7 for cycle-7); requires all tasks complete' },
+        clean: { type: 'boolean', description: 'Clean old archives beyond the keep limit (destructive to archived dirs only). Default: false' },
+        keep: { type: 'number', description: 'Number of recent archives to keep when clean=true (default: 5)' },
+        list: { type: 'boolean', description: 'Return the cycle inventory (read-only). Default when no cycle/clean given' },
+        mode: { type: 'string', description: 'Execution mode: native (default) or script' },
+      },
+    },
+    presentCall: (args: Record<string, unknown>) =>
+      genericCall('anic_flows_archive', 'other', {
+        workspace: args.workspace ?? '.',
+        action: args.cycle !== undefined ? `cycle-${String(args.cycle)}`
+          : args.clean === true ? `clean(keep ${String(args.keep ?? 5)})`
+          : 'list',
+        mode: args.mode ?? 'native',
+      }),
+    presentResult: (_args, result) =>
+      genericResult(`anic_flows_archive: ${result.ok === true ? `${String(result.action)} ok (${(result.affected as string[] | undefined)?.length ?? 0} affected)` : 'blocked'}`),
+    execute: async (args) => {
+      const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
+      const check = validateWorkspace(ws);
+      if (!check.ok) return { error: check.error };
+      if (args.cycle !== undefined && typeof args.cycle !== 'number') return { error: 'cycle must be a number' };
+      if (args.keep !== undefined && typeof args.keep !== 'number') return { error: 'keep must be a number' };
+      const result = runArchiveFlow(ws, {
+        cycle: typeof args.cycle === 'number' ? args.cycle : undefined,
+        clean: args.clean === true,
+        keep: typeof args.keep === 'number' ? args.keep : undefined,
+        list: args.cycle === undefined && args.clean !== true,
+        mode: args.mode === 'script' ? 'script' : 'native',
+        timeoutMs: 60000,
+      });
+      return {
+        ok: result.ok,
+        action: result.action,
+        flowState: result.state,
+        message: result.message,
+        affected: result.affected,
+        ...(result.inventory !== undefined ? { inventory: result.inventory } : {}),
+        events: result.events,
+        ...(result.ok !== true ? { error: result.message } : {}),
         ...(result.stdout !== undefined ? { stdout: result.stdout.slice(0, 8000) } : {}),
       };
     },

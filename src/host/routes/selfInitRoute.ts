@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createScoped, newRequestId } from '../logger.ts';
 import { resolveSkillScriptsDir } from '../skillInvoker.ts';
+import { readBody, type RouteReq } from './routeContext.ts';
 
 const log = createScoped('anic:route:self-init');
 export const SELF_INIT_ROUTE = '/anic/self/init';
@@ -61,39 +62,37 @@ export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getW
       }
       // --name 透传（init-workflow.mjs:66 的 N-6 修复要求项目名落盘 config.yml）；
       // 缺省时保持脚本默认 "my-project"，与裸脚本调用行为一致。
-      const rawBody = (req as { body?: unknown }).body;
-      let bodyJson: Record<string, unknown> = {};
-      if (typeof rawBody === 'string') {
-        try { bodyJson = JSON.parse(rawBody) as Record<string, unknown>; } catch { /* 非 JSON body → 缺省名 */ }
-      } else if (rawBody && typeof rawBody === 'object') {
-        bodyJson = rawBody as Record<string, unknown>;
-      }
-      const nameArg = typeof bodyJson.name === 'string' && bodyJson.name.trim() !== ''
-        ? ['--name', bodyJson.name.trim()]
-        : [];
-      const scriptsDir = resolveSkillScriptsDir(root);
-      if (!scriptsDir) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_INIT_SKILL_MISSING', message: 'skill scripts not found (tried ANIC_SKILL_DIR / workspace .dsh / repo .dsh)' } }, requestId);
-        return;
-      }
-      const started = Date.now();
-      const result = spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nameArg], {
-        cwd: root,
-        encoding: 'utf-8',
-        timeout: 60_000,
+      // P0-BODY 残留修复：原直接读 req.body 的字符串/对象双形态——真实宿主 body
+      // 以 data/end 事件流式到达，req.body 恒 undefined → --name 静默丢弃。
+      // readBody 双形态兼容（桩对象同步 / 真实流式），损坏 JSON fail-safe {}。
+      void readBody(req as RouteReq).then((bodyJson) => {
+        const nameArg = typeof bodyJson.name === 'string' && bodyJson.name.trim() !== ''
+          ? ['--name', bodyJson.name.trim()]
+          : [];
+        const scriptsDir = resolveSkillScriptsDir(root);
+        if (!scriptsDir) {
+          deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_INIT_SKILL_MISSING', message: 'skill scripts not found (tried ANIC_SKILL_DIR / workspace .dsh / repo .dsh)' } }, requestId);
+          return;
+        }
+        const started = Date.now();
+        const result = spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nameArg], {
+          cwd: root,
+          encoding: 'utf-8',
+          timeout: 60_000,
+        });
+        const ok = result.status === 0;
+        const body = {
+          ok,
+          requestId,
+          durationMs: Date.now() - started,
+          stdout: result.stdout ?? '',
+          stderr: result.stderr ?? '',
+          configPath: ok ? configPath : null,
+          digest: ok ? createHash('sha256').update(String(result.stdout)).digest('hex').slice(0, 16) : null,
+        };
+        log[ok ? 'info' : 'error'](`self-init ${ok ? 'completed' : 'failed'} in ${body.durationMs}ms`, requestId);
+        deps.send(res, ok ? 200 : 500, body, requestId);
       });
-      const ok = result.status === 0;
-      const body = {
-        ok,
-        requestId,
-        durationMs: Date.now() - started,
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-        configPath: ok ? configPath : null,
-        digest: ok ? createHash('sha256').update(String(result.stdout)).digest('hex').slice(0, 16) : null,
-      };
-      log[ok ? 'info' : 'error'](`self-init ${ok ? 'completed' : 'failed'} in ${body.durationMs}ms`, requestId);
-      deps.send(res, ok ? 200 : 500, body, requestId);
     },
   });
   return typeof dispose === 'function' ? dispose : null;

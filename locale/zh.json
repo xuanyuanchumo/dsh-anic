@@ -161,7 +161,7 @@
     "selfInit": "自举初始化",
     "agentsOrchestration": "智能体编排",
     "gateCheck": "收敛门禁流程",
-    "macroPhase": "宏观循环流程"
+    "macroPhase": "宏观循环流程", "archive": "归档流程"
   },
   "gate": {
     "PASS": "通过",
