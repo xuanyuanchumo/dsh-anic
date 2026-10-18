@@ -1,5 +1,30 @@
 # dsh-anic CHANGELOG
 
+## v0.33.0 — 2026-10-18
+
+cycle-34：**工具网关域直测**——27 零直测审计残留的 gateway/路由层收口，+37 用例（vitest 98→101 文件 / 1160→1197 用例）。零源码变更（纯测试增量轮；src/ 无 diff）。
+
+### ① 指针/进化/自举网关（tests/unit/toolsGatewayDomain.test.ts，11 用例）
+- `registerPointerTools`：三工具注册/disposer 计数；`anic_snapshot` workspace 编码进 URL + 缺省回退 getRoot() + validateWorkspace 拦截（不存在/路径穿越）；`anic_self_check`/`anic_hitl` 纯指针不校验的行为契约（错误工作区也返回 URL）。
+- `registerEvolutionTools`：无 workspace/空工作区 refused（证据围栏零写入）+ configPath 回显 + presentCall edit 卡 + presentResult 官方/宽容双形状归一化。
+- `registerBootstrapGatewayTools`：错误路径（no workspace/path traversal）+ presentCall/presentResult 接线。
+- `registerAnicTools` 聚合契约：19 工具恰好一次注册 + 名字清单与市场草稿一致 + dispose 逐个调用各一次。
+
+### ② flows/hitl/auto-fix 网关（tests/unit/toolsGatewayFlows.test.ts，16 用例）
+- `anic_flows_gate_check`：gate 白名单外值拒绝 + validateWorkspace 先拦 + presentCall 缺省（gate=all/mode=script）+ presentResult 双形状。
+- `anic_flows_advance`：非法 target 列出六相 + dryRun 只允许 native。
+- `anic_flows_archive`：list 只读缺省（IDLE 不推状态机/inventory 双空数组）+ cycle/keep 类型守卫 + presentCall 三动作显示。
+- `anic_flows_hitl`：gate H1-H4 白名单 + 空工作区 native 审计完整判定形状 + circuit→autonomy-fallback 提示行。
+- `anic_flows_auto_fix`：无 config 前置错误（IDLE 零状态推进/error 响亮/exitCode 1）+ maxRetries 非整数回退缺省 + presentResult pattern 附加。
+
+### ③ 技能生命周期对 + review 路由（tests/unit/skillLifecycleRoute.test.ts，10 用例）
+- `anic_install`/`anic_skill_repair`（eco P0 生命周期对）：前置拒绝三态；全新工作区安装 integrity 全绿（inline 直比 65 文件）；篡改两文件后 repair/install 恢复链路贯通；presentCall 双 edit 卡。
+- `reviewRoute`（唯一 register(method,path) 第二注册形态）：恰好一条 POST /anic/review；非 JSON→400 INVALID_JSON；缺字段→400 INVALID_REQUEST；卡不存在→404 AGENT_NOT_FOUND（cardId 回显）；probeCtx=null→Tier-1-heuristic 降级裁决 + providers 诊断字段 + X-ANIC-Review-Tier 头。
+
+### 测试
+- vitest 101 文件 1197 用例（+37），四层 ALL GREEN（validate 12/12 @0.33.0 + smoke + trigger 100%/0%）。
+- typecheck host+client 双 exit=0；build exit=0；lint 12 checks PASS。
+
 ## v0.32.0 — 2026-10-18
 
 cycle-33：**测试体系深挖第二轮**——27 个零直测源文件审计后补齐客户端数据层原语 + host JSON 提取器，+71 用例（vitest 93→98 文件 / 1089→1160 用例）。
