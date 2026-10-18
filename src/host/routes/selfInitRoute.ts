@@ -32,7 +32,7 @@ interface SendLike {
 }
 
 /** 注册自初始化路由（POST /anic/self/init）。 */
-export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getWorkspaceRoot: () => string | null; loadFlows: () => { selfInit: boolean } }): (() => void) | null {
+export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getWorkspaceRoot: (req?: unknown) => string | null; loadFlows: () => { selfInit: boolean } }): (() => void) | null {
   const webServer = (ctx as { webServer?: { register: (r: { kind: string; path: string; handler: (req: unknown, res: unknown) => void }) => (() => void) | void } }).webServer;
   if (!webServer || typeof webServer.register !== 'function') return null;
 
@@ -50,7 +50,7 @@ export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getW
         deps.send(res, 403, { error: { code: 'ANIC_ROUTE_SELF_INIT_DISABLED', message: 'flow.selfInit is switched off (workspace/deployment layer)' } }, requestId);
         return;
       }
-      const root = deps.getWorkspaceRoot();
+      const root = deps.getWorkspaceRoot(req);
       if (!root) {
         deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_INIT_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
         return;

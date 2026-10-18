@@ -9,7 +9,7 @@
  * 模型可调用 = DSH 轨迹可见（tool/call + tool/result）；状态推进进
  * .cycles/flows/hitl.json 投影（GET /anic/flows/state?flow=hitl 可查）。
  */
-import { genericCall, genericResult } from './presentation.ts';
+import { genericCall, genericResult, normalizeToolResult } from './presentation.ts';
 import { makeToolOutput, type ToolRegistration, type ToolsSlot } from './toolsSlot.ts';
 import { runHitlFlow, type HitlGateArg } from './flows/hitlFlow.ts';
 import { validateWorkspace } from './skillInvoker.ts';
@@ -47,9 +47,12 @@ export function registerHitlTools(tools: ToolsSlot, deps: HitlGatewayDeps): Arra
         gate: args.gate ?? 'all',
         mode: args.mode ?? 'native',
       }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_flows_hitl: ${String(result.verdict ?? '?')} (${String(result.state ?? '?')})`
-        + (result.suggestedNextStep === 'autonomy-fallback' ? ' -> autonomy-fallback suggested' : '')),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_flows_hitl: ${String(r.verdict ?? '?')} (${String(r.state ?? '?')})`
+        + (r.suggestedNextStep === 'autonomy-fallback' ? ' -> autonomy-fallback suggested' : ''));
+    },
     execute: async (args) => {
       const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
       const check = validateWorkspace(ws);

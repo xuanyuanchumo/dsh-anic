@@ -96,6 +96,36 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 ## 5. 已知限制与未验证项（诚实清单）
 
-1. **P2 · 桌面多会话工作区解析**：`resolveWorkspaceRoots`（`src/host/snapshotRoute.ts:50-66`）取 sessions 首条 cwd。桌面端多会话时面板绑定到首个会话的工作区。**建议修复方向**：客户端携带自身工作区上下文（如 `X-ANIC-Workspace` 头或查询参数），服务端优先采信。
+1. **P2 · 桌面多会话工作区解析（cycle-20/21/22 已收口）**：`resolveWorkspaceRoots`（`src/host/snapshotRoute.ts`）claimed 头 `X-ANIC-Workspace` → knownRoots → `.cycles` 存在采信 → registry → sessions 首条 → cwd。客户端面板从首个成功快照响应学得工作区根并回带头（`src/client/WorkflowGraphPanel.ts:79-86`）；服务端 **cycle-21 修 native 域 7 路由、cycle-22 全域统一**——所有路由文件（cycle/ledger/skillInstall/dualBootstrap/segmentedLedger/selfInit/stackProbe/flows/governance/selfCheck/skillHealth/native/snapshot）handler 一律 `getWorkspaceRoot(req)`，写侧路由（install/repair/advance/append/init/band-detect 等）在多会话宿主上不再写到首条会话的工作区。
 2. **未验证**：`ctx.slots` 服务本体在 Host 包内的精确形状（客户端按官方 `ctx.slots.inject` 形态使用，双端实测可用）；0.3.x/0.4.x 真实 API 差异（无安装版可比对，靠 §2 能力探测覆盖）。
 3. **运行中桌面宿主的 bundle 陈旧性**：属宿主生命周期语义（进程启动时加载），非本插件缺陷；文档化即可。
+
+## 6. 工具展示层官方契约对齐（cycle-22）
+
+出处：`dsh-plugin-dev-kb/kb/site/reference/cookbook/adding-a-tool.md`（execute() 约定的规则 + 工具在 UI 中的渲染方式）。
+
+### 6.1 safeHandler 的 isError 语义修正
+
+官方契约：**「抛出异常或返回无效值意味着 isError。基础设施故障请抛异常。成功的领域结果即使表示不理想的状态，也应写入规范值。」**
+
+| 语义 | 旧实现（≤v0.22.0） | 新实现（cycle-22） |
+|---|---|---|
+| infra 故障（子进程 spawn 失败、文件系统异常等） | 被折叠为 `{ error: message }` 正常返回——模型/轨迹看到 `isError=false` 的「成功」 | 异常沿 Promise 拒绝传播给注册表 → 注册表收敛 `isError=true` |
+| 领域失败（脚本非白名单、validateWorkspace 拒绝、eval exit!=0） | 显式 `{ error }` 规范值 | 不变——规范值 + Native 渲染器解释状态（官方推荐形态） |
+
+grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异常确为 infra），rethrow 安全；`skillToolNative.test.ts` 的 `not whitelisted` 领域拒绝断言不受影响。
+
+### 6.2 presentResult 第二参双形状归一化
+
+官方签名：`presentResult(args, { content, isError, meta? })`——`content` 是模型可见内容块数组，`meta` 由 `output.presentationMeta(args, value)` 派生持久化在 `result.meta`，回放时重现。宿主 0.2.0-rc.2 实测宽容直传原始 execute 返回值（`{ exitCode, stdout, stderr }`）。
+
+`src/host/presentation.ts` 新增 `normalizeToolResult(result)`（纯函数）：
+
+- **官方形状判定**：`result.content` 是数组 → 从 `meta` 提取持久化事实（`exitCode/stdout/stderr`），`isError` 透传；`meta` 无输出时从 content text 块拼接兜底（结果文本不丢）；
+- **宽容形状**：原样返回（宿主直传）。
+
+`terminalResult()` 入参先过归一化；5 个 gateway（skill/hitl/flows/evolution/autoFix）与 `tools.ts anic_evaluate` 的 presentResult 全部接线。**收益**：0.3+ 宿主收紧传参形状时卡片不碎（多代防御）。
+
+### 6.3 已知小偏差（未改，实测无害）
+
+`presentCall` terminal 卡片字段官方为 `description`，dsh-anic 用 `summary`（`toolsSlot.ts TerminalCallView`）。宿主 0.2.0-rc.2 实测渲染正常——若未来版本卡片描述缺失，此处为第一排查点。

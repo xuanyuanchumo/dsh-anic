@@ -130,18 +130,21 @@ export interface ToolExecContext {
 }
 
 /**
- * 包装 async execute 添加错误兜底（P1-4：11 个 async execute 无 try/catch）。
- * 若 execute 抛异常，返回 { error: message } 而非未处理 Promise 拒绝。
+ * 包装 async execute 添加错误边界（P1-4）。
+ *
+ * cycle-22 语义修正（官方契约对齐，adding-a-tool.md「execute() 约定的规则」）：
+ * - **基础设施故障 = 抛异常**——注册表捕获异常并收敛为 isError=true 的结果，
+ *   模型与轨迹据此看到失败。旧实现把一切异常折叠成 { error } 正常返回，
+ *   isError=false 的「成功」无法区分 infra 故障与领域失败（与官方语义相反）。
+ * - **领域失败 = 规范值**——调用方应显式返回 { error: ... } 等规范值
+ *   （如 script not whitelisted / validateWorkspace 拒绝），不经 throw。
+ *   现有 gateway 均已遵守（grep 验证无 intentional throw）。
+ * - 本包装保留的意义：async 边界统一（签名透传 exec）+ 注释锚点，
+ *   不再吞异常——异常沿 Promise 拒绝传播给注册表。
  * P1-EXEC-SIGNAL：签名透传 exec（第二参），调用方可读 exec.signal 取消子进程。
  */
 export function safeHandler(
   fn: (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>>,
 ): (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>> {
-  return async (args, exec) => {
-    try {
-      return await fn(args, exec);
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
-    }
-  };
+  return async (args, exec) => fn(args, exec);
 }

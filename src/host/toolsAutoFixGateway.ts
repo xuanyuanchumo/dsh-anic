@@ -12,7 +12,7 @@
  * 模型可调用 = DSH 轨迹可见（tool/call + tool/result）；状态推进进
  * .cycles/flows/auto-fix.json 投影（GET /anic/flows/state?flow=auto-fix 可查）。
  */
-import { genericCall, genericResult } from './presentation.ts';
+import { genericCall, genericResult, normalizeToolResult } from './presentation.ts';
 import { makeToolOutput, type ToolRegistration, type ToolsSlot } from './toolsSlot.ts';
 import { runAutoFixFlow } from './flows/autoFixFlow.ts';
 import { validateWorkspace } from './skillInvoker.ts';
@@ -50,10 +50,13 @@ export function registerAutoFixTools(_tools: ToolsSlot, deps: AutoFixGatewayDeps
         maxRetries: args.maxRetries ?? 3,
         mode: args.mode ?? 'native',
       }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_flows_auto_fix: ${String(result.verdict ?? '?')} (${String(result.state ?? '?')}`
-        + `, ${String(result.attemptsCount ?? 0)} attempt(s)`
-        + (result.pattern !== undefined && result.pattern !== null ? `, pattern=${String(result.pattern)}` : '')),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_flows_auto_fix: ${String(r.verdict ?? '?')} (${String(r.state ?? '?')}`
+        + `, ${String(r.attemptsCount ?? 0)} attempt(s)`
+        + (r.pattern !== undefined && r.pattern !== null ? `, pattern=${String(r.pattern)}` : ''));
+    },
     execute: async (args) => {
       const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
       const check = validateWorkspace(ws);

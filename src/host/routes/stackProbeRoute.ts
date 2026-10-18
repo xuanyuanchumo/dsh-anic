@@ -10,7 +10,8 @@ type SendFn = (res: unknown, status: number, body: unknown, requestId?: string) 
 
 interface RouteDeps {
   send: SendFn;
-  getWorkspaceRoot: () => string | null;
+  /** 共享工作区解析（含 X-ANIC-Workspace 头；cycle-22 全路由带 req 统一）。 */
+  getWorkspaceRoot: (req?: unknown) => string | null;
 }
 
 /** 注册栈探测路由（GET /anic/api/stack-probe）。 */
@@ -19,8 +20,8 @@ export function registerStackProbeRoute(ctx: unknown, deps: RouteDeps): (() => v
   if (!c.webServer || typeof c.webServer.register !== 'function') return null;
   const { send, getWorkspaceRoot } = deps;
 
-  const d = c.webServer.register({ kind: 'exact', path: '/anic/api/stack-probe', handler: (_req: unknown, res: unknown) => {
-    const root = getWorkspaceRoot();
+  const d = c.webServer.register({ kind: 'exact', path: '/anic/api/stack-probe', handler: (req: unknown, res: unknown) => {
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const result = probeStack(root);
     send(res, 200, { ...result, configYaml: configToYaml(result.config) });

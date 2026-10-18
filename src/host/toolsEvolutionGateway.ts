@@ -7,7 +7,7 @@
  * 降级写入走 Post-Verify 回读（autonomyActions.ts，技能 S-7 纪律）。
  */
 import { join } from 'node:path';
-import { genericCall, genericResult } from './presentation.ts';
+import { genericCall, genericResult, normalizeToolResult } from './presentation.ts';
 import { makeToolOutput, type ToolRegistration, type ToolsSlot } from './toolsSlot.ts';
 import { runAutonomyFallback } from './evolution/autonomyActions.ts';
 
@@ -39,8 +39,11 @@ export function registerEvolutionTools(tools: ToolsSlot, deps: EvolutionGatewayD
     },
     presentCall: (args: Record<string, unknown>) =>
       genericCall('anic_autonomy_downgrade', 'edit', { workspace: args.workspace ?? '.' }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_autonomy_downgrade: ${String(result.action ?? '?')}`),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_autonomy_downgrade: ${String(r.action ?? '?')}`);
+    },
     execute: async (args) => {
       const root = (args.workspace as string) ?? deps.getRoot() ?? '';
       if (!root) return { error: 'no workspace' };

@@ -7,6 +7,8 @@
  * - status：doctor 语义——installed/inline 双版本 + 完整性对比结果
  * - repair：只重装差异文件（缺失/尺寸/哈希），extras 只报告不删除
  * - 安装插件即用：resolveSkillScriptsDir 已有内联兜底，此路由是"显式安装到工作区"
+ * - getWorkspaceRoot(req)（cycle-22）：X-ANIC-Workspace 头参与解析（多会话纠偏）——
+ *   install/repair 是写侧路由，错工作区代价最高。
  */
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
@@ -25,7 +27,7 @@ interface SendFn {
 /** 注册技能安装路由（install/status/repair）。 */
 export function registerSkillInstallRoute(
   ctx: unknown,
-  deps: { send: SendFn; getWorkspaceRoot: () => string | null },
+  deps: { send: SendFn; getWorkspaceRoot: (req?: unknown) => string | null },
 ): Array<(() => void) | null> {
   const ws = (ctx as { webServer?: { register: (r: { kind: string; path: string; handler: (req: unknown, res: unknown) => void }) => (() => void) | void } }).webServer;
   if (!ws || typeof ws.register !== 'function') return [];
@@ -43,7 +45,7 @@ export function registerSkillInstallRoute(
         deps.send(res, 405, { error: 'POST only' }, requestId);
         return;
       }
-      const root = deps.getWorkspaceRoot();
+      const root = deps.getWorkspaceRoot(req);
       if (!root) {
         deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
         return;
@@ -91,7 +93,7 @@ export function registerSkillInstallRoute(
         deps.send(res, 405, { error: 'GET only' }, requestId);
         return;
       }
-      const root = deps.getWorkspaceRoot();
+      const root = deps.getWorkspaceRoot(req);
       if (!root) {
         deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
         return;
@@ -125,7 +127,7 @@ export function registerSkillInstallRoute(
         deps.send(res, 405, { error: 'POST only' }, requestId);
         return;
       }
-      const root = deps.getWorkspaceRoot();
+      const root = deps.getWorkspaceRoot(req);
       if (!root) {
         deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
         return;

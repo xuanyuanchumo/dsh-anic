@@ -1,5 +1,27 @@
 # dsh-anic CHANGELOG
 
+## v0.23.0 — 2026-10-18
+
+cycle-22：**官方契约对齐轮**——两项 dsh-kb-compliance 研究报告遗留 P2 一次收口：①其余域路由 `getWorkspaceRoot` 带 req 统一（cycle-21 只修了 native 域，其余 7 文件仍无参调用）②safeHandler 吞异常语义修正（与官方 isError 语义相反）+ presentResult 第二参签名偏差（0.3+ 宿主收紧传参形状即碎的多代风险点）。契约出处：`dsh-plugin-dev-kb/kb/site/reference/cookbook/adding-a-tool.md`。
+
+### ① 其余域 7 文件 `getWorkspaceRoot(req)` 统一
+- 全改 deps 接口签名 `(req?: unknown) => string | null` + handler 传 req：`cycleRoute.ts`（init/advance/close/state/list）、`ledgerRoute.ts`（ledger/append/verify）、`skillInstallRoute.ts`（install/status/repair——写侧，错工作区写 `.dsh/skills/` 代价最高）、`dualBootstrapRoute.ts`（dual-evaluate/dual-advance 写侧/dual-status）、`segmentedLedgerRoute.ts`（seg-ledger/append 写侧/verify/init）、`selfInitRoute.ts`（self/init 写侧）、`stackProbeRoute.ts`。
+- 顺带清 `cycleRoute.ts`/`ledgerRoute.ts` 死导入 `resolveWorkspaceRoots`。至此**全部 13 个路由文件**的 handler 一律 `getWorkspaceRoot(req)`——写侧路由在多会话宿主上不再写到首条会话的工作区（X-ANIC-Workspace 头全域生效）。
+
+### ② safeHandler isError 语义修正（官方契约：基础设施故障请抛异常）
+- 官方契约：「抛出异常或返回无效值意味着 isError。基础设施故障请抛异常。成功的领域结果即使表示不理想的状态，也应写入规范值。」旧实现（`toolsSlot.ts`）把一切异常折叠成 `{ error: message }` 正常返回——模型与轨迹看到 `isError=false` 的「成功」，无法区分 infra 故障与领域失败。
+- 新实现：`safeHandler` 不再吞异常——infra 异常沿 Promise 拒绝传播给注册表（注册表收敛 `isError=true`），领域失败仍走显式 `{ error }` 规范值。grep 验证全部 `tools*.ts` gateway 无 intentional throw，rethrow 安全；`not whitelisted` 等领域拒绝断言不受影响。
+
+### ③ presentResult 第二参双形状归一化（多代防御）
+- 官方签名 `presentResult(args, { content, isError, meta? })`（meta 由 `output.presentationMeta` 派生持久化在 `result.meta`）；宿主 0.2.0-rc.2 实测宽容直传原始 execute 返回值。`presentation.ts` 新增纯函数 `normalizeToolResult(result)`：官方形状（content 数组判定）从 meta 提取持久化事实（exitCode/stdout/stderr）+ content text 块兜底拼接；宽容形状原样返回。
+- `terminalResult()` 入参先过归一化；5 个 gateway（skill/hitl/flows/evolution/autoFix）与 `tools.ts anic_evaluate` 的 presentResult 全部接线——0.3+ 宿主收紧传参形状时卡片不碎。
+- 已知小偏差（未改，实测无害）：`presentCall` terminal 卡字段官方 `description` vs 本插件 `summary`——宿主 0.2.0-rc.2 渲染正常，文档化为第一排查点。
+
+### 测试（+21 用例，全量 84 文件 985 用例 ALL GREEN）
+- 新增 `tests/unit/toolContractCycle22.test.ts` 10 用例：safeHandler 3（infra 异常 rejects/领域失败规范值/exec signal 透传）+ normalizeToolResult 4（官方 meta 事实提取/content 兜底/isError 透传/宽容形状原样同引用）+ terminalResult 3（官方形状渲染/宽容形状回归锚点/纯函数幂等）。
+- 新增 `tests/unit/routeWorkspaceCycle22.test.ts` 8 用例：7 文件各自路由注册 + req 透传 404 早退（POST readBody 异步 handler 必须 flush 微任务——教训固化）+ 写侧钉（X-ANIC-Workspace 头声明工作区优先于 fallback）。
+- 四层全绿：validate 12/12 + vitest 84 文件 985 用例 + smoke 19/19 + trigger-eval 80%/FPR 0%。
+
 ## v0.22.0 — 2026-10-18
 
 cycle-21：**band-history 双 schema 收敛轮**——cycle-20 真机验证发现的深层契约债务：`.cycles/band-history.json` 的真实生产形状是**代码质量带**（技能 `band-detector.mjs` 写入 `{timestamp,totalScore,avgScore,fileCount,overBudgetCount}`），而插件 `BandEntry{cycle,score,timestamp,band}` 是**自主带**形状。两代 schema 盲解析导致：读侧 `map(e=>e.score)` 产出 `[null,null]`（仪表带火花线拿不到数据）；写侧 `runBandDetection` 会错编 cycle、并把混合 entry 覆写回文件；`classifyBand` 0.7/0.5 阈值对 avgScore（复杂度分量纲）套用会误报 alarm。

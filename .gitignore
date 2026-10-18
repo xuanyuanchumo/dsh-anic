@@ -4,3 +4,4 @@ artifacts/
 
 .cycles/
 test-results/
+.dsh/

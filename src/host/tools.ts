@@ -71,9 +71,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
       },
     },
     presentCall: evaluatePresentCall,
+    // cycle-22：terminalResult 内置 normalizeToolResult 双形状归一化
     presentResult: (_args, result) => terminalResult(result, 'anic_evaluate ✓'),
     // P1-EXEC-SIGNAL：execute 第二参 exec 携带宿主 AbortSignal（官方契约「遵守
-    // exec.signal」）——异步调用 + signal 传播，用户取消即 kill 子进程。
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);

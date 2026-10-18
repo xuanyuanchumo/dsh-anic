@@ -7,7 +7,7 @@
  * GET  /anic/cycle/state     当前状态机状态
  * GET  /anic/cycle/list      cycle 列表
  */
-import { resolveWorkspaceRoots, sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
+import { sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { initCycle, advanceCycle, closeCycle, listCycles, nextCycleNumber } from '../runtime/cycleRunner.ts';
 import { loadWorkflowGraph, loadState, initState } from '../runtime/stateMachine.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
@@ -17,7 +17,8 @@ type SendFn = (res: unknown, status: number, body: unknown, requestId?: string) 
 
 interface RouteDeps {
   send: SendFn;
-  getWorkspaceRoot: () => string | null;
+  /** 共享工作区解析（含 X-ANIC-Workspace 头；cycle-22 全路由带 req 统一）。 */
+  getWorkspaceRoot: (req?: unknown) => string | null;
 }
 
 /** 注册 Cycle 路由（init/advance/close/state/list）。 */
@@ -28,7 +29,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
 
   const d1 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/init', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
-    const root = getWorkspaceRoot();
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
     const projectName = typeof parsed.projectName === 'string' ? parsed.projectName : undefined;
@@ -39,7 +40,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
 
   const d2 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/advance', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
-    const root = getWorkspaceRoot();
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
     const cycleNumber = Number(parsed.cycleNumber);
@@ -58,7 +59,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
 
   const d3 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/close', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
-    const root = getWorkspaceRoot();
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
     const cycleNumber = Number(parsed.cycleNumber);
@@ -68,8 +69,8 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
     });
   }});
 
-  const d4 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/state', handler: (_req: unknown, res: unknown) => {
-    const root = getWorkspaceRoot();
+  const d4 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/state', handler: (req: unknown, res: unknown) => {
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
     const graph = loadWorkflowGraph(cyclesDir);
@@ -79,8 +80,8 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
     send(res, 200, { nodes: graph.nodes, edges: graph.edges, state });
   }});
 
-  const d5 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/list', handler: (_req: unknown, res: unknown) => {
-    const root = getWorkspaceRoot();
+  const d5 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/list', handler: (req: unknown, res: unknown) => {
+    const root = getWorkspaceRoot(req);
     if (!root) { send(res, 404, { error: 'no workspace' }); return; }
     const cyclesDir = join(root, '.cycles');
     const cycles = listCycles(cyclesDir);

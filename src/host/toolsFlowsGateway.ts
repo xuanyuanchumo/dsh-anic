@@ -15,7 +15,7 @@
  * 模型可调用 = DSH 轨迹可见（tool/call + tool/result）；状态推进进
  * .cycles/flows/*.json 投影（GET /anic/flows/state 可查）。
  */
-import { genericCall, genericResult } from './presentation.ts';
+import { genericCall, genericResult, normalizeToolResult } from './presentation.ts';
 import { makeToolOutput, type ToolRegistration, type ToolsSlot } from './toolsSlot.ts';
 import { runGateFlow, type GateFlowMode } from './flows/gateCheckFlow.ts';
 import { runMacroPhaseFlow, type MacroFlowMode } from './flows/macroPhaseFlow.ts';
@@ -58,8 +58,11 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         gate: args.gate ?? 'all',
         mode: args.mode ?? 'script',
       }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_flows_gate_check: ${String(result.state ?? '?')} (${result.allPass === true ? 'all-pass' : 'has-fail'})`),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_flows_gate_check: ${String(r.state ?? '?')} (${r.allPass === true ? 'all-pass' : 'has-fail'})`);
+    },
     execute: async (args) => {
       const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
       const check = validateWorkspace(ws);
@@ -116,8 +119,11 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         target: args.target ?? 'next',
         mode: args.mode ?? 'script',
       }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_flows_advance: ${result.ok === true ? `${String(result.from)}->${String(result.to ?? result.state)}` : 'blocked'}`),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_flows_advance: ${r.ok === true ? `${String(r.from)}->${String(r.to ?? r.state)}` : 'blocked'}`);
+    },
     execute: async (args) => {
       const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
       const check = validateWorkspace(ws);
@@ -176,8 +182,11 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
           : 'list',
         mode: args.mode ?? 'native',
       }),
-    presentResult: (_args, result) =>
-      genericResult(`anic_flows_archive: ${result.ok === true ? `${String(result.action)} ok (${(result.affected as string[] | undefined)?.length ?? 0} affected)` : 'blocked'}`),
+    presentResult: (_args, result) => {
+      // cycle-22：官方 {content,isError,meta} 形状归一化（双形状兼容见 normalizeToolResult）
+      const r = normalizeToolResult(result);
+      return genericResult(`anic_flows_archive: ${r.ok === true ? `${String(r.action)} ok (${(r.affected as string[] | undefined)?.length ?? 0} affected)` : 'blocked'}`);
+    },
     execute: async (args) => {
       const ws = (args.workspace as string) ?? deps.getRoot() ?? '';
       const check = validateWorkspace(ws);

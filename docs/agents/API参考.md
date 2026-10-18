@@ -85,15 +85,18 @@ Access-Control-Allow-Origin: *
 
 ## 5. 无工作区时的统一行为
 
-`snapshotRoute.ts:44` `resolveWorkspaceRoots(ctx)` 的解析链，**每个请求重新解析**（不做 capability 快照）：
+`snapshotRoute.ts` `resolveWorkspaceRoots(ctx, req)` 的解析链，**每个请求重新解析**（不做 capability 快照）：
 
-1. `ctx.workspaceRegistry.list()` 中第一个有 `path` 的项；
-2. `ctx.sessions.list()` 中第一个有 `header.cwd` 的项；
-3. `process.cwd()`。
+1. **`X-ANIC-Workspace` 请求头**（`encodeURIComponent` 后的根路径）→ 在 `ctx.workspaceRegistry.list()` 的已知根中校验，命中已知根或路径含 `.cycles` 目录即采信（**cycle-20 引入，桌面多会话纠偏的核心**）；
+2. `ctx.workspaceRegistry.list()` 中第一个有 `path` 的项；
+3. `ctx.sessions.list()` 中第一个有 `header.cwd` 的项；
+4. `process.cwd()`。
 
-三步各包 try/catch，因此任一服务缺失都能安全降级到下一步。头部注释记录了纪律：「capability 快照是『一刻决定永远』的缺陷放大器」。
+各步包 try/catch，因此任一服务缺失都能安全降级到下一步。头部注释记录了纪律：「capability 快照是『一刻决定永远』的缺陷放大器」。
 
-`governanceRoute.ts` 是唯一例外：它只做第 1、2 步，**不回退 `process.cwd()`**。
+`governanceRoute.ts` 是唯一例外：它只做注册表/会话解析，**不回退 `process.cwd()`**。
+
+**cycle-21/22 全域统一**：所有路由 handler 一律 `getWorkspaceRoot(req)` 把请求对象传给解析链——写侧路由（`/anic/skill/install`、`/anic/skill/repair`、`/anic/self/dual-advance`、`/anic/api/ledger/append`、`/anic/api/seg-ledger/append`、`/anic/self/init`、native 域 7 条等）在多会话宿主上写入**头声明的工作区**而非首条会话的工作区。此前 cycle-21 真机实测：header 声明 dsh-anic，`band-detect` 却把 band-history 写进 codegraph 工作区——写侧错位由此根除。客户端面板从首个成功快照响应的 `X-ANIC-Workspace` 头学得工作区根并对其后所有请求回带头（`src/client/WorkflowGraphPanel.ts:79-86`）。
 
 ## 6. 数据面磁盘形状（端点契约的上游）
 
