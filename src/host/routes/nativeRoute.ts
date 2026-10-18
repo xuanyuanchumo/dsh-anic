@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
 import { runHitlAudit } from '../governance/hitlAudit.ts';
-import { runBandDetection, loadBandHistory } from '../evolution/bandDetector.ts';
+import { runBandDetection } from '../evolution/bandDetector.ts';
 import { runOrgStatus } from '../evolution/orgStatus.ts';
 import { runFactBaseVerify } from '../governance/factBaseVerify.ts';
 import { runPlanSync } from '../governance/planSync.ts';
@@ -36,9 +36,13 @@ export function registerNativeRoute(
   };
 
   // POST /anic/hitl-audit
-  reg('POST', '/anic/hitl-audit', (_req, res) => {
+  // getWorkspaceRoot(req)（cycle-21）：全部 7 路由统一带 req——X-ANIC-Workspace
+  // 头参与解析（桌面多会话纠偏，见 snapshotRoute P2 注）。此前仅 org-status
+  // 带 req，band-detect 等写侧路由在多会话宿主上会写到首条会话的工作区
+  // （cycle-21 真机实测：header 声明 dsh-anic，band-history 却写进 codegraph）。
+  reg('POST', '/anic/hitl-audit', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const result = runHitlAudit(root);
     deps.send(res, 200, result, rid);
@@ -47,7 +51,7 @@ export function registerNativeRoute(
   // GET /anic/band-detect?score=0.75
   reg('GET', '/anic/band-detect', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const r = req as { url?: string };
     const scoreMatch = r?.url?.match(/score=([0-9.]+)/);
@@ -60,25 +64,25 @@ export function registerNativeRoute(
   // GET /anic/org-status
   reg('GET', '/anic/org-status', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot(req);
+    const root = deps.getWorkspaceRoot(req); // cycle-20 起带头；cycle-21 全域统一
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const result = runOrgStatus(root, {});
     deps.send(res, 200, result, rid);
   });
 
   // GET /anic/fact-base
-  reg('GET', '/anic/fact-base', (_req, res) => {
+  reg('GET', '/anic/fact-base', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const result = runFactBaseVerify(root);
     deps.send(res, 200, result, rid);
   });
 
   // GET /anic/plan-sync
-  reg('GET', '/anic/plan-sync', (_req, res) => {
+  reg('GET', '/anic/plan-sync', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const result = runPlanSync(root);
     deps.send(res, 200, result, rid);
@@ -99,9 +103,9 @@ export function registerNativeRoute(
   // R3 阶段 4 前半（cycle-9）：runAllGates → runAllGatesWithLlm。probeLlm
   // 可用时逐门逐角色跑真 LLM 评审（Tier-2），不可用整体降级 Tier-1 并在
   // summary.tier 诚实标注。handler 因此 async（webServer 槽位支持异步）。
-  reg('POST', '/anic/multi-agent-gate', async (_req, res) => {
+  reg('POST', '/anic/multi-agent-gate', async (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const evidenceByGate = collectGateEvidence(root);
     const currentBand = loadWorkspaceConfig(join(root, '.cycles')).values.autonomyLevel;
@@ -125,9 +129,9 @@ export function registerNativeRoute(
   // 验证函数不再用 `existsSync(ledger.json)` 充数（那是「文件在即通过」的伪自信：
   // 账本被篡改、链断裂、G0-G3 从未记录，都照样报 all checks passed）。
   // 改为消费真实事实：哈希链校验 + G0-G3 收敛门最新裁决全绿。
-  reg('POST', '/anic/fix-loop', (_req, res) => {
+  reg('POST', '/anic/fix-loop', (req, res) => {
     const rid = newRequestId();
-    const root = deps.getWorkspaceRoot();
+    const root = deps.getWorkspaceRoot(req);
     if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
     const cyclesDir = join(root, '.cycles');
     const verifyFn = () => {

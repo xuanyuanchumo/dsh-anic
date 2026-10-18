@@ -205,6 +205,8 @@ registerNativeRoute(ctx: unknown, deps: {
 
 **正则提取意味着非数字输入静默回退到 1.0** —— 不会 400。示例：`/anic/band-detect?score=0.75`。
 
+**cycle-21 双 schema 收敛**：`runBandDetection` 追加写入时**保留 band-history.json 全量原始数组**（文件主体是技能 `band-detector.mjs` 写入的质量带 entry，过滤覆写会摧毁技能仍在消费的历史）；`cycle` 编号与 `trend`/`weViolations` 统计只取自主带子序列（`bandHistory.ts` 的 `autonomyEntries`/`loadRawHistory`）。消费方语义详见 `bandHistory.ts` 模块注释。
+
 ### 4.3 GET `/anic/org-status`（`nativeRoute.ts:59`）
 
 **响应 200**：`runOrgStatus(root, {})` 的结果。这是客户端 `ORG_STATUS_URL`（`src/client/WorkflowGraphPanel.ts:30`）消费的端点，也被 `src/host/tools.ts:195` 作为工具返回的指针 URL。

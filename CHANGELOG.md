@@ -1,5 +1,26 @@
 # dsh-anic CHANGELOG
 
+## v0.22.0 — 2026-10-18
+
+cycle-21：**band-history 双 schema 收敛轮**——cycle-20 真机验证发现的深层契约债务：`.cycles/band-history.json` 的真实生产形状是**代码质量带**（技能 `band-detector.mjs` 写入 `{timestamp,totalScore,avgScore,fileCount,overBudgetCount}`），而插件 `BandEntry{cycle,score,timestamp,band}` 是**自主带**形状。两代 schema 盲解析导致：读侧 `map(e=>e.score)` 产出 `[null,null]`（仪表带火花线拿不到数据）；写侧 `runBandDetection` 会错编 cycle、并把混合 entry 覆写回文件；`classifyBand` 0.7/0.5 阈值对 avgScore（复杂度分量纲）套用会误报 alarm。
+
+### 新域模块 `src/host/evolution/bandHistory.ts`（T3 一域一文件拆分）
+- **读侧归一化**：`loadBandHistory` 只返回自主带形状 entry（`isAutonomyEntry` 形状判定 cycle+band 字段）；`loadHistoryScores` 量纲感知三态——自主带存在 → 只用 score（阈值语义正确）；纯质量带 → avgScore 兜底 + `source:'quality'` 标记（趋势/WE 形状可看，调用方不得用它判 band）；损坏/非数组/空 → `source:'none'` 不伪造。`loadRawHistory` fail-safe（损坏 JSON → 空数组）。
+- **写侧收敛（`runBandDetection`）**：追加时保留全量原始数组（过滤覆写会摧毁技能仍在消费的质量带历史）；cycle 编号与 trend/WE 统计只取自主带子序列（质量带 entry 无 score 字段，盲 map 产出 undefined 让趋势静默错算 stable）。
+- `orgStatus.ts` 接线：`band.current` 只对自主带分数做阈值分类，质量带/空历史 → `'normal'` 不误报；`trend`/`weViolations`/`recent`（火花线）消费归一化分数序列。
+- `breakerSignals.ts` CB5 量纲注释：质量带 entry 无 band 字段 → `every()` 对 undefined 判等 false → 不触发自主性熔断（行为本来正确，语义现在写明——复杂度超标由 band-detector 脚本 exit code 治理，不走 CB5）。
+
+### 附带修复：nativeRoute 写侧路由工作区错位（真机发现 → 修复 → 真机复验）
+- **发现**：测试宿主多会话场景下，带 `X-ANIC-Workspace` 头调 `band-detect`——org-status（带 req）读对工作区，但 band-detect（不带 req）把自主带 entry 写进了 registry 首条会话的 codegraph 工作区（`getWorkspaceRoot()` 无参调用走 registry 首条兜底）。写侧路由忽略头 = 跨工作区数据写错位。
+- **修复**：nativeRoute 7 条路由全部 `(req,res) + deps.getWorkspaceRoot(req)`——hitl-audit/band-detect/fact-base/plan-sync/multi-agent-gate/fix-loop 原来 `_req` 或不带参，现与 org-status 统一（头注释写明缘由）。
+- **回归钉**：新增 `tests/unit/nativeRouteWorkspace.test.ts` 3 用例——7 路由集合回归 + 每路由把 handler 收到的 req 原样传给 getWorkspaceRoot（身份断言 toBe）+ band-detect 写侧落盘在解析器选定的工作区（双工作区夹具：claimed 追加保留 2 质量+1 自主、default 零写入）。
+- **真机复验**：重建后重启测试宿主，`band-detect?score=0.82` 带 dsh-anic 头 → dsh-anic/.cycles/band-history.json 41→42（1 自主 entry），codegraph 2/0 未被写；org-status 带头返回 band.current=normal/12 点 recent/L2-L2。误写入 codegraph 的 1 条 entry 已清理（该文件恢复 2 条纯质量带）；验证用合成 entry 亦从 dsh-anic 清除（自主带历史只留真实评估）。
+
+### 测试
+- 新增 `tests/unit/bandHistorySchema.test.ts` 15 用例：读侧三态（纯质量带/纯自主带/混合 autonomy 优先/损坏 none/非有限 score 剔除）+ 写侧追加保留（质量带历史不摧毁/cycle 基于自主带子序列编号/纯自主带续编与旧行一致）+ orgStatus 集成（质量带 current=normal 不误报 alarm 回归/质量带趋势 degrading 真信号/自主带阈值分类生效）。
+- 新增 `tests/unit/nativeRouteWorkspace.test.ts` 3 用例（见上「附带修复」）。
+- 清理 `nativeRoute.ts` 死导入 `loadBandHistory`。
+
 ## v0.21.0 — 2026-10-18
 
 cycle-20：**自主性与健康白盒轮**——ui-domain-plan 研究报告三缺口一次收口：P2 自主级仪表带 + P2 invocations turn/step 折叠分组 + P3 技能健康面板。全部属「AI 自主权/技能健康动态白盒」主线。

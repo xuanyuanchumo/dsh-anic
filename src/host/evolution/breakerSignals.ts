@@ -82,7 +82,13 @@ function ledgerHasDoubt(cyclesDir: string): boolean {
   } catch { return false; }
 }
 
-/** CB5：band-history 末 2 条 band 均为 'alarm'（技能侧 OVER_BUDGET 对应物）。 */
+/** CB5：band-history 末 2 条 band 均为 'alarm'（技能侧 OVER_BUDGET 对应物）。
+ *
+ * cycle-21（量纲注释）：`band` 字段只存在于自主带形状 entry（BandEntry）；
+ * 代码质量带 entry（avgScore/totalScore）无 band 字段 → every() 对 undefined
+ * 判等 false → 不熔断。这与真实生产形状一致（质量带历史不驱动自主性熔断——
+ * 复杂度超标由 band-detector 脚本自身的 exit code 治理，不走 CB5）。
+ */
 function bandUnrecovered(workspaceRoot: string): boolean {
   const historyPath = join(workspaceRoot, '.cycles', 'band-history.json');
   if (!existsSync(historyPath)) return false;

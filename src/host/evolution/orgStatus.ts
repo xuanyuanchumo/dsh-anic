@@ -8,7 +8,8 @@ import { loadWorkspaceConfig } from '../config.ts';
 import { loadLedger } from '../runtime/ledger.ts';
 import { buildTrustScores, recommendBand, type AutonomyBand, type LedgerEntryForTrust } from './trustModel.ts';
 import { checkBreakers, decideAction, type BreakerInput } from './autonomyGovernor.ts';
-import { loadBandHistory, detectTrend, detectWeViolations, type WeViolation } from './bandDetector.ts';
+import { loadHistoryScores } from './bandHistory.ts';
+import { classifyBand, detectTrend, detectWeViolations, type WeViolation } from './bandDetector.ts';
 import { collectBreakerSignals } from './breakerSignals.ts';
 
 export interface OrgStatus {
@@ -78,17 +79,24 @@ export function runOrgStatus(workspaceRoot: string, options: {
   const action = decideAction(band, breakerResults);
 
   // Band
-  const bandHistory = loadBandHistory(workspaceRoot);
-  const bandCurrent = bandHistory.length > 0 ? (bandHistory[bandHistory.length - 1]?.band ?? 'normal') : 'normal';
+  // cycle-21（两代 schema 收敛）：band-history.json 的真实生产形状是代码质量带
+  // （技能 band-detector 写入 avgScore/totalScore）；旧代码 map(e=>e.score) 产出
+  // [null,null]（cycle-20 真机发现）。改用 loadHistoryScores 量纲感知读取：
+  // trend/WE 检测对自主带（0-1）与质量带（复杂度分）分别取序列，不再混算。
+  // band.current 只对自主带分数有阈值语义；质量带/空历史 → 'normal' 不误报。
+  const { scores: historyScores, source: historySource } = loadHistoryScores(workspaceRoot);
+  const bandCurrent = historySource === 'autonomy' && historyScores.length > 0
+    ? classifyBand(historyScores[historyScores.length - 1] ?? 1)
+    : 'normal';
   // P3（已修）：trend 原为硬编码 'stable' —— bandDetector.detectTrend 早已实现
   // 却从未被接线（R3 双真相源审计 #10）。现在从真实 band-history 分数序列推导。
-  const bandTrend = detectTrend(bandHistory.map((e) => e.score));
+  const bandTrend = detectTrend(historyScores);
   // WE 8 规则（cycle-7 移植）的可观测面：org 面板此前只显示 current/trend，
   // 违例事实被采集却不可见 —— 动态白盒要求「能涉及的方面都可见」。
-  const weViolations = detectWeViolations(bandHistory.map((e) => e.score));
+  const weViolations = detectWeViolations(historyScores);
   // cycle-20（P2 仪表带）：最近 12 个分数点——趋势火花线的数据面。
   // 空历史 → 空数组（客户端省略火花线，不伪造平线）。
-  const recentScores = bandHistory.slice(-12).map((e) => e.score);
+  const recentScores = historyScores.slice(-12);
 
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },

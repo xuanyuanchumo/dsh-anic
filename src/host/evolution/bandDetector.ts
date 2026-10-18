@@ -5,17 +5,14 @@
  * R3 阶段 3：补齐技能 band-detector.mjs:117-203 的 8 条 Western Electric
  * 控制图规则（此前插件侧只有两阈值分类，模式检测整族缺失）。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+// Q5 单向依赖：schema 类型（BandStatus/BandEntry）与历史读取在 bandHistory.ts
+// （本文件是被依赖方——算法域单向依赖 schema 域，见 bandHistory.ts 架构注记）。
+import { autonomyEntries, loadRawHistory, BAND_HISTORY_PATH, type BandEntry, type BandStatus } from './bandHistory.ts';
 
-export type BandStatus = 'normal' | 'warn' | 'alarm';
-
-export interface BandEntry {
-  cycle: number;
-  score: number;
-  timestamp: string;
-  band: BandStatus;
-}
+// 类型再导出：BandEntry/BandStatus 的历史导出面是本模块（消费方零改动）。
+export type { BandEntry, BandStatus };
 
 /** WE 规则违例（字段与技能 band-detector.mjs 违例对象逐字同形）。 */
 export interface WeViolation {
@@ -35,7 +32,6 @@ export interface BandResult {
 }
 
 const DEFAULT_THRESHOLDS = { warn: 0.7, alarm: 0.5 };
-const BAND_HISTORY_PATH = join('.cycles', 'band-history.json');
 
 export function classifyBand(score: number, thresholds = DEFAULT_THRESHOLDS): BandStatus {
   if (score >= thresholds.warn) return 'normal';
@@ -162,32 +158,32 @@ export function detectWeViolations(scores: number[]): WeViolation[] {
 }
 
 export function runBandDetection(workspaceRoot: string, currentScore: number): BandResult {
+  // cycle-21（双 schema 收敛）：真实文件主体是技能写入的代码质量带 entry。
+  // ①写侧不得过滤覆写——过滤后写回会摧毁质量带历史（技能 band-detector.mjs
+  //   仍在消费它们）；追加时保留全量原始数组。
+  // ②cycle 编号与派生统计（trend/WE）只取自主带子序列——质量带 entry 无
+  //   score 字段，map 出 undefined 会让趋势静默错算为 stable。
+  // 历史归一化域见 bandHistory.ts（T3 拆分）。
   const historyPath = join(workspaceRoot, BAND_HISTORY_PATH);
-  let entries: BandEntry[] = [];
-  if (existsSync(historyPath)) {
-    try { entries = JSON.parse(readFileSync(historyPath, 'utf-8')); } catch { entries = []; }
-  }
+  const raw = loadRawHistory(workspaceRoot);
+  const autonomy = autonomyEntries(raw);
   const band = classifyBand(currentScore);
   const entry: BandEntry = {
-    cycle: entries.length + 1,
+    cycle: autonomy.length + 1,
     score: currentScore,
     timestamp: new Date().toISOString(),
     band,
   };
-  entries.push(entry);
-  // 持久化（原子写简化版）
-  try { writeFileSync(historyPath, JSON.stringify(entries, null, 2)); } catch { /* best effort */ }
+  raw.push(entry);
+  // 持久化（原子写简化版；保留混合 schema 原状 + 本条新增）
+  try { writeFileSync(historyPath, JSON.stringify(raw, null, 2)); } catch { /* best effort */ }
+  const scores = [...autonomy.map((e) => e.score), currentScore];
   return {
     current: band,
-    trend: detectTrend(entries.map((e) => e.score)),
-    entries: entries.slice(-20),
+    trend: detectTrend(scores),
+    entries: [...autonomy.slice(-19), entry],
     threshold: DEFAULT_THRESHOLDS,
-    weViolations: detectWeViolations(entries.map((e) => e.score)),
+    weViolations: detectWeViolations(scores),
   };
 }
 
-export function loadBandHistory(workspaceRoot: string): BandEntry[] {
-  const p = join(workspaceRoot, BAND_HISTORY_PATH);
-  if (!existsSync(p)) return [];
-  try { return JSON.parse(readFileSync(p, 'utf-8')); } catch { return []; }
-}
