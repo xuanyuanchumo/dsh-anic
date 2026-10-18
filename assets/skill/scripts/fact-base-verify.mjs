@@ -5,15 +5,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-
-function parseArgs(argv) {
-  const args = { _: [], count: 5 };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--count') args.count = parseInt(argv[++i], 10);
-    else args._.push(argv[i]);
-  }
-  return args;
-}
+import { parseCliArgs } from './lib/args.mjs';
 
 function extractReferences(projectDir) {
   const refs = [];
@@ -61,11 +53,12 @@ function verifyReferences(projectDir, refs, count) {
   return results;
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node fact-base-verify.mjs <project-dir> [--count 5]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'fact-base-verify',
+  usage: 'Usage: node fact-base-verify.mjs <project-dir> [--count 5]',
+  flags: { count: { type: 'int', default: 5 } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const refs = extractReferences(args._[0]);
 if (refs.length === 0) {

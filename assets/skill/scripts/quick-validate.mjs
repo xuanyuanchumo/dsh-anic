@@ -4,14 +4,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-
-function parseArgs(argv) {
-  const args = { _: [] };
-  for (let i = 2; i < argv.length; i++) {
-    args._.push(argv[i]);
-  }
-  return args;
-}
+import { parseCliArgs } from './lib/args.mjs';
 
 const REQUIRED_FILES = [
   'SKILL.md',
@@ -323,11 +316,12 @@ function validateSkillPackage(skillDir) {
   return { errors, warnings, info, fileCount, totalSize };
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node quick-validate.mjs <skill-dir>');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'quick-validate',
+  usage: 'Usage: node quick-validate.mjs <skill-dir>',
+  flags: {},
+  positionals: { min: 1, max: 1, name: 'skill-dir' },
+});
 
 const skillDir = resolve(args._[0]);
 

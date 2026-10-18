@@ -1,5 +1,22 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.1.0 — 统一 CLI 参数防护（cycle-27）
+
+### 行为变更（minor）
+
+- **新增共享库 `scripts/lib/args.mjs`（`parseCliArgs`）**：16 个脚本（15 白名单 + mcp-server）
+  统一参数形状防护，替代各自手写的 `parseArgs`。三防线：
+  ① `--help`/`-h` 短路打印用法 exit 0；② 未知旗标 exit 1 报旗标名；
+  ③ 位置参数数量契约（min/max，越界报实收数量与清单）。
+  附带：值旗标缺参拒绝、int/float 解析 NaN 拒绝、kebab 旗标名自动映射 camelCase
+  （`--max-retries` → `args.maxRetries`、`--test-cmd` → `args.testCmd`）。
+- **行为收紧点（诚实列出）**：mcp-server 原先把多余位置参数静默忽略，现拒绝 exit 1
+  （此前唯一「容错」点，属静默吞错——统一后全部脚本 fail-fast）；其余脚本零参/多参
+  行为与原 usage 分支一致，仅输出格式统一为 `[script] 消息 + usage` 两行。
+- **背景**：cycle-25 事故（`--help` 被当位置参数，init-workflow 在 CWD 脚手架出
+  `--help/` 目录）——cycle-26 单点根治 init-workflow，本轮全量收敛。
+- 技能文件数 64 → 65（新增 `scripts/lib/args.mjs`）。
+
 ## 2.0.0 — 分发完整性：安装清单 + sha256 校验 + doctor/repair（cycle-19）
 
 ### 行为变更（major）

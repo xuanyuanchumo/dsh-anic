@@ -11,29 +11,27 @@
 // 任意字符串写进账本并假冒 GATE_NAMES）。CLI 输出与 v1.6 逐字节一致。
 
 import { resolve } from 'node:path';
+import { parseCliArgs } from './lib/args.mjs';
 import { appendEntry, listEntries, VALID_GATES, verifyLedger } from './lib/ledger.mjs';
 
-function parseArgs(argv) {
-  const args = { _: [], gate: null, result: null, detail: '', verify: false, list: false };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--gate') args.gate = argv[++i];
-    else if (argv[i] === '--result') args.result = argv[++i];
-    else if (argv[i] === '--detail') args.detail = argv[++i];
-    else if (argv[i] === '--verify') args.verify = true;
-    else if (argv[i] === '--list') args.list = true;
-    else args._.push(argv[i]);
-  }
-  return args;
-}
+const USAGE = [
+  'Usage: node gate-ledger.mjs <project-dir> --gate G0|G1|G2|G3 --result PASS|FAIL [--detail "..."]',
+  '       node gate-ledger.mjs <project-dir> --verify',
+  '       node gate-ledger.mjs <project-dir> --list',
+].join('\n');
 
-const args = parseArgs(process.argv);
-
-if (args._.length === 0) {
-  console.error('Usage: node gate-ledger.mjs <project-dir> --gate G0|G1|G2|G3 --result PASS|FAIL [--detail "..."]');
-  console.error('       node gate-ledger.mjs <project-dir> --verify');
-  console.error('       node gate-ledger.mjs <project-dir> --list');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'gate-ledger',
+  usage: USAGE,
+  flags: {
+    gate: { type: 'string' },
+    result: { type: 'string' },
+    detail: { type: 'string', default: '' },
+    verify: { type: 'boolean' },
+    list: { type: 'boolean' },
+  },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 

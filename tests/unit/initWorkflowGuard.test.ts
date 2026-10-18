@@ -66,7 +66,7 @@ describe('init-workflow 参数防护', () => {
   it('两个位置参数：拒绝 exit 1', () => {
     const r = runOk(['a', 'b']);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('只接受一个位置参数');
+    expect(r.out).toContain('只接受 1 个位置参数');
   });
 
   it('零位置参数：打印用法 exit 1', () => {

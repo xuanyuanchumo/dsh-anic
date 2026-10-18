@@ -14,18 +14,9 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig, getYamlInt } from './lib/config.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], threshold: 0.15, history: 10 };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--threshold') args.threshold = parseFloat(argv[++i]);
-    else if (argv[i] === '--history') args.history = parseInt(argv[++i], 10);
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 // 修 S-1：唯一 config 入口（原先读从未被 init-workflow 创建的 .cycles/cycle-config.yml，
 // 缺文件静默 return null → 预算静默落回默认值 100，控制带全部失真且无人知晓）。
@@ -229,11 +220,12 @@ function detectBands(measurements, budget, threshold) {
   };
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node band-detector.mjs <project-dir> [--threshold 0.15] [--history <N>]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'band-detector',
+  usage: 'Usage: node band-detector.mjs <project-dir> [--threshold 0.15] [--history <N>]',
+  flags: { threshold: { type: 'float', default: 0.15 }, history: { type: 'int', default: 10 } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 const configContent = loadConfig(projectDir);

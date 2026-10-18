@@ -5,18 +5,10 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], gate: 'all' };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--gate') args.gate = argv[++i];
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 function loadConfig(projectDir) {
   // v1.8.3：唯一配置入口（缺配置响亮告知；H3 不依赖配置内容，观察路径允许继续）
@@ -294,11 +286,12 @@ const FIX_FUNCTIONS = {
   H4: attemptH4Fix,
 };
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node hitl-audit.mjs <project-dir> [--gate H1|H2|H3|H4|all]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'hitl-audit',
+  usage: 'Usage: node hitl-audit.mjs <project-dir> [--gate H1|H2|H3|H4|all]',
+  flags: { gate: { type: 'string', default: 'all' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 const configContent = loadConfig(projectDir);

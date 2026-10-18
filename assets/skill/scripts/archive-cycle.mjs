@@ -7,20 +7,9 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { parseCliArgs } from './lib/args.mjs';
 import { listCycleDirNames } from './lib/cycle.mjs';
 import { summarizeTaskRows } from './lib/tasks.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], cycle: null, clean: false, list: false, keep: 5 };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--cycle') args.cycle = parseInt(argv[++i], 10);
-    else if (argv[i] === '--clean') args.clean = true;
-    else if (argv[i] === '--list') args.list = true;
-    else if (argv[i] === '--keep') args.keep = parseInt(argv[++i], 10);
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 function getCycles(projectDir) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
@@ -126,11 +115,17 @@ function listCycles(projectDir) {
   console.log(`=== End of Inventory ===`);
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node archive-cycle.mjs <project-dir> --cycle <N> | --clean [--keep <N>] | --list');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'archive-cycle',
+  usage: 'Usage: node archive-cycle.mjs <project-dir> --cycle <N> | --clean [--keep <N>] | --list',
+  flags: {
+    cycle: { type: 'int' },
+    clean: { type: 'boolean' },
+    list: { type: 'boolean' },
+    keep: { type: 'int', default: 5 },
+  },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 

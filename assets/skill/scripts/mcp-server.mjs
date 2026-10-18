@@ -11,20 +11,18 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseCliArgs } from './lib/args.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, '..');
 
-function parseArgs(argv) {
-  const args = { _: [], projectDir: process.cwd() };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--project-dir') args.projectDir = resolve(argv[++i]);
-    else args._.push(argv[i]);
-  }
-  return args;
-}
-
-const args = parseArgs(process.argv);
-const projectDir = args.projectDir;
+const args = parseCliArgs(process.argv, {
+  script: 'mcp-server',
+  usage: 'Usage: node mcp-server.mjs [--project-dir <path>]',
+  flags: { 'project-dir': { type: 'string' } },
+  positionals: { min: 0, max: 0, name: '' },
+});
+const projectDir = args.projectDir ? resolve(args.projectDir) : process.cwd();
 
 function runScript(scriptName, scriptArgs = []) {
   const scriptPath = join(SKILL_ROOT, 'scripts', scriptName);
@@ -61,7 +59,7 @@ function readYamlConfig() {
 }
 
 const server = new Server(
-  { name: "ai-native-iteration-cycle", version: "2.0.0" },
+  { name: "ai-native-iteration-cycle", version: "2.1.0" },
   { capabilities: { tools: {} } }
 );
 

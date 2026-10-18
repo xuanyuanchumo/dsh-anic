@@ -8,19 +8,10 @@
 
 import { existsSync, readFileSync, readdirSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig, getAutonomyLevel as getAutonomyLevelFromConfig } from './lib/config.mjs';
 import { getLatestCycleDir, listCycleDirNames } from './lib/cycle.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], role: null, assign: null };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--role') args.role = argv[++i];
-    else if (argv[i] === '--assign') args.assign = argv[++i];
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 const CIRCUIT_BREAKER_CONDITIONS = [
   { id: 'CB1', name: '同一异常连续3次自动修复失败', check: (projectDir) => {
@@ -659,11 +650,12 @@ function cmdAutoFallback(projectDir) {
   }
 }
 
-const args = parseArgs(process.argv);
-if (args._.length < 2) {
-  console.error('Usage: node org-status.mjs <project-dir> status|agent|review|auto-fallback [--role <role>] [--assign <model>]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'org-status',
+  usage: 'Usage: node org-status.mjs <project-dir> status|agent|review|auto-fallback [--role <role>] [--assign <model>]',
+  flags: { role: { type: 'string' }, assign: { type: 'string' } },
+  positionals: { min: 2, max: 2, name: '<project-dir> <command>' },
+});
 
 const projectDir = resolve(args._[0]);
 const command = args._[1];

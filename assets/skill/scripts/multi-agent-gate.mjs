@@ -5,20 +5,11 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { verifyLedger } from './lib/ledger.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], gate: 'all', autoApprove: false };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--gate') args.gate = argv[++i];
-    else if (argv[i] === '--auto-approve') args.autoApprove = true;
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 // 修 S-1：唯一 config 入口（原先缺文件静默 return ''）
 function loadConfig(projectDir) {
@@ -532,11 +523,12 @@ function generateMultiAgentReport(projectDir, allResults) {
   return reportPath;
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node multi-agent-gate.mjs <project-dir> [--gate intent|spec|plan|pr|release|all] [--auto-approve]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'multi-agent-gate',
+  usage: 'Usage: node multi-agent-gate.mjs <project-dir> [--gate intent|spec|plan|pr|release|all] [--auto-approve]',
+  flags: { gate: { type: 'string', default: 'all' }, 'auto-approve': { type: 'boolean' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 

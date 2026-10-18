@@ -5,21 +5,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { parseTaskRows } from './lib/tasks.mjs';
 import { appendEntry, loadLedger } from './lib/ledger.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], gate: 'all', quality: false, record: false };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--gate') args.gate = argv[++i];
-    else if (argv[i] === '--quality') args.quality = true;
-    else if (argv[i] === '--record') args.record = true; // 修 N-2：门禁结果自动入账本（默认关闭，行为兼容）
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 // 修 S-1：唯一 config 入口。原先读从未被 init-workflow 创建的 .cycles/cycle-config.yml，
 // 且错误提示自相矛盾（"No .cycles/cycle-config.yml found. Run init-workflow first."——
@@ -173,11 +163,12 @@ function checkQualityGate(projectDir, configContent, gateId) {
   return { pass: true, detail: `Quality dimensions passed: ${checks.join(', ')}` };
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node gate-check.mjs <project-dir> [--gate G0|G1|G2|G3|all] [--quality] [--record]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'gate-check',
+  usage: 'Usage: node gate-check.mjs <project-dir> [--gate G0|G1|G2|G3|all] [--quality] [--record]',
+  flags: { gate: { type: 'string', default: 'all' }, quality: { type: 'boolean' }, record: { type: 'boolean' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 const configContent = loadConfig(projectDir);

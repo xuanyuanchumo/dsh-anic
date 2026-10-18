@@ -1,5 +1,28 @@
 # dsh-anic CHANGELOG
 
+## v0.27.0 — 2026-10-18
+
+cycle-27：**统一 CLI 参数防护库轮**——cycle-26 范围界定的 15 脚本敞口全部收口。
+
+### ① lib/args.mjs 共享参数解析库（技能新增第 65 文件）
+- `parseCliArgs(argv, spec)`：spec 声明式描述旗标（`type: boolean|string|int|float` + `default`）与位置参数契约（`min/max/name`），统一三防线：`--help`/`-h` 短路（打印用法 exit 0）；未知旗标拒绝（报旗标名 + usage exit 1）；位置参数契约（恰好/范围/零容忍，越界报实收数与列表）。
+- 值旗标缺参拒绝、int/float NaN 拒绝、kebab→camel 映射（`--max-retries`→`args.maxRetries`）、boolean 缺省恒 false。
+- 落点 `assets/skill/scripts/lib/args.mjs`（lib/ 共享模块目录第 8 模块），90 行零外部依赖。
+
+### ② 16 脚本全量迁移（手写 parseArgs 零残留）
+- 16 个脚本全部删除手写 `function parseArgs` + 零参检查块，换 `parseCliArgs(process.argv, {script, usage, flags, positionals})` 声明式调用。
+- 位置参数语义保持：13 脚本恰 1 个（project-dir）；org-status/workflow-state 恰 2 个（project-dir+command）；quick-validate 恰 1 个（skill-dir）；mcp-server 0 个。
+- 收紧点（诚实列出）：mcp-server 原把多余位置参数静默推入 `args._` 不消费，现按契约拒绝。
+- 冒烟：16 脚本 `--help` 全 exit 0、`--zzz` 全 exit 1；gate-ledger --verify 74 条 Valid；init-cycle . --cycle N 正常建删。
+
+### ③ 技能版本三锚点 2.0.0 → 2.1.0（minor：健壮性+共享库，不破坏消费契约）
+- SKILL.md L301 `MCP Tools (v2.1.0)：`；mcp-server.mjs `version: "2.1.0"`；assets/skill/CHANGELOG.md 顶部条目（含背景：cycle-25 事故、收紧点、文件数 64→65）。
+- quick-validate 三锚点一致性 PASSED。
+
+### ④ 测试（+41 用例）
+- 新增 `tests/unit/cliArgsGuard.test.ts`：进程内契约 10 用例（captureReject helper 捕获 console.error+process.exit 拒绝路径；kebab→camel/默认值/未知旗标/值缺参/NaN/恰 1/零参/0..0/min..max/--help 哨兵）+ 子进程抽验 31 用例（15 脚本 × --help/--zzz 真实 exit code；auto-fix-loop --max-retries 2 位置参数拒绝先于旗标错误）。
+- 同步四套件：npxInit（v2.1.0 ×2 + 65 文件）、skillIntegrity（65 ×7 处）、initWorkflowGuard（文案「只接受 1 个位置参数」）、README L35（65 文件）。
+
 ## v0.26.1 — 2026-10-18
 
 cycle-26：**CLI 参数防护轮**——cycle-25 收口时发现的 `--help/` 目录事故根治。

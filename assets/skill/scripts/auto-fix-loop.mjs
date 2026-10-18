@@ -9,19 +9,10 @@
 import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
-
-function parseArgs(argv) {
-  const args = { _: [], maxRetries: 3, testCmd: null };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--max-retries') args.maxRetries = parseInt(argv[++i]);
-    else if (argv[i] === '--test-cmd') args.testCmd = argv[++i];
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 function loadConfig(projectDir) {
   // v1.8.3：唯一配置入口。auto-fix-loop 是修复驱动器，允许无配置运行（--test-cmd 兜底），
@@ -213,11 +204,12 @@ function generateFixReport(projectDir, cycleDir, attempts, allFailures, finalSuc
   return reportPath;
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node auto-fix-loop.mjs <project-dir> [--max-retries N] [--test-cmd "..."]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'auto-fix-loop',
+  usage: 'Usage: node auto-fix-loop.mjs <project-dir> [--max-retries N] [--test-cmd "..."]',
+  flags: { 'max-retries': { type: 'int', default: 3 }, 'test-cmd': { type: 'string' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 const config = loadConfig(projectDir);

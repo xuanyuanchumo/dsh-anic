@@ -19,6 +19,7 @@ import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, execFileSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { DIMENSIONS, resolveDimensions } from './lib/dimensions.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
@@ -30,17 +31,6 @@ const SKILL_ROOT = resolve(__dirname, '..');
 
 // DIMENSIONS 词表来自 scripts/lib/dimensions.mjs（唯一来源，修 S-2；
 // references/evaluation.md 与 config.example.yml 已对齐到本词表）
-
-function parseArgs(argv) {
-  const args = { _: [], dimensions: 'all', cycle: null, quality: false };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--dimensions') args.dimensions = argv[++i];
-    else if (argv[i] === '--cycle') args.cycle = parseInt(argv[++i], 10);
-    else if (argv[i] === '--quality') args.quality = true;
-    else args._.push(argv[i]);
-  }
-  return args;
-}
 
 // 修字典序缺陷：getLatestCycle 改用 lib/cycle.mjs 的数值序（原 .sort().pop() 在
 // cycle-10 之后会选错目录：'cycle-9' > 'cycle-10'）
@@ -515,11 +505,12 @@ function generateReport(projectDir, cycleDir, results, dimsToRun) {
   return lines.join('\n');
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node eval-runner.mjs <project-dir> [--dimensions E1,E2,...,Q1,Q2,...] [--cycle N] [--quality]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'eval-runner',
+  usage: 'Usage: node eval-runner.mjs <project-dir> [--dimensions E1,E2,...,Q1,Q2,...] [--cycle N] [--quality]',
+  flags: { dimensions: { type: 'string', default: 'all' }, cycle: { type: 'int' }, quality: { type: 'boolean' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 const configContent = loadConfig(projectDir);

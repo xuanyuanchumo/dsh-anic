@@ -31,14 +31,14 @@ function run(args: string[]): string {
 }
 
 describe('npx anic-init（技能-only 分发入口）', () => {
-  it('全新目录：安装技能 64 文件 + 脚手架 .cycles/ + CLAUDE.md 仓库记忆', () => {
+  it('全新目录：安装技能 65 文件 + 脚手架 .cycles/ + CLAUDE.md 仓库记忆', () => {
     const dir = freshDir();
     const out = run(['init', dir, '--name', 'demo-project']);
-    expect(out).toContain('installing skill v2.0.0');
+    expect(out).toContain('installing skill v2.1.0');
     // 技能落点与 DSH 插件 anic_install 同构
     const skillDst = join(dir, '.dsh', 'skills', 'ai-native-iteration-cycle');
     expect(existsSync(join(skillDst, 'SKILL.md'))).toBe(true);
-    // 全量文件数与源一致（64 文件——递归计数口径，含子目录）
+    // 全量文件数与源一致（65 文件——递归计数口径，含子目录；cycle-27 +lib/args.mjs）
     let fileCount = 0;
     const walk = (d: string) => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -47,7 +47,7 @@ describe('npx anic-init（技能-only 分发入口）', () => {
       }
     };
     walk(skillDst);
-    expect(fileCount).toBe(64);
+    expect(fileCount).toBe(65);
     // .cycles 骨架
     expect(existsSync(join(dir, '.cycles', 'config.yml'))).toBe(true);
     expect(existsSync(join(dir, '.cycles', 'intent', 'intent.md'))).toBe(true);
@@ -62,7 +62,7 @@ describe('npx anic-init（技能-only 分发入口）', () => {
     const dir = freshDir();
     run(['init', dir]);
     const out2 = run(['init', dir]);
-    expect(out2).toContain('already installed (v2.0.0), skipping copy');
+    expect(out2).toContain('already installed (v2.1.0), skipping copy');
     expect(out2).toContain('already initialized, skipping scaffold');
   });
 

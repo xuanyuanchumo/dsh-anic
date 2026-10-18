@@ -7,25 +7,11 @@ import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { parseCliArgs } from './lib/args.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, '..');
-
-function parseArgs(argv) {
-  const args = { _: [], framework: 'claude', git: false, name: '' };
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--name') args.name = argv[++i];
-    else if (arg === '--framework') args.framework = argv[++i];
-    else if (arg === '--git') args.git = true;
-    else if (arg === '--dry-run') args.dryRun = true;
-    else if (arg === '--help' || arg === '-h') args.help = true;
-    else if (arg.startsWith('--')) { args.unknownFlag = arg; break; }
-    else args._.push(arg);
-  }
-  return args;
-}
 
 function scaffoldProject(projectDir, args) {
   const dir = resolve(projectDir);
@@ -89,22 +75,16 @@ function scaffoldProject(projectDir, args) {
   console.log(`  Next: edit .cycles/config.yml with your project's build/test commands`);
 }
 
-const args = parseArgs(process.argv);
-const USAGE = 'Usage: node init-workflow.mjs <project-dir> --name "<项目名>" [--framework claude|codex] [--git]';
-if (args.help) {
-  console.log(USAGE);
-  console.log('  <project-dir> 是唯一位置参数（项目根目录，不存在则创建）');
-  process.exit(0);
-}
-if (args.unknownFlag) {
-  // 未知旗标直接拒绝（cycle-25 教训：--help 误当位置参数会脚手架出 "--help/" 目录）
-  console.error(`[init-workflow] 未知旗标: ${args.unknownFlag}`);
-  console.error(USAGE);
-  process.exit(1);
-}
-if (args._.length !== 1) {
-  // 恰好一个位置参数——多给（如误传旗标值）或少给都拒绝
-  console.error(args._.length === 0 ? USAGE : `[init-workflow] 只接受一个位置参数（project-dir），收到 ${args._.length} 个: ${args._.join(' ')}`);
-  process.exit(1);
-}
+const USAGE = 'Usage: node init-workflow.mjs <project-dir> --name "<项目名>" [--framework claude|codex] [--git] [--dry-run]';
+const args = parseCliArgs(process.argv, {
+  script: 'init-workflow',
+  usage: USAGE,
+  flags: {
+    name: { type: 'string', default: '' },
+    framework: { type: 'string', default: 'claude' },
+    git: { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
+  },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 scaffoldProject(args._[0], args);

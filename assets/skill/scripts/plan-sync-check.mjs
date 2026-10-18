@@ -7,15 +7,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-
-function parseArgs(argv) {
-  const args = { _: [], verbose: false };
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--verbose') args.verbose = true;
-    else args._.push(argv[i]);
-  }
-  return args;
-}
+import { parseCliArgs } from './lib/args.mjs';
 
 function extractFilePaths(content) {
   const paths = new Set();
@@ -164,11 +156,12 @@ function checkPlanSync(projectDir, verbose) {
   };
 }
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node plan-sync-check.mjs <project-dir> [--verbose]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'plan-sync-check',
+  usage: 'Usage: node plan-sync-check.mjs <project-dir> [--verbose]',
+  flags: { verbose: { type: 'boolean' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 
 const projectDir = resolve(args._[0]);
 

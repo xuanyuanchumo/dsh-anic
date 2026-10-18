@@ -32,7 +32,7 @@ Claude Code / Codex / 任意 MCP 客户端用户可不装宿主，一条命令�
 npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] [--dry-run]
 ```
 
-只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 64 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
+只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 65 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
 
 
 ## 当前形态（M1..M11 + R3 流程状态机，v0.17.0）

@@ -5,20 +5,11 @@
 import { mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseCliArgs } from './lib/args.mjs';
 import { atomicWriteFileSync } from './lib/fs-safe.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, '..');
-
-function parseArgs(argv) {
-  const args = { _: [], cycle: null };
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--cycle') args.cycle = parseInt(argv[++i], 10);
-    else args._.push(arg);
-  }
-  return args;
-}
 
 function getNextCycleNum(projectDir) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
@@ -63,10 +54,11 @@ function scaffoldCycle(projectDir, cycleNum) {
 }
 
 
-const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node init-cycle.mjs <project-dir> [--cycle N]');
-  process.exit(1);
-}
+const args = parseCliArgs(process.argv, {
+  script: 'init-cycle',
+  usage: 'Usage: node init-cycle.mjs <project-dir> [--cycle N]',
+  flags: { cycle: { type: 'int' } },
+  positionals: { min: 1, max: 1, name: 'project-dir' },
+});
 const cycleNum = args.cycle || getNextCycleNum(args._[0]);
 scaffoldCycle(args._[0], cycleNum);
