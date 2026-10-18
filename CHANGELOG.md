@@ -1,5 +1,31 @@
 # dsh-anic CHANGELOG
 
+## v0.32.0 — 2026-10-18
+
+cycle-33：**测试体系深挖第二轮**——27 个零直测源文件审计后补齐客户端数据层原语 + host JSON 提取器，+71 用例（vitest 93→98 文件 / 1089→1160 用例）。
+
+### ① 渲染原语直测（tests/unit/clientPrimitives.test.ts，33 用例）
+- `toneColor` 16 键 ToneName 封闭集合逐一断言（含 `var(--token, fallback)` 同源引用形态）。
+- `DataRow`/`StatusDot`/脉冲三常量逐字契约（`@keyframes anic-fail-pulse`/`anic-live-dot`/`prefers-reduced-motion` 逃逸/`animation:none`）。
+- `sectionIds` 实例序号递增（aria-controls 不静默错位）+ `sectionShell` 分区壳三分支 + 关闭形态。
+- `governanceTargets`/`panelLiveTargets` 两 target 工厂：URL 接线（分页 limit 透传）/guard 语义/apply 遥测同步（`window.__ANIC_TAB_SPIKE__`）/onFail 三分类降级文案/onResponse 学头（encodeURIComponent 解码）。
+
+### ② usePanelFetch 钩子生命周期（tests/unit/usePanelFetch.test.ts，9 用例，jsdom）
+- 三分类降级：http(503)/malformed(guard 不过)/network(fetch reject 与 json() 抛错同面)。
+- 取消语义：unmount 后迟到响应不 apply；暂停语义：pollMs<=0 只首拍；无 fetch 环境（smoke 沙盒形态）一次都不拉。
+- 成功恢复 onRecover；getHeaders 引用安全；onResponse 原始响应通道。
+
+### ③ host jsonExtract 三级提取链（tests/unit/jsonExtract.test.ts，13 用例）
+- 钉住提取器边界：围栏内容非 JSON → 降级平衡扫描（不是直接 null）；首个平衡候选解析失败 → null（fail-fast 不贪第二个对象）；字符串字面量内花括号/转义引号/转义反斜杠不扰动深度；数组根整串可过但散文包裹不可提（扫描只找对象根）；截尾/无花括号/空串 → null。
+- reviewEngine.test.ts 的四用例间接覆盖升级为提取器自身的完整边界规格。
+
+### ④ fetchJson 数据面守卫 + useSelfInit 状态机（16 用例，jsdom）
+- `fetchJsonGuarded` 三路收敛 null（非 2xx 不做 json 解析）；`isObjectLike` 宽松守卫语义注记（数组也过——与旧直接 cast 语义一致）；`isFlowStatus` 硬契约；`syncTelemetryCounts` 渲染=遥测同步跳。
+- `useSelfInit` 四态反馈：409+`ANIC_ROUTE_SELF_INIT_ALREADY` 是「已初始化」成功语义（refuse-to-rerun 对按钮视角是目标已达成）；running 期间重入防抖。
+
+### ⑤ 文档
+- 测试指南.md L2 计数校准（98 文件/1160 用例实跑口径；unit 85/1024+contract 13/90 静态口径）+ cycle-33 覆盖域注记。
+
 ## v0.31.1 — 2026-10-18
 
 cycle-32：**桌面端验证策略系统化轮**——P2 桌面端验证以「API 面 14/14 + token 边界穷尽」收口，桌面 webview UI 目验转用户动作项。
