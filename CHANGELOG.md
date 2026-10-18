@@ -1,5 +1,26 @@
 # dsh-anic CHANGELOG
 
+## v0.31.1 — 2026-10-18
+
+cycle-32：**桌面端验证策略系统化轮**——P2 桌面端验证以「API 面 14/14 + token 边界穷尽」收口，桌面 webview UI 目验转用户动作项。
+
+### ① 桌面宿主 API 面全分区验证（14/14 全 200）
+- 面板消费的全部 14 端点（workflow-snapshot/step-trace/self-check/org-status/flows-status/cycle-list/cycle-state/hitl-audit/api/ledger×2/invocations/live/skill-health/skill-status/governance-budget）在桌面宿主 57200 带 `X-ANIC-Workspace` 头逐一验证通过（v0.30.0 host）。
+
+### ② token 边界穷尽（UI 目验转用户动作项）
+- GUI 面一切路径 401：token 只在宿主启动时打印给用户。穷尽通道：profiles 目录/`~/.dsh/logs`/Electron userData（logs/leveldb/Session Storage/Cookies/webview partitions）/Authorization 头三形态/浏览器进程命令行/8326 端口（LLM gateway 非 GUI）——全部不可得。
+- 结论：桌面 webview UI 目验只能用户人手完成；agent 等价验证 = API 面（数据层）+ 测试宿主 UI（渲染层，同一 client bundle）。
+
+### ③ 宿主生命周期时序发现（「侥幸正确」案例）
+- 桌面宿主 17468 于 18:23:57 启动载 v0.30.0 bundle；其 skill/status 返回 installedVersion:null 是旧 readSkillVersion 正则行为——旧缺陷碰巧产出可接受结果，掩盖了 cycle-31 才修复的正则缺陷。18:49 dist 已含修复（验证新锚点在/旧正则无），宿主下次重启生效。
+- 本地直测新代码：inline=2.1.0 / installed=2.1.0 双读正常。
+
+### ④ 文档：DSH多代兼容与双端适配.md 新增 §6 桌面端验证策略
+- §6.1 双宿主分工（测试宿主=每轮功能验证主场载最新 dist；桌面宿主=上一版本回归场，ESM import cache 进程级）；
+- §6.2 可达面与 token 边界（14/14 实测 + token 穷尽清单）；
+- §6.3 历史实测锚点（2026-10-16 12 工具 + 2026-10-18 14 端点）；原 §6/§7 顺延为 §7/§8，交叉引用同步。
+- 版本 0.31.0→0.31.1（文档+验证轮，无源码行为变更）。
+
 ## v0.31.0 — 2026-10-18
 
 cycle-31：**桌面宿主实弹验证轮**——等了 11 轮的 P2 桌面端窗口随宿主自然重启（57230→57200）打开；实弹 anic_* 工具链暴露并修复 1 个 P1 真缺陷 + 2 个传播缺陷。

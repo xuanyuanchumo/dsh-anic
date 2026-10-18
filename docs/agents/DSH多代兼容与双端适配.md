@@ -98,13 +98,35 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 1. **P2 · 桌面多会话工作区解析（cycle-20/21/22 已收口）**：`resolveWorkspaceRoots`（`src/host/snapshotRoute.ts`）claimed 头 `X-ANIC-Workspace` → knownRoots → `.cycles` 存在采信 → registry → sessions 首条 → cwd。客户端面板从首个成功快照响应学得工作区根并回带头（`src/client/WorkflowGraphPanel.ts:79-86`）；服务端 **cycle-21 修 native 域 7 路由、cycle-22 全域统一**——所有路由文件（cycle/ledger/skillInstall/dualBootstrap/segmentedLedger/selfInit/stackProbe/flows/governance/selfCheck/skillHealth/native/snapshot）handler 一律 `getWorkspaceRoot(req)`，写侧路由（install/repair/advance/append/init/band-detect 等）在多会话宿主上不再写到首条会话的工作区。
 2. **未验证**：`ctx.slots` 服务本体在 Host 包内的精确形状（客户端按官方 `ctx.slots.inject` 形态使用，双端实测可用）；0.3.x/0.4.x 真实 API 差异（无安装版可比对，靠 §2 能力探测覆盖）。
-3. **运行中桌面宿主的 bundle 陈旧性**：属宿主生命周期语义（进程启动时加载），非本插件缺陷；文档化即可。
+3. **运行中桌面宿主的 bundle 陈旧性**：属宿主生命周期语义（进程启动时加载），非本插件缺陷；文档化即可。cycle-32 系统化此结论（见 §6）。
 
-## 6. 工具展示层官方契约对齐（cycle-22）
+## 6. 桌面端验证策略（cycle-32 系统化）
+
+### 6.1 双宿主分工
+
+| 宿主 | 用途 | 生命周期 |
+|---|---|---|
+| 测试宿主（`scripts/start-dsh-test.mjs start`，3080） | **每轮功能验证的主场**——启动即载最新 `dist/`，token 可从 stdout 拿，Playwright/Chrome DevTools 可自动化 | 每轮启停，无状态 |
+| 桌面宿主（用户日常宿主，如 57200） | **上一版本回归场**——进程启动时载当时的 `dist/`，ESM import cache 进程级，build 后不重启则滞后一轮 | 长期存活，承载用户会话，agent 不可主动重启 |
+
+**推论**：开发期「build 后桌面宿主表现旧行为」不是缺陷而是时序。等真实用户 `npm install` 升级也会重启宿主——发布语义一致。
+
+### 6.2 桌面端可达面与 token 边界（2026-10-18 实测）
+
+- **API 面（免 token，全通）**：面板消费的全部 14 端点（workflow-snapshot/step-trace/self-check/org-status/flows-status/cycle-list/cycle-state/hitl-audit/api/ledger×2/invocations/live/skill-health/skill-status/governance-budget）在桌面宿主 57200 带 `X-ANIC-Workspace` 头逐一验证 **14/14 全 200**（v0.30.0 host）。注意快照路由是 `/anic/api/workflow-snapshot`（无裸 `/anic/snapshot`）。
+- **GUI 面（token 墙）**：一切页面路径 401 `dsh web authentication required`——token 只在宿主启动时打印给用户。穷尽过的通道（全部不可得）：profiles 目录无 token 文件、`~/.dsh/logs` 无当次启动日志、Electron userData（logs/Local Storage leveldb/Session Storage/Cookies/webview Partitions）无 token 键、Authorization 头三形态全 401、浏览器进程命令行无 URL（用户经桌面内部 webview `dsh-app://` scheme 访问）、8326 端口是 LLM gateway 非 GUI。
+- **结论**：桌面 webview **UI 目验**只能由用户人手完成（打开桌面窗口会话页 ANIC 标签）；agent 的等价验证 = API 面 14/14（数据层）+ 测试宿主 UI 验证（渲染层，同一份 client bundle）。此项列为用户动作项。
+
+### 6.3 桌面端历史实测锚点
+
+- 2026-10-16（cycle-13 期）：12 工具注册/4 路由 200/ANIC 标签并列——§3.1 记录。
+- 2026-10-18（cycle-32）：14/14 面板端点全通；宿主 17468 于 18:23:57 启动载 v0.30.0 bundle，其 `skill/status` 返回 `installedVersion:null` 是旧 `readSkillVersion` 正则行为（cycle-31 修复已入 18:49 dist，宿主下次重启生效）——**「侥幸正确」时序案例**：旧行为碰巧正确掩盖了正则缺陷。
+
+## 7. 工具展示层官方契约对齐（cycle-22）
 
 出处：`dsh-plugin-dev-kb/kb/site/reference/cookbook/adding-a-tool.md`（execute() 约定的规则 + 工具在 UI 中的渲染方式）。
 
-### 6.1 safeHandler 的 isError 语义修正
+### 7.1 safeHandler 的 isError 语义修正
 
 官方契约：**「抛出异常或返回无效值意味着 isError。基础设施故障请抛异常。成功的领域结果即使表示不理想的状态，也应写入规范值。」**
 
@@ -115,7 +137,7 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异常确为 infra），rethrow 安全；`skillToolNative.test.ts` 的 `not whitelisted` 领域拒绝断言不受影响。
 
-### 6.2 presentResult 第二参双形状归一化
+### 7.2 presentResult 第二参双形状归一化
 
 官方签名：`presentResult(args, { content, isError, meta? })`——`content` 是模型可见内容块数组，`meta` 由 `output.presentationMeta(args, value)` 派生持久化在 `result.meta`，回放时重现。宿主 0.2.0-rc.2 实测宽容直传原始 execute 返回值（`{ exitCode, stdout, stderr }`）。
 
@@ -126,15 +148,15 @@ grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异
 
 `terminalResult()` 入参先过归一化；5 个 gateway（skill/hitl/flows/evolution/autoFix）与 `tools.ts anic_evaluate` 的 presentResult 全部接线。**收益**：0.3+ 宿主收紧传参形状时卡片不碎（多代防御）。
 
-### 6.3 已知小偏差（未改，实测无害）
+### 7.3 已知小偏差（未改，实测无害）
 
 `presentCall` terminal 卡片字段官方为 `description`，dsh-anic 用 `summary`（`toolsSlot.ts TerminalCallView`）。宿主 0.2.0-rc.2 实测渲染正常——若未来版本卡片描述缺失，此处为第一排查点。
 
-## 7. 分发正典化：DSH 市场收录（cycle-23）
+## 8. 分发正典化：DSH 市场收录（cycle-23）
 
 > 出处：awesome-dsh-plugin/awesome-dsh-plugin `contributing.md`（2026-10-18 快照，web_fetch raw）+ dshmarket 1.66.35 README.zh.md + dsh-plugin-dev-kb `site/develop/basic/publish.md`。
 
-### 7.1 DSH 插件分发三通道
+### 8.1 DSH 插件分发三通道
 
 | 通道 | 机制 | dsh-anic 状态 |
 |---|---|---|
@@ -142,7 +164,7 @@ grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异
 | **市场可视安装** | dshmarket 插件读精选目录 awesome-dsh-plugin（`data/plugins/<owner>__<repo>.yml`）一键装 | 条目草稿 `docs/agents/marketplace-提交草稿.md`（待用户建 GitHub 仓后提 PR） |
 | **技能 CLI 分发** | `npx dsh-anic init <dir>`（技能-only 路径，不带 DSH 宿主） | **已实施**（cycle-25，`bin/anic-init.mjs` 134 行零依赖）：技能 65 文件 → `.dsh/skills/ai-native-iteration-cycle/` + `.cycles/` 骨架；`--framework claude|codex` 跨 harness；幂等三态；`--dry-run` 零写盘；e2e 由 `tests/unit/npxInit.test.ts` 守护（cycle-27 起 65 文件计数） |
 
-### 7.2 收录硬性要求（对照本仓库逐项）
+### 8.2 收录硬性要求（对照本仓库逐项）
 
 - `dsh.bundle` manifest ✓（只声明 `dsh.client` 会被 CI 拒——最常见的被拒形态）；
 - 真实可用代码 ✓；仓库满 1 天（CI 自动查）✓；活跃维护 ✓；
@@ -150,6 +172,6 @@ grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异
 - 描述必须与代码核实一致：**19 个 anic_ 工具 / 62 个 HTTP 路由**——工具或路由增减后必须同步条目与 README（条目草稿内已警示）；
 - peer 范围写显式预发布分支（`>=0.2.0-rc.2 <0.4.0-0`，§1.1 已是正确形态；contributing.md 的 semver 陷阱示例与本仓库实践一致）。
 
-### 7.3 screenshots.json 惯例（已落地）
+### 8.3 screenshots.json 惯例（已落地）
 
 仓库根 `screenshots.json` 声明 1-8 张相对路径图（不得以 `/` 开头、不得含 `..`、第三方图床拒绝）→ 市场详情页 App Store 式轮播。本仓库三张真机截图（`docs/screenshots/`，Playwright 于 3080 测试宿主拍摄）：`workflow-graph.png`（工作流图+实时调用流顶部）、`ledger-hitl.png`（门禁账本+HITL 队列）、`autonomy-gauge.png`（自主级仪表带+技能健康区）。截图更新只推本仓库，无需再动市场条目。
