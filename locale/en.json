@@ -79,7 +79,9 @@
     "statusOrphanedMark": "!",
     "statusDoneMark": "✓",
     "statusErrorMark": "✕",
-    "pollOff": "Auto refresh is off (flow.autoRefresh) — use Refresh to fetch manually"
+    "pollOff": "Auto refresh is off (flow.autoRefresh) — use Refresh to fetch manually",
+    "turnGroup": "Turn {turn} ({count} calls)",
+    "ungrouped": "Unlabeled turn ({count} calls)"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",
@@ -97,18 +99,6 @@
     "statusFailed": "failed",
     "statusSkipped": "skipped",
     "statusPending": "pending"
-  },
-  "flows": {
-    "workflowTab": "ANIC visualization tab",
-    "stepTrace": "Step-trace section",
-    "diagnostics": "Diagnostics panel",
-    "approvals": "Approval cards / HITL queue",
-    "autoRefresh": "Live polling / refresh",
-    "gateRecord": "Auto-record gate results to ledger",
-    "budgetEnforce": "Budget breaker",
-    "selfInit": "Self-init command",
-    "agentsOrchestration": "Agent orchestration flow",
-    "flowsView": "Flow state machine panel"
   },
   "diag": {
     "title": "Runtime self-check (Runtime INV Probes)",
@@ -230,5 +220,29 @@
     "badJson": "Request body is not valid JSON",
     "missingFields": "Missing gate/role fields",
     "cardNotFound": "Agent card not found: {cardId}"
+  },
+  "gauge": {
+    "ariaLabel": "Autonomy level: current {current}, configured {configured}, {breakers} breaker(s); performance band {band} ({trend})",
+    "divergent": "Configured {configured}, actually running {current} (downgraded or pending)",
+    "breakers": "{count} breaker(s)",
+    "noBreakers": "No breakers",
+    "bandChip": "Band {band} · {trend}",
+    "recommended": "Trust model recommends: {band}",
+    "sparkline": "Trend line of the last 12 scores"
+  },
+  "health": {
+    "title": "Skill health: ",
+    "summary": " {total} invocations · overall success {rate}",
+    "empty": "No invocation history yet (FlowTracker empty) — health analysis appears after skill scripts are invoked.",
+    "successRate": "Success rate",
+    "timeoutRate": "Timeout rate",
+    "avgDuration": "Average duration",
+    "suggestionsTitle": "Improvement suggestions:",
+    "levelHealthy": "Healthy",
+    "levelDegraded": "Degraded",
+    "levelSlow": "Slow",
+    "levelExpensive": "Expensive",
+    "levelInsufficient": "Insufficient samples",
+    "levelUnused": "Unused"
   }
 }

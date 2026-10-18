@@ -85,4 +85,60 @@ describe('renderInvocations（动态白盒分区）', () => {
     expect(iFirst).toBeGreaterThan(-1);
     expect(iSecond).toBeGreaterThan(iFirst); // 渲染层不重排：feed 给什么序就什么序
   });
+
+  // ── cycle-20（P2）：turn/step 折叠分组 ──
+  it('全部条目无 turn 元数据 → 平铺模式（零回归面：不出现 details 分组）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', status: 'done' }),
+      inv({ callId: 'b', status: 'done' }),
+    ]), null));
+    expect(html).toContain('data-anic-invocation-list');
+    expect(html).not.toContain('data-anic-turn-group');
+    expect(html).not.toContain('<details');
+    // 平铺与改造前同构：行内直接是 data-anic-invocation
+    expect(html).toContain('data-anic-invocation="a"');
+    expect(html).toContain('data-anic-invocation="b"');
+  });
+
+  it('有 turn 元数据 → 按组折叠：turn 降序、最新组默认展开、组内行序=feed 序', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'newer', turn: 2, step: 1 }),
+      inv({ callId: 'older-a', turn: 1, step: 3 }),
+      inv({ callId: 'older-b', turn: 1, step: 1 }),
+    ]), null));
+    expect(html).toContain('data-anic-turn-group="t2"');
+    expect(html).toContain('data-anic-turn-group="t1"');
+    // 最新组（t2）默认展开——open 属性出现在第一个 details 上
+    const firstDetails = html.indexOf('<details');
+    const t2Idx = html.indexOf('data-anic-turn-group="t2"');
+    expect(firstDetails).toBeGreaterThan(-1);
+    expect(html.slice(firstDetails, firstDetails + 200)).toContain('open');
+    expect(t2Idx).toBeGreaterThan(firstDetails);
+    expect(t2Idx).toBeLessThan(firstDetails + 200);
+    // 组内序=feed 序：older-a 先于 older-b（渲染层不重排契约延伸到组内）
+    const ia = html.indexOf('data-anic-invocation="older-a"');
+    const ib = html.indexOf('data-anic-invocation="older-b"');
+    expect(ia).toBeGreaterThan(-1);
+    expect(ib).toBeGreaterThan(ia);
+    // 分组摘要带计数
+    expect(html).toContain('Turn 2');
+    expect(html).toContain('2 次调用');
+  });
+
+  it('混合元数据：无 turn 条目归「未分组」组殿后（不丢弃任何事实）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'with-turn', turn: 3, step: 1 }),
+      inv({ callId: 'no-turn' }),
+    ]), null));
+    expect(html).toContain('data-anic-turn-group="t3"');
+    expect(html).toContain('data-anic-turn-group="ungrouped"');
+    // 未分组殿后
+    const t3 = html.indexOf('data-anic-turn-group="t3"');
+    const un = html.indexOf('data-anic-turn-group="ungrouped"');
+    expect(t3).toBeGreaterThan(-1);
+    expect(un).toBeGreaterThan(t3);
+    // 无 turn 条目仍在渲染输出里
+    expect(html).toContain('data-anic-invocation="no-turn"');
+    expect(html).toContain('未标注 turn');
+  });
 });

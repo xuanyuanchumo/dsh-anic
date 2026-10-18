@@ -169,12 +169,14 @@ Access-Control-Allow-Origin: *
 | POST | `/anic/iterate` | 自举与技能 |
 | POST | `/anic/skill/install` | 自举与技能 |
 | GET | `/anic/skill/status` | 自举与技能 |
+| POST | `/anic/skill/repair` | 自举与技能 |
+| GET | `/anic/skill/health` | 自举与技能 |
 | POST | `/anic/self/dual-evaluate` | 自举与技能 |
 | POST | `/anic/self/dual-advance` | 自举与技能 |
 | GET | `/anic/self/dual-status` | 自举与技能 |
 | GET | `/anic/api/truth-audit` | 自举与技能 |
 
-共 60 个端点（与源码中 `'/anic/...'` 路径字面量的去重计数一致；复验命令：`Select-String -Path "src\host\routes\*.ts","src\host\snapshotRoute.ts" -Pattern "'(/anic/[^']+)'" -AllMatches` 去重）。
+共 62 个端点（与源码中 `'/anic/...'` 路径字面量的去重计数一致；复验命令：`Select-String -Path "src\host\routes\*.ts","src\host\snapshotRoute.ts" -Pattern "'(/anic/[^']+)'" -AllMatches` 去重）。v0.20.0 追认 repair、v0.21.0 新增 health（cycle-19 的 repair 漏登本表即计数纪律注记的又一次印证——本表同步必须进任务清单）。
 
 > **计数纪律**：本索引曾于 cycle-16 前失同步（47 vs 58，flows 域 10 条与 invocations/autonomy 3 条未登记；cycle-16 收口时又追认了并行新增的 tech-debt/list + consume 至 60）。修改路由的提交若不同步本表，即为文档债务复发——建议后续把「本表 ⇄ 源码路径字面量」比对固化为契约测试（cycle-16 审计报告 anic-docs-audit.md §5 结构性根因）。
 

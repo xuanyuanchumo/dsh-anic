@@ -79,7 +79,9 @@
     "statusOrphanedMark": "!",
     "statusDoneMark": "✓",
     "statusErrorMark": "✕",
-    "pollOff": "自动刷新已关闭（flow.autoRefresh）—— 点「刷新」手动拉取"
+    "pollOff": "自动刷新已关闭（flow.autoRefresh）—— 点「刷新」手动拉取",
+    "turnGroup": "Turn {turn}（{count} 次调用）",
+    "ungrouped": "未标注 turn（{count} 次调用）"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",
@@ -97,18 +99,6 @@
     "statusFailed": "失败",
     "statusSkipped": "跳过",
     "statusPending": "待定"
-  },
-  "flows": {
-    "workflowTab": "ANIC 可视化标签",
-    "stepTrace": "白盒流程分区",
-    "diagnostics": "诊断面板",
-    "approvals": "批准卡/HITL 队列",
-    "autoRefresh": "live 轮询/刷新",
-    "gateRecord": "门禁结果自动入账本",
-    "budgetEnforce": "预算熔断",
-    "selfInit": "自举命令",
-    "agentsOrchestration": "子代理编排流",
-    "flowsView": "流程状态机面板"
   },
   "diag": {
     "title": "运行时自检（Runtime INV Probes）",
@@ -164,7 +154,8 @@
     "ariaLabel": "Cycle 时间线：共 {total} 轮，最新 cycle-{latest}"
   },
   "flows": {
-    "workflowTab": "工作流标签",    "stepTrace": "步骤追踪",
+    "workflowTab": "工作流标签",
+    "stepTrace": "步骤追踪",
     "diagnostics": "诊断",
     "approvals": "批准",
     "autoRefresh": "自动刷新",
@@ -229,5 +220,29 @@
     "badJson": "请求体不是合法 JSON",
     "missingFields": "缺少 gate/role 字段",
     "cardNotFound": "未找到 agent 卡 {cardId}"
+  },
+  "gauge": {
+    "ariaLabel": "自主级：当前 {current}，配置 {configured}，熔断 {breakers} 处；性能带 {band}（{trend}）",
+    "divergent": "配置为 {configured}，实际运行 {current}（降级或待生效）",
+    "breakers": "{count} 处熔断",
+    "noBreakers": "无熔断",
+    "bandChip": "性能带 {band} · {trend}",
+    "recommended": "信任模型建议：{band}",
+    "sparkline": "最近 12 个分数点的趋势折线"
+  },
+  "health": {
+    "title": "技能健康：",
+    "summary": " {total} 次调用 · 总成功率 {rate}",
+    "empty": "尚无调用历史（FlowTracker 无记录）——技能脚本被调用后此处呈现健康分析。",
+    "successRate": "成功率",
+    "timeoutRate": "超时率",
+    "avgDuration": "平均耗时",
+    "suggestionsTitle": "改进建议：",
+    "levelHealthy": "健康",
+    "levelDegraded": "退化",
+    "levelSlow": "缓慢",
+    "levelExpensive": "高耗时",
+    "levelInsufficient": "样本不足",
+    "levelUnused": "未使用"
   }
 }

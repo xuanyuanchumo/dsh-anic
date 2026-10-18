@@ -94,8 +94,58 @@ function statusText(inv: InvocationJson): string {
   return t('live.statusDone');
 }
 
+/** 单条调用行（分组/平铺共用；既有 data-anic-* 标记是测试与消费方契约，不改名）。 */
+function invocationRow(inv: InvocationJson): ReactElement {
+  return createElement(
+    'div',
+    {
+      'data-anic-invocation': inv.callId,
+      'data-anic-invocation-status': inv.status,
+      key: inv.callId,
+      style: { display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, fontFamily: 'ui-monospace, monospace', color: token('anic-text') },
+    },
+    // 状态点：in-flight 走脉冲动画类（普通类名走 anic-live-dot）。
+    createElement('span', {
+      'data-anic-invocation-dot': inv.status,
+      className: inv.status === 'in-flight' ? 'anic-live-dot' : undefined,
+      style: { width: 7, height: 7, borderRadius: '50%', background: statusColor(inv.status), flexShrink: 0, alignSelf: 'center' },
+    }),
+    createElement('span', { style: { color: token('anic-text-strong') } }, inv.name),
+    createElement('span', null, statusText(inv)),
+    typeof inv.durationMs === 'number' ? createElement('span', { style: { color: token('anic-text-dim') } }, `${String(inv.durationMs)}ms`) : null,
+    typeof inv.turn === 'number' && typeof inv.step === 'number' ? createElement('span', { style: { color: token('anic-text-faint') } }, `t${String(inv.turn)}/s${String(inv.step)}`) : null,
+    createElement('span', { style: { color: token('anic-text-faint'), overflowWrap: 'anywhere' } },
+      inv.error ? `${inv.error.name}(${inv.error.code})${inv.error.reason ? `: ${inv.error.reason.slice(0, 120)}` : ''}` : inv.argumentsPreview),
+  );
+}
+
+/**
+ * cycle-20（P2）：turn/step 折叠分组。任一条目带 turn 元数据才启用分组；
+ * 全部缺失（旧宿主/旧 feed）→ 返回 null 走原平铺——零回归面。
+ *
+ * 组间序：turn 降序（feed 最新在前，最新 turn 的组排头并默认展开，其余折叠
+ * 收纳历史）；无 turn 标注的条目归「未分组」组殿后（不丢弃任何事实）。
+ * 原生 details/summary：无 JS 状态、静态标记可渲染、键盘可达。
+ */
+function groupByTurn(invocations: InvocationJson[]): Array<{ turn: number | null; items: InvocationJson[] }> | null {
+  if (!invocations.some((inv) => typeof inv.turn === 'number')) return null;
+  const buckets = new Map<number | null, InvocationJson[]>();
+  for (const inv of invocations) {
+    const key = typeof inv.turn === 'number' ? inv.turn : null;
+    const arr = buckets.get(key);
+    if (arr) arr.push(inv);
+    else buckets.set(key, [inv]);
+  }
+  const turnKeys = [...buckets.keys()].filter((k): k is number => k !== null).sort((a, b) => b - a);
+  const groups = turnKeys.map((k) => ({ turn: k as number | null, items: buckets.get(k) ?? [] }));
+  const ungrouped = buckets.get(null);
+  if (ungrouped) groups.push({ turn: null, items: ungrouped });
+  return groups;
+}
+
 /** 渲染实时调用分区。data 为 null 且无错误 = 尚未轮询到（不伪造空态）。 */
 export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true): ReactElement {
+  const groups = data === null ? null : groupByTurn(data.invocations);
   return createElement(
     'div',
     { 'data-anic-invocations': 'section', style: { borderTop: `1px solid ${token('anic-border')}` } },
@@ -124,27 +174,22 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
             autoRefreshOn
               ? null
               : createElement('div', { 'data-anic-invocations-autorefresh-off': 'true', style: { fontSize: 10, color: token('anic-warn-text'), paddingBottom: 2 } }, t('live.pollOff')),
-            ...data.invocations.map((inv) => createElement(
-              'div',
-              {
-                'data-anic-invocation': inv.callId,
-                'data-anic-invocation-status': inv.status,
-                key: inv.callId,
-                style: { display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, fontFamily: 'ui-monospace, monospace', color: token('anic-text') },
-              },
-              // 状态点：in-flight 走脉冲动画类（普通类名走 anic-live-dot）。
-              createElement('span', {
-                'data-anic-invocation-dot': inv.status,
-                className: inv.status === 'in-flight' ? 'anic-live-dot' : undefined,
-                style: { width: 7, height: 7, borderRadius: '50%', background: statusColor(inv.status), flexShrink: 0, alignSelf: 'center' },
-              }),
-              createElement('span', { style: { color: token('anic-text-strong') } }, inv.name),
-              createElement('span', null, statusText(inv)),
-              typeof inv.durationMs === 'number' ? createElement('span', { style: { color: token('anic-text-dim') } }, `${String(inv.durationMs)}ms`) : null,
-              typeof inv.turn === 'number' && typeof inv.step === 'number' ? createElement('span', { style: { color: token('anic-text-faint') } }, `t${String(inv.turn)}/s${String(inv.step)}`) : null,
-              createElement('span', { style: { color: token('anic-text-faint'), overflowWrap: 'anywhere' } },
-                inv.error ? `${inv.error.name}(${inv.error.code})${inv.error.reason ? `: ${inv.error.reason.slice(0, 120)}` : ''}` : inv.argumentsPreview),
-            )),
+            groups === null
+              // 平铺模式（零 turn 元数据）：与分组改造前逐字节同构——既有断言面。
+              ? data.invocations.map((inv) => invocationRow(inv))
+              // 分组模式：details 折叠，最新组展开；组内序=feed 序（不重排）。
+              : groups.map((g, gi) => createElement(
+                  'details',
+                  {
+                    'data-anic-turn-group': g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
+                    open: gi === 0,
+                    key: g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
+                    style: { borderTop: `1px dashed ${token('anic-border')}`, paddingTop: 2 },
+                  },
+                  createElement('summary', { style: { fontSize: 10, color: token('anic-text-faint'), cursor: 'pointer', userSelect: 'none' } },
+                    g.turn === null ? t('live.ungrouped', { count: String(g.items.length) }) : t('live.turnGroup', { turn: String(g.turn), count: String(g.items.length) })),
+                  ...g.items.map((inv) => invocationRow(inv)),
+                )),
           ),
   );
 }

@@ -30,6 +30,9 @@ import { renderCyclesTimeline, isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_
 import { renderLedger, type LedgerListJson, type LedgerVerifyJson } from './features/ledger/renderLedger.ts';
 import { renderHitl, type HitlAuditJson } from './features/hitl/renderHitl.ts';
 import { governanceTargets } from './governanceTargets.ts';
+// cycle-20（P2/P3 收口）：自主级仪表带 + 技能健康面板。
+import { renderAutonomyGauge } from './features/autonomy/renderAutonomyGauge.ts';
+import { renderSkillHealth, isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
 import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { renderSectionWrap, renderSectionDisabled } from './components/sectionShell.ts';
@@ -67,6 +70,8 @@ export function WorkflowGraphPanel(): ReactElement {
   const [ledgerList, setLedgerList] = useState<LedgerListJson | null>(null);
   const [ledgerVerify, setLedgerVerify] = useState<LedgerVerifyJson | null>(null);
   const [hitlAudit, setHitlAudit] = useState<HitlAuditJson | null>(null);
+  // cycle-20（P3）：技能健康面板数据源（FlowTracker 调用历史的分析面，4s 档）。
+  const [skillHealth, setSkillHealth] = useState<SkillHealthJson | null>(null);
   // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
   // 机制见 components/sectionIds.ts（模块计数 + useRef 惰性初始化，不用 useId）。
   const prefsPanelId = idOf(PREFS_PANEL_ID_BASE, usePanelInstanceSeq());
@@ -127,6 +132,8 @@ export function WorkflowGraphPanel(): ReactElement {
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => setCycleState(v as CycleStateJson) },
     // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
     ...governanceTargets({ setLedgerList, setLedgerVerify, setHitlAudit }),
+    // cycle-20（P3）：技能健康并入 4s 档（与治理证据簇同节奏——都属健康/证据观测）。
+    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => setSkillHealth(v as SkillHealthJson) },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
@@ -197,7 +204,13 @@ export function WorkflowGraphPanel(): ReactElement {
           unavailableText: t('panel.diagUnavailable'),
         })
       : renderSectionDisabled({ anchorKey: 'data-anic-diagnostics-disabled', text: t('panel.diagDisabled') }),
+    // cycle-20（P2）：自主级仪表带——org 全景的"一眼可读"形态，放 org 文本
+    // 分区前（仪表带是总览，文本行是明细；两区消费同一 orgStatus 数据）。
+    orgStatus ? createElement('div', { 'data-anic-gauge-wrap': 'true' }, renderAutonomyGauge(orgStatus)) : null,
     orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } }, renderOrgStatus(orgStatus)) : null,
+    // cycle-20（P3）：技能健康面板——FlowTracker 调用历史的健康分析面，
+    // 旅程排序在 org 全景后、流程状态机前（「组织状态」→「技能健康」→「流程白盒」）。
+    renderSkillHealth(skillHealth),
     // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
     // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
     flowsViewOn

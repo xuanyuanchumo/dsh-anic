@@ -172,6 +172,18 @@ export const SKILL_REPAIR_ROUTE  = '/anic/skill/repair';    // skillInstallRoute
 
 repair 语义：verify 找出 mismatches → 逐个从 inline 源重装（源缺失则跳过）→ 重写清单 → 复验（返回的 `verify` 是修复后结果，`ok:true` 表示收敛）。**extras（安装目录多出的文件）只报告不删除**——用户或其他工具放入的文件不属本插件删除权限边界。inline 不可用时 repair 不动作。
 
+### 3.4 GET `/anic/skill/health`（`skillHealthRoute.ts`，v0.21.0 新增）
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 405 | 方法非 GET | `{ error: 'GET only' }` |
+| 404 | 无工作区 | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE', ... } }` |
+| 200 | 健康报告 | `SkillHealthReport` |
+
+技能健康观测面（ui-domain-plan P3 收口）：FlowTracker（`.cycles/flow-tracker.json` 技能调用历史）→ `analyzeSkillHealth` 纯函数 → `{ scripts: [{script, level, total, successRate, timeoutRate, avgDurationMs, lastInvoked}], suggestions: [{id, severity, script, description, action}], overallSuccessRate, totalInvocations, generatedAt }`。与 `anic_status` 工具返回的 `health`/`healthSummary` 是**同一份分析**（阈值单一事实源 `continuousLearning.ts`），本端点把 HTTP 面板接进来。
+
+语义要点：`level` 六级 `healthy|degraded|slow|expensive|insufficient|unused`（判定链 insufficient → slow → degraded → expensive → healthy，先具体后一般）；无 `.cycles`/无 tracker → 200 空态 `totalInvocations: 0`（「没有调用历史」是合法观测结果，不是 500）。工作区解析带 `X-ANIC-Workspace` 请求头（P2 桌面多会话契约）。
+
 ---
 
 ## 4. dual 域 · 双自举

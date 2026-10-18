@@ -26,6 +26,7 @@ import { registerGovernanceRoute } from './governanceRoute.ts';
 import { registerSelfBootstrapRoutes } from './selfBootstrapRoute.ts';
 import { registerSkillRoutes } from './skillRoute.ts';
 import { registerSkillInstallRoute } from './skillInstallRoute.ts';
+import { registerSkillHealthRoute } from './skillHealthRoute.ts';
 import { registerNativeRoute } from './nativeRoute.ts';
 import { registerDualBootstrapRoute } from './dualBootstrapRoute.ts';
 import { registerTruthAuditRoute } from './truthAuditRoute.ts';
@@ -100,6 +101,9 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
   disposers.push(...registerSelfBootstrapRoutes(c, send));
   disposers.push(...registerSkillRoutes(c, send));
   disposers.push(...registerSkillInstallRoute(ctx, { send, getWorkspaceRoot }));
+  // 技能健康观测面（cycle-20 P3 收口）：FlowTracker → analyzeSkillHealth。
+  // getWorkspaceRoot 传 req 形态（面板 X-ANIC-Workspace 头参与解析）。
+  disposers.push(...registerSkillHealthRoute(ctx, { send, getWorkspaceRoot }));
 
   // ── native 域（7 脚本原生等价物）──
   if (agentCardsDir) {

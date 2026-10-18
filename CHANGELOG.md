@@ -1,6 +1,32 @@
 # dsh-anic CHANGELOG
 
-## v0.20.0 — 2026-10-18
+## v0.21.0 — 2026-10-18
+
+cycle-20：**自主性与健康白盒轮**——ui-domain-plan 研究报告三缺口一次收口：P2 自主级仪表带 + P2 invocations turn/step 折叠分组 + P3 技能健康面板。全部属「AI 自主权/技能健康动态白盒」主线。
+
+### P2：自主级仪表带（`features/autonomy/renderAutonomyGauge.ts`）
+- org 全景的"一眼可读"形态：L1-L4 刻度条 + 当前档实底粗字 + 配置档虚线描边双指针（降级分歧一眼可辨）+ 熔断徽标（✓/⚠ 字形双通道）+ 性能带芯片 + 信任模型建议档 + 分数火花线（SVG polyline，最近 12 点）。
+- 数据面零新端点：消费既有 org-status 轮询；`orgStatus.ts` band 加 `recent: number[]`（slice(-12) 分数序列）。
+- 刻度条整体 role=img + aria-label 全文播报（AT 单次播报非碎片）。
+
+### P2：invocations turn/step 折叠分组（`renderInvocations.ts`）
+- 有 turn 元数据 → 按 turn 分组折叠（原生 details/summary 无 JS 状态）；turn 降序、最新组默认展开；无 turn 条目归「未分组」殿后不丢弃。
+- 全部条目无 turn → 平铺模式与改造前逐字节同构（零回归面：旧宿主/旧 feed 不受影响）。
+- 单行渲染抽为 `invocationRow` 局部函数（分组/平铺共用，data-anic-* 契约标记不变）。
+
+### P3：技能健康面板（`features/skillhealth/` + `skillHealthRoute.ts`）
+- 新 HTTP 端点 `GET /anic/skill/health`：FlowTracker 调用历史 → `analyzeSkillHealth` 纯函数 → SkillHealthReport。与 `anic_status` 工具（LLM 面）同一份分析——阈值单一事实源 `continuousLearning.ts`，两个消费面。
+- 面板渲染：六级等级字形+色双通道（✓/✕/⏱/⌛/○/·）、成功率微条形、超时率徽标、建议列表 severity 着色。空历史如实引导（totalInvocations=0 → 200 空态，不是 500）。
+- 路由独立成域（不塞 skillInstallRoute：安装生命周期≠运行健康观测）；getWorkspaceRoot 带 req（P2 桌面多会话契约）。
+
+### 附带修复
+- **火花线 null 防御（真机发现）**：宿主 band-history.json 是代码质量带历史（entry 无 `score` 字段），`recent=[null,null]` 时火花线逐点过滤非有限值，有效点 <2 不画线（不伪造平线）。
+- **locale 双 flows 键地雷永久拆除**：zh.json 历史存在文本级两个 `flows` 段（JSON 解析 last-wins 掩盖，PowerShell ConvertFrom-Json first-wins 会静默降级 25 键→11 键）。本轮 JSON 重写后单段 24 键，运行时语义与 HEAD 逐键一致（node last-wins 复核）。
+- API参考.md 端点索引 60→62（追认 cycle-19 的 repair + 本轮 health——计数纪律注记再次印证，本表同步已进任务清单）。
+
+### 测试
+- 新增 `autonomyGauge.test.ts`（8+1 真机防御）/`skillHealthPanel.test.ts`（8）/`skillHealthRoute.test.ts`（6）；`invocationsRender.test.ts` 追加分组用例 3 个（11 用例）；`snapshotRoute.test.ts` ALL_ROUTES 加 health（62 条对齐源码字面量计数）。
+
 
 cycle-19：**分发完整性轮**——eco 研究报告最后一个 P0 收口：安装清单 + sha256 完整性校验 + doctor/repair（对标 ECC doctor/repair）。`autoInstallSkill` 从「盲拷贝 64 文件」升级为「安装即建锚」，把「已安装副本 vs assets/skill 内联副本」的字节对比从评估期提前到安装期。
 

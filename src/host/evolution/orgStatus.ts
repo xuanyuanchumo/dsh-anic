@@ -16,7 +16,7 @@ export interface OrgStatus {
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
   autonomy: { currentBand: string; configuredBand: string; breakers: string[]; action: string };
-  band: { current: string; trend: string; weViolations: WeViolation[] };
+  band: { current: string; trend: string; weViolations: WeViolation[]; recent: number[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
 }
@@ -86,13 +86,16 @@ export function runOrgStatus(workspaceRoot: string, options: {
   // WE 8 规则（cycle-7 移植）的可观测面：org 面板此前只显示 current/trend，
   // 违例事实被采集却不可见 —— 动态白盒要求「能涉及的方面都可见」。
   const weViolations = detectWeViolations(bandHistory.map((e) => e.score));
+  // cycle-20（P2 仪表带）：最近 12 个分数点——趋势火花线的数据面。
+  // 空历史 → 空数组（客户端省略火花线，不伪造平线）。
+  const recentScores = bandHistory.slice(-12).map((e) => e.score);
 
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
     trust: { scores: trustScores, recommendedBand },
     autonomy: { currentBand: band, configuredBand, breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id), action },
-    band: { current: bandCurrent, trend: bandTrend, weViolations },
+    band: { current: bandCurrent, trend: bandTrend, weViolations, recent: recentScores },
     flows: options.flows ?? { selfInit: true, agentsOrchestration: true },
     timestamp: new Date().toISOString(),
   };

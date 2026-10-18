@@ -29,7 +29,8 @@ export interface OrgStatusJson {
   /** configuredBand 为 P1 修复新增的可选字段：配置声明的自主级（与 currentBand 分离，降级时可观测） */
   autonomy: { currentBand: string; configuredBand?: string; breakers: string[]; action: string };
   /** weViolations 为 cycle-9 新增的可选字段：WE 8 规则违例（bandDetector 检测结果的可观测面）。rule 是数字 1-8（技能同形）。 */
-  band: { current: string; trend: string; weViolations?: Array<{ rule: number; index?: number; value?: number; desc?: string }> };
+  /** recent 为 cycle-20 仪表带新增：最近 12 个分数点（火花线数据面；空历史=空数组）。 */
+  band: { current: string; trend: string; weViolations?: Array<{ rule: number; index?: number; value?: number; desc?: string }>; recent?: number[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
 }
