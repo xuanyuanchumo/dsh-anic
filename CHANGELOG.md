@@ -1,5 +1,22 @@
 # dsh-anic CHANGELOG
 
+## v0.20.0 — 2026-10-18
+
+cycle-19：**分发完整性轮**——eco 研究报告最后一个 P0 收口：安装清单 + sha256 完整性校验 + doctor/repair（对标 ECC doctor/repair）。`autoInstallSkill` 从「盲拷贝 64 文件」升级为「安装即建锚」，把「已安装副本 vs assets/skill 内联副本」的字节对比从评估期提前到安装期。
+
+### P0：安装清单 + 完整性校验 + doctor/repair
+
+- **`src/host/skillIntegrity.ts`**（新域模块）：`buildSkillManifest`（path+size+sha256+版本锚点，POSIX 相对路径跨平台稳定）；`verifySkillInstall`（doctor 语义——inline 权威直比优先，manifest 兜底，双参考系缺失时 ok=false 不静默放行）；`repairSkillInstall`（repair 语义——只重装差异文件，extras 只报告不删除：用户/其他工具放入的文件不属本插件删除权限）；`skillIntegritySummary`（anic_status 消费面）。清单文件 `.anic-manifest.json` 是插件私有元数据（隐藏文件，自身被排除在清单外）。
+- **`skillInvoker.ts`**：`autoInstallSkill` 安装后写清单并返回 manifest 摘要；新增 `inlineSkillRoot()` 真内联解析（单一事实源）。**顺带修复**：`skillInstallRoute` 此前借 `resolveSkillScriptsDir(process.cwd())` 间接取内联目录——cwd 邻近存在外部副本时会解析到非内联目录（潜在错参比）。
+- **路由**：`GET /anic/skill/status` 增 `integrity` 字段（doctor 并入 status，不另设端点避免动词通胀）；新增 `POST /anic/skill/repair`。
+- **工具**：`anic_install` 返回 `integrity`（安装后立即校验，漂移当场暴露）；新增 `anic_skill_repair` 工具（SDO 触发词：修复技能/repair skill/技能损坏/完整性）；`anic_status` 返回 `skillIntegrity` 摘要。
+- **测试**：`tests/unit/skillIntegrity.test.ts` 15 用例——真 inline（64 文件）× 真 tmp 安装目录全链：清单构建/往返/损坏降级 → 安装即建锚 → 三种篡改（hash 等长替换/size 截断/missing 删除）逐一检出 → repair 只重装差异 → extras 权限边界 → summary 消费面。
+
+### 其他
+
+- truthAudit T3 守卫两次拦截 `tools.ts` 超长（251/252 行），修剪至 249 行（T3 结构守卫有效性实证）。
+- snapshotRoute 契约测试 ALL_ROUTES 增 `/anic/skill/repair`。
+
 ## v0.19.0 — 2026-10-18
 
 cycle-18：**治理证据白盒轮**——B2 双分区（账本事件流 + HITL 审计队列）落地，`flow.approvals` 开关 15 轮来首次接线真实 UI（声明与实现断层收口）。桌面宿主重启后全链补验（遗留 #1 收口）：junction 双端 ✓ + self-check 6/6 + anic_* 工具实时响应 + J0 8/8（新测试宿主）。零新增 host 路由（纯消费既有数据面）。

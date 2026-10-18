@@ -123,17 +123,20 @@ parseGateVerdict(stdout) // /(?:Overall|GATE|Verdict)[:\s]+(PASS|FAIL|doubt|SKIP
 
 ## 3. 技能安装
 
-`src/host/routes/skillInstallRoute.ts`。
+`src/host/routes/skillInstallRoute.ts` + `src/host/skillIntegrity.ts`（cycle-19 起：安装即建锚——清单 + sha256 完整性校验 + doctor/repair）。
 
 ```ts
-export const SKILL_INSTALL_ROUTE = '/anic/skill/install';   // skillInstallRoute.ts:15
-export const SKILL_STATUS_ROUTE  = '/anic/skill/status';    // skillInstallRoute.ts:16
+export const SKILL_INSTALL_ROUTE = '/anic/skill/install';   // skillInstallRoute.ts
+export const SKILL_STATUS_ROUTE  = '/anic/skill/status';    // skillInstallRoute.ts
+export const SKILL_REPAIR_ROUTE  = '/anic/skill/repair';    // skillInstallRoute.ts（v0.20.0 新增）
 ```
 
 辅助函数：
 
-- `readSkillVersion(dir)`：读 `join(dir, 'SKILL.md')`，匹配 `/version[:\s]+v?([0-9]+\.[0-9]+\.[0-9]+)/i`。
-- `getInlineSkillDir()`：`join(resolveSkillScriptsDir(process.cwd())!, '..')` —— **相对宿主进程 cwd 解析**，不是工作区。这决定了「内联技能」指的是插件自带的那一份。
+- `readSkillVersion(dir)`（`skillIntegrity.ts`）：读 `join(dir, 'SKILL.md')`，匹配 `/version[:\s]+v?([0-9]+\.[0-9]+\.[0-9]+)/i`。
+- `inlineSkillRoot()`（`skillInvoker.ts`）：真内联解析（`inlineSkillScriptsDir()` 向上找 `assets/skill/scripts` 带 `init-workflow.mjs` 哨兵），**绝不落入外部副本**——取代旧的 `getInlineSkillDir()`（借 `resolveSkillScriptsDir(process.cwd())`，cwd 邻近有外部副本时会解析错，v0.20.0 修复）。
+- **完整性域**（`skillIntegrity.ts`）：`buildSkillManifest(dir)`（path+size+sha256+版本锚点）；`verifySkillInstall(installedDir, inlineDir?)`（doctor——inline 权威直比优先，manifest 兜底，双缺时 `ok:false` 不静默放行）；`repairSkillInstall`（只重装差异文件，extras 只报告不删除）；`skillIntegritySummary`（anic_status 消费面）。
+- 安装清单 `.anic-manifest.json` 落在已安装目录根部，是插件私有元数据（隐藏文件，自身被排除在清单外，技能脚本不读不写）。
 
 ### 3.1 POST `/anic/skill/install`（`skillInstallRoute.ts:47`）
 
@@ -141,13 +144,13 @@ export const SKILL_STATUS_ROUTE  = '/anic/skill/status';    // skillInstallRoute
 | --- | --- | --- |
 | 405 | 方法非 POST | `{ error: 'POST only' }` |
 | 404 | 无工作区 | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }` |
-| 200 | 已安装且两侧版本都非 null 且相等 | `{ alreadyInstalled: true, version: installedVersion, path: join(root, '.dsh', 'skills', 'ai-native-iteration-cycle') }` |
+| 200 | 已安装且两侧版本都非 null 且相等 | `{ alreadyInstalled: true, version: installedVersion, path: …, integrity }` |
 | 500 | `autoInstallSkill(root)` 未成功 | `{ error: { code: 'ANIC_ROUTE_SKILL_INSTALL_FAILED', message: result.error ?? 'unknown error' } }` |
-| 200 | 安装成功 | `{ installed: true, version: inlineVersion, path: result.path, upgraded: alreadyInstalled }` |
+| 200 | 安装成功 | `{ installed: true, version: inlineVersion, path: result.path, upgraded: alreadyInstalled, integrity }` |
 
 **`upgraded` 的含义**：`alreadyInstalled` 为 true 但版本不等时走这条分支，因此 `upgraded: true` 表示「覆盖了一个旧版本」。
 
-**安装目录固定**：`<root>/.dsh/skills/ai-native-iteration-cycle`。
+**安装目录固定**：`<root>/.dsh/skills/ai-native-iteration-cycle`。安装成功即写清单（安装即建锚），响应体 `integrity` 为安装后立即校验结果（`reference:'inline'`）。
 
 ### 3.2 GET `/anic/skill/status`（`skillInstallRoute.ts:84`）
 
@@ -155,9 +158,19 @@ export const SKILL_STATUS_ROUTE  = '/anic/skill/status';    // skillInstallRoute
 | --- | --- |
 | 405 | 方法非 GET → `{ error: 'GET only' }` |
 | 404 | 无工作区 → `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE', ... } }` |
-| 200 | `{ installed, installedVersion, scriptsResolved, scriptsSource, inlineAvailable, inlineVersion }` |
+| 200 | `{ installed, installedVersion, scriptsResolved, scriptsSource, inlineAvailable, inlineVersion, integrity }` |
 
-**这是判断「技能是否可用」的唯一端点** —— `scriptsResolved` / `inlineAvailable` 两个布尔分别对应「工作区已装」与「插件内联底座可用」。`scriptsSource` 是解析出的脚本目录路径。
+**这是判断「技能是否可用」的唯一端点** —— `scriptsResolved` / `inlineAvailable` 两个布尔分别对应「工作区已装」与「插件内联底座可用」。`scriptsSource` 是解析出的脚本目录路径。**doctor 语义并入此端点**（不另设端点避免动词通胀）：`integrity` = `verifySkillInstall(installedDir, inlineDir)` 结果——`{ ok, reference: 'inline'|'manifest'|'none', checked, mismatches: [{path, kind: 'missing'|'size'|'hash'}], extras, manifestVersion }`；`reference:'inline'` 表示与插件内联副本逐文件权威直比，`'manifest'` 表示 inline 不可用时按安装清单兜底（独立分发场景）。未安装时 `integrity: null`。
+
+### 3.3 POST `/anic/skill/repair`（`skillInstallRoute.ts`，v0.20.0 新增）
+
+| 码 | 条件 | 体 |
+| --- | --- | --- |
+| 405 | 方法非 POST | `{ error: 'POST only' }` |
+| 404 | 无工作区 / 技能未安装 | `{ error: { code: 'ANIC_ROUTE_NO_WORKSPACE' / 'ANIC_ROUTE_SKILL_NOT_INSTALLED' } }` |
+| 200 | 修复完成 | `{ repaired: string[], verify }` |
+
+repair 语义：verify 找出 mismatches → 逐个从 inline 源重装（源缺失则跳过）→ 重写清单 → 复验（返回的 `verify` 是修复后结果，`ok:true` 表示收敛）。**extras（安装目录多出的文件）只报告不删除**——用户或其他工具放入的文件不属本插件删除权限边界。inline 不可用时 repair 不动作。
 
 ---
 

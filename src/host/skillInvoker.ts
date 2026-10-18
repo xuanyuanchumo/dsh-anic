@@ -11,6 +11,7 @@ import fs from 'node:fs';
 // 注释里不要写带引号的相对路径，否则会被当成真实边）。
 import type { InvokeResult } from './skillInvokerAsync.ts';
 export type { InvokeResult } from './skillInvokerAsync.ts';
+import { writeSkillManifest } from './skillIntegrity.ts';
 
 const SKILL_SCRIPTS = [
   'init-workflow',
@@ -94,7 +95,7 @@ export function isSkillInstalled(workspaceDir: string): boolean {
 }
 
 /** 将内联技能复制到工作区 .dsh/skills/（自动安装）。 */
-export function autoInstallSkill(workspaceDir: string): { installed: boolean; path: string; error?: string } {
+export function autoInstallSkill(workspaceDir: string): { installed: boolean; path: string; error?: string; manifest?: { ok: boolean; fileCount: number } } {
   const targetDir = path.join(workspaceDir, '.dsh', 'skills', 'ai-native-iteration-cycle');
   const inlineDir = inlineSkillScriptsDir();
   if (!inlineDir) return { installed: false, path: targetDir, error: 'inline skill not bundled' };
@@ -118,7 +119,18 @@ export function autoInstallSkill(workspaceDir: string): { installed: boolean; pa
     }
   }
   copyRecursive(skillRoot, targetDir);
-  return { installed: true, path: targetDir };
+  // eco P0：安装即建锚——清单（path+size+sha256+版本）随安装落盘，
+  // 把完整性对比从评估期提前到安装期（doctor/repair 见 skillIntegrity.ts）。
+  const manifest = writeSkillManifest(skillRoot, targetDir);
+  return { installed: true, path: targetDir, manifest };
+}
+
+/** 插件内联技能根目录（assets/skill/）——真内联解析，绝不落入外部副本。
+ * （skillInstallRoute 此前借 resolveSkillScriptsDir(cwd) 间接取内联，cwd 邻近
+ * 存在外部副本时会解析到非内联目录——修复：以本函数为单一事实源。） */
+export function inlineSkillRoot(): string | null {
+  const scriptsDir = inlineSkillScriptsDir();
+  return scriptsDir ? path.join(scriptsDir, '..') : null;
 }
 
 export function validateWorkspace(ws: string): { ok: boolean; error?: string } {

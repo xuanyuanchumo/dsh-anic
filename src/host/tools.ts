@@ -7,7 +7,8 @@ import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
 import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
 import type { ToolsSlot } from './toolsSlot.ts';
-import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace } from './skillInvoker.ts';
+import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace, inlineSkillRoot } from './skillInvoker.ts';
+import { skillIntegritySummary } from './skillIntegrity.ts';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
@@ -201,10 +202,10 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // Tool: anic_status — get full org status panorama + recent flow tracker records
   disposers.push(tools.register({
     name: 'anic_status',
-    // SDO：触发条件 = 要看项目全景/调用历史/技能健康；只读查询，无副作用。
+    // SDO：触发条件 = 要看项目全景/调用历史/技能健康/技能完整性；只读查询，无副作用。
     description: 'Use when an ANIC-managed project needs a status panorama — cycles, ledger, trust/autonomy level, '
-      + 'band violations, recent skill-invocation flows, or skill health report. Read-only. '
-      + 'Triggers: 项目状态 / org status / 自主级 / 技能健康 / flow records / 全景.',
+      + 'band violations, recent skill-invocation flows, skill health report, or installed-skill integrity. '
+      + 'Read-only. Triggers: 项目状态 / org status / 自主级 / 技能健康 / flow records / 全景.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
@@ -227,7 +228,12 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
         const report = analyzeSkillHealth(ts);
         health = report; healthSummary = formatHealthSummary(report);
       }
-      return { statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`, flows, flowStats: stats, health, healthSummary };
+      // eco P0：技能完整性（doctor 语义），installedDir 解析收窄为本地函数
+      const installedDir = existsSync(join(root, '.dsh', 'skills', 'ai-native-iteration-cycle'))
+        ? join(root, '.dsh', 'skills', 'ai-native-iteration-cycle')
+        : null;
+      const skillIntegrity = skillIntegritySummary(installedDir, inlineSkillRoot());
+      return { statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`, flows, flowStats: stats, health, healthSummary, skillIntegrity };
     },
   }) ?? null);
 

@@ -1,5 +1,17 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.0.0 — 分发完整性：安装清单 + sha256 校验 + doctor/repair（cycle-19）
+
+### 行为变更（major）
+
+- **插件侧新增安装清单**：`dsh-anic` 插件在技能安装（`anic_install` / `POST /anic/skill/install`）时
+  写入 `.anic-manifest.json`（path+size+sha256+版本锚点）到已安装目录——技能文件本体零变化，
+  但**安装目录会多出一个插件私有清单文件**。技能自身脚本不读不写该文件。
+- **完整性契约**：`GET /anic/skill/status` 新增 `integrity` 字段（doctor 语义：inline 直比优先、
+  manifest 兜底）；新增 `POST /anic/skill/repair`（只重装差异文件，extras 只报告不删除）；
+  `anic_status` 工具返回 `skillIntegrity` 摘要。宿主大模型可用这些面回答「技能是否损坏/漂移」。
+- 版本 1.9.0 → 2.0.0（三锚点：本文件 / SKILL.md MCP Tools / scripts/mcp-server.mjs）。
+
 ## 1.9.0 — 门禁完整性：三态裁决 + 漂移守卫（iteration-5）
 
 ### 裁决完整性（行为变更）

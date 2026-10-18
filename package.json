@@ -1,6 +1,6 @@
 {
   "name": "dsh-anic",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": false,
   "description": "ANIC — AI-Native Iteration Cycle as a standalone DSH plugin (general-purpose workflow visualizer; this repo is only its first verification ground). Docs: docs/anic/",
   "type": "module",

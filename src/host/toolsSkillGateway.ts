@@ -24,7 +24,9 @@ import {
   listSkillScripts,
   autoInstallSkill,
   isSkillInstalled,
+  inlineSkillRoot,
 } from './skillInvoker.ts';
+import { verifySkillInstall, repairSkillInstall } from './skillIntegrity.ts';
 import {
   loadFlowTracker,
   startFlow,
@@ -48,7 +50,8 @@ export function registerSkillGatewayTools(
 
   // Tool: anic_install — install/update the bundled skill into workspace
   // （原生执行 autoInstallSkill，不再只回 URL——「所有内容脚本能原生调用」的
-  //   前置：先把技能装进工作区；installUrl 保留作浏览器入口兼容。）
+  //   前置：先把技能装进工作区；installUrl 保留作浏览器入口兼容。
+  //   eco P0：安装即建锚——返回 integrity（inline 直比 + 清单兜底）。）
   disposers.push(register({
     name: 'anic_install',
     description: 'Use when a workspace lacks the ai-native-iteration-cycle skill or has an outdated version — '
@@ -77,7 +80,40 @@ export function registerSkillGatewayTools(
         path: r.path,
         error: r.error ?? null,
         skillInstalled: isSkillInstalled(root),
+        // eco P0：安装后立即校验（inline 权威直比），漂移当场暴露而非潜伏到评估期
+        integrity: r.installed ? verifySkillInstall(r.path, inlineSkillRoot()) : null,
         installUrl: `/anic/skill/install?workspace=${encodeURIComponent(root)}`,
+      };
+    }),
+  }) ?? null);
+
+  // Tool: anic_skill_repair — eco P0 repair 语义（doctor 见 anic_status/skill status）。
+  // 只重装差异文件（缺失/尺寸/哈希不对），清单随修复重写；extras 只报告不删除。
+  disposers.push(register({
+    name: 'anic_skill_repair',
+    description: 'Use when the installed ai-native-iteration-cycle skill copy is corrupted or drifted from the '
+      + 'bundled original — after anic_status or skill status reports integrity mismatches, or skill scripts '
+      + 'behave unexpectedly after manual edits. Triggers: 修复技能 / repair skill / 技能损坏 / 完整性.',
+    output: makeToolOutput(),
+    parameters: {
+      type: 'object',
+      properties: {
+        workspace: { type: 'string', description: 'Target project directory (default: current workspace)' },
+      },
+    },
+    presentCall: (args) => genericCall('anic_skill_repair', 'edit', { workspace: args.workspace }),
+    presentResult: () => ({ card: 'generic' as const, title: 'anic_skill_repair ✓' }),
+    execute: safeHandler(async (args) => {
+      const root = (args.workspace as string) ?? deps.getRoot() ?? '';
+      if (!root) return { error: 'no workspace' };
+      if (root.includes('..')) return { error: 'path traversal not allowed' };
+      const installedDir = join(root, '.dsh', 'skills', 'ai-native-iteration-cycle');
+      if (!isSkillInstalled(root)) return { error: 'skill not installed (run anic_install first)' };
+      const r = repairSkillInstall(installedDir, inlineSkillRoot());
+      return {
+        repairedCount: r.repaired.length,
+        repaired: r.repaired,
+        integrity: r.verify,
       };
     }),
   }) ?? null);

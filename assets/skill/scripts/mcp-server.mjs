@@ -61,7 +61,7 @@ function readYamlConfig() {
 }
 
 const server = new Server(
-  { name: "ai-native-iteration-cycle", version: "1.9.0" },
+  { name: "ai-native-iteration-cycle", version: "2.0.0" },
   { capabilities: { tools: {} } }
 );
 

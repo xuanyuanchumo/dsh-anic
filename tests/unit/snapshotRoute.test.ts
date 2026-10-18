@@ -270,8 +270,8 @@ describe('宿主入口 apply', () => {
     '/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status',
     // M8 跨项目技能调用
     '/anic/skill/list', '/anic/skill/invoke', '/anic/evaluate', '/anic/iterate',
-    // M11 技能内联 + 原生脚本
-    '/anic/skill/install', '/anic/skill/status',
+    // M11 技能内联 + 原生脚本；cycle-19 eco P0 新增 repair（doctor 语义并入 status）
+    '/anic/skill/install', '/anic/skill/status', '/anic/skill/repair',
     '/anic/hitl-audit', '/anic/band-detect', '/anic/org-status', '/anic/fact-base', '/anic/plan-sync', '/anic/multi-agent-gate', '/anic/fix-loop',
     // M11 双向自举
     '/anic/self/dual-evaluate', '/anic/self/dual-advance', '/anic/self/dual-status',
