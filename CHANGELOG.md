@@ -1,5 +1,30 @@
 # dsh-anic CHANGELOG
 
+## v0.30.0 — 2026-10-18
+
+cycle-30：**测试体系深挖轮**（cycle-28 文档轮姊妹篇）——5 个 handler 级零覆盖路由补齐 26 个行为测试，vitest 1061→1087 用例；invokeSkillAsync 并行负载偶发竞态根治。
+
+### ① 五路由 handler 级行为测试（此前仅有常量登记或 req 透传）
+- `tests/unit/selfCheckRoute.test.ts`（7 用例）：runSelfChecks 六探针行为——无 .cycles 空转 vacuous ok + P3/P4 诚实部分绿；绿工作区全过（P1 digest 16hex/P3 source=canonical/P5 trace stable）；P2 结构化身份钉「wf: 前缀恒加」构造性保证；HTTP 面 404/200 形状。**教训**：registerSelfCheckRoute 返回单个 disposer 函数（非数组）。
+- `tests/unit/stepTraceRoute.test.ts`（5 用例）：200 有 cycles（wf:build 可见）/404 无 cycles/500 EISDIR（workflow-graph.yaml 造成目录）。**教训**：sendJson 需要 res 桩有 writeHead/end 方法（直接对象桩会被静默跳过）。
+- `tests/unit/selfInitRoute.test.ts`（7 用例）：405 POST only/403 开关关（ANIC_ROUTE_SELF_INIT_DISABLED）/404 无 root/409 已初始化（ANIC_ROUTE_SELF_INIT_ALREADY）+ 守卫顺序两钉（405 先于 403、403 先于 404）。
+- `tests/unit/stackProbeRoute.test.ts`（3 用例）：404 无 root/200 Node 项目探测（node+configYaml+autonomy_level）。
+- `tests/unit/dualBootstrapRoute.test.ts`（4 用例）：三路由 404/pluginDir 空 500（P0-DIR-ROOT 语义）/dual-status 双态（IDLE round 0 ↔ EVALUATED lastEvalScore 60）。**教训**：DualBootstrapState 真实形状是 {plugin: BootstrapState, skill: BootstrapState, crossProposals[]}——BootstrapState 含 status/round/maxRounds/lastEvalScore/lastGateVerdict/history: BootstrapHistoryEntry[]。
+
+### ② invokeSkillAsync 偶发竞态根治（既有债务，本轮全量并行暴露）
+- 症状：93 文件并行全量跑 5 次中 2 次 invokeSkillAsync.test.ts 1 FAIL；单独跑恒绿；单层 test:unit 3 连跑全绿。
+- 根因：`setTimeout(() => ac.abort(), 300)` 在并行负载下（spawn 起进程耗数百 ms）会在「started」尚未输出前到达——kill 先于首条 stdout 是 abort 语义的正常形态，断言 `toContain('started')` 把「进程真的被启动过」与「300ms 内完成 spawn」两个命题绑在一起，负载下第二个命题不稳。
+- 修复：abort 延时 300ms→800ms（只让断言目标在负载下稳定成立，被测语义零改动）；附注释说明设计动机。
+- 验证：修复后全量四层连跑 6 次（3+3）全 ALL GREEN。
+
+### ③ 覆盖缺口方法论沉淀
+- 「req 透传（404 早退）」证明路由把 req 传给 getWorkspaceRoot，但不证明 handler 主体逻辑——两者是不同覆盖层；本轮补的是后者。
+- 常量登记（ALL_ROUTES）只证明路由存在，不证明行为——三层覆盖（常量/透传/行为）自此齐全。
+
+### 验证
+- 四层 ALL GREEN：validate 12/12 + vitest 93 文件 1087 用例 + smoke 21 + trigger 100%/0%。
+- typecheck exit=0 + build exit=0。
+
 ## v0.29.0 — 2026-10-18
 
 cycle-29：**触发评估语料修复轮**——cycle-16 以来稳定复现的 3 个 trigger-eval MISS 全部修复，正例命中率 80%（12/15）→ **100%（15/15）**，负例误触率维持 0%。

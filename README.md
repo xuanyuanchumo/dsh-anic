@@ -123,7 +123,7 @@ pnpm --dir dsh-anic run test          # 全链离线测试：规范门 12 + vite
 | 层 | 命令 | 内容 | 数量 |
 |---|---|---|---|
 | L1 规范门 | `pnpm run validate:dsh` | C1-C12 DSH 清单/exports/locale/icon/产物契约（依据 docs/anic/07 §2 asar 取证，每条注出处） | 12 |
-| L2 单元 | `pnpm run test:unit` | snapshotCore + snapshotRoute + runtime（ledger/stateMachine/stackProbe/cycleRunner）+ segmentedLedger + reviewEngine + evolution + governance + native + dshConformance 等 88 文件 | 1061 |
+| L2 单元 | `pnpm run test:unit` | snapshotCore + snapshotRoute + runtime（ledger/stateMachine/stackProbe/cycleRunner）+ segmentedLedger + reviewEngine + evolution + governance + native + dshConformance + 五路由 handler 行为（selfCheck/stepTrace/selfInit/stackProbe/dualBootstrap）等 93 文件 | 1087 |
 | L3 契约守卫 | （同上，vitest 内） | 源码形状守卫：register 原型形态（禁未绑定提取，放行 disposer 捕获）/inject 回调形态/disposer 不丢弃/遥测+kill-switch/src 零 console.*；**反向自检 + 样例拼接构造** | 15 |
 | L4 机制冒烟 | `pnpm run test:smoke` | stub 宿主 21 断言（__ModuleLoader__ 契约/169 点 217 线/热卸载/kill-switch） | 21 |
 | L5 真实宿主 | `pnpm run j0` | j0-probe.mjs 经 CDP(9222) 六判据：标签可见/共存/图渲染/遥测/来源如实/热卸载+恢复/kill-switch | 8 |

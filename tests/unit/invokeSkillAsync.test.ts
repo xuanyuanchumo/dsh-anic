@@ -48,7 +48,11 @@ describe('invokeSkillScriptAsync（P1-EXEC-SIGNAL / P1-EVENT-LOOP）', () => {
     const scriptsDir = makeScriptsDir();
     const ws = makeWorkspace();
     const ac = new AbortController();
-    setTimeout(() => ac.abort(), 300);
+    // 800ms 而非 300ms：并行全量跑（93 文件）下 spawn 起进程可能已耗去数百 ms，
+    // 300ms 时 abort 会在「started」尚未输出前到达——kill 先于首条 stdout 是
+    // 既有实现的真实语义（abort 是尽力而为的取消），不是缺陷。800ms 只为让
+    // 「进程真的被启动过再被终止」这一断言目标在负载下稳定成立。
+    setTimeout(() => ac.abort(), 800);
     const r = await invokeSkillScriptAsync(scriptsDir, 'hang', [], ws, 30000, { signal: ac.signal });
     expect(r.aborted).toBe(true);
     expect(r.timedOut).toBe(false);
