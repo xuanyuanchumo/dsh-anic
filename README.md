@@ -24,6 +24,17 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
 
+### 不用 DSH？技能-only 分发（npx）
+
+Claude Code / Codex / 任意 MCP 客户端用户可不装宿主，一条命令把技能装进项目：
+
+```sh
+npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] [--dry-run]
+```
+
+只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 64 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
+
+
 ## 当前形态（M1..M11 + R3 流程状态机，v0.17.0）
 - **布局根解析统一 + 自举链双缺陷根除（v0.17.0 / cycle-15，P0-DIR-ROOT/D-1415）**：真机验证暴露 truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下审计了**仓库父目录**（T1-T4 全 MISSING、version vunknown——且源码布局下也错，两种布局从未正确工作过；旧测试只断言路由注册故恒绿），dualBootstrap 同病。新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic），四处调用点（truthAudit/dualBootstrap/agents/skill）统一，根未解析双路由显式 500；pluginRoot 9 用例双布局钉死 + truthAuditRouteBehavior 行为级回归钉（T2 version=真实版本、15 cards——修复前必红）。真机复验 truth-audit **T1-T4 全 100**、dual-evaluate 双向真实数据。收口期再抓两枚同型漏网：band-detector.mjs:141 越界变量 `v`（ReferenceError——规则 2 首真触发即崩，历史快照统计量漂移使其「时好时坏」）+ eval-runner checkComplexity `|| true` fail-open（D-1404 漏网同型）→ execFileSync 直跑非零取 stdout。E1/E2 自举诚实化（intent 模板桩 → 真实三件套）。自举评估 **15 PASS + 1 结构性 SKIP**（历史最佳）；71 文件 863 用例全绿。
 - **自举评估链主平台复活（v0.16.0 / cycle-14，D-1401~D-1408）**：eval-runner 的质量门在 Windows（DSH 宿主主平台）上此前系统性失明——四子检查 `grep|wc` shell-ism 恒 SKIP、环检测 madge 恒 SKIP 且真环被 `|| true` 吞掉（fail-open）、依赖审计 npm audit 无 true 命令恒 SKIP、秘钥扫描 138 命中全假阳性（design-token 惯用形态误伤）。本轮全部根治：scanSourceLines 纯 Node 行扫描、importGraph 纯 Node import 图 + DFS 三色环检测（scripts/lib/importGraph.mjs，零外部依赖）、pnpm audit 回退链（npmmirror 无 bulk 端点 → registry.npmjs.org）、秘钥两段式精筛（pre 粗筛 + 紧邻赋值精筛）。供应链修复：tinypool critical×2 + valibot high（全 dev 链）经 pnpm-workspace.yaml overrides 清零（824 包污染锁 → 239 包）。**自证闭环**：修复后首次真实环检测在自家仓抓到 truthAudit↔truthAuditChecks 真环（type 回边），类型下沉 truthAuditTypes.ts 断环复验 PASS。自举审计 16 维度 14 PASS + 2 结构性 SKIP（历史最佳）；69 文件 852 用例全绿。

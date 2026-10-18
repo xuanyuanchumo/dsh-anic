@@ -1,5 +1,21 @@
 # dsh-anic CHANGELOG
 
+## v0.26.0 — 2026-10-18
+
+cycle-25：**npx 技能-only 分发轮**——eco 研究报告最后一个 P1 分发缺口收口。dsh-anic 从「DSH 专属插件」升级为「跨 harness 技能 + DSH 增强插件」双层产品。
+
+### ① npx 分发入口（P1 · skill-ecosystem.md:240）
+- 新增 `bin/anic-init.mjs`（零依赖，仅 node: 内置模块）：`npx dsh-anic init <dir> [--name] [--framework claude|codex] [--dry-run]`——① `assets/skill/` 64 文件 → `<dir>/.dsh/skills/ai-native-iteration-cycle/`（与 `anic_install` 同构落点）② `.cycles/` 骨架（init-workflow.mjs，从已装副本执行——npx 缓存生命周期不可依赖）。
+- 幂等语义：同版本已装跳过复制、异版本重装覆盖、`.cycles/` 已初始化跳过脚手架（既有文件不覆盖）。
+- 版本锚点：`MCP Tools (vX.Y.Z)` 正则与技能侧 quick-validate 同锚——安装/跳过/重装三态汇报真实版本。
+- `--dry-run` 零写盘（连目标目录都不创建）；`--help` 含 MCP server 注册指引。
+
+### ② package.json 分发面
+- `bin.anic-init` + `files` 白名单（dist/assets\/skill/bin/locale/icon/cordis.patch.yml/README/LICENSE）——npm 发布形态就绪（发布本身仍待用户建仓推送后执行）。
+
+### ③ 测试（+6 用例，e2e 子进程手法）
+- 新增 `tests/unit/npxInit.test.ts`：全新目录安装（64 文件精确计数 + CLAUDE.md --name 落盘）/幂等重跑/dry-run 零写盘/--framework codex 落 AGENTS.md/--help 含 MCP 指引/源与安装副本版本锚一致。
+
 ## v0.25.0 — 2026-10-18
 
 cycle-24：**治理与审计补完轮**——ui-domain-plan 缺口清单最后两项 P3 一次收口：治理预算视图 + 账本分页。至此 2016 年研究轮（cycle-16）规划的七个 UI 缺口（P0 时间线 / P1 账本 / P1 HITL / P2 仪表带 / P2 turn 分组 / P3 技能健康 / P3 治理预算）全部落地。
