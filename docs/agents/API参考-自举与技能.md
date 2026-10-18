@@ -91,7 +91,9 @@ parseGateVerdict(stdout) // /(?:Overall|GATE|Verdict)[:\s]+(PASS|FAIL|doubt|SKIP
 
 **白名单是运行时取自 `listSkillScripts()` 的单一事实源**，由 `tests/unit/skillToolNative.test.ts` 钉死「白名单 ⇄ 内联底座集合恰好相等」。
 
-**CLI 位置参数约定（最易踩的坑）**：`invokeSkillScript` 把**项目目录作为第一个位置参数**（`node <script> <workspace> ...args`）。**绝不能传 `--project-dir` 旗标** —— 15 个脚本只认 `args._[0]`。`tests/unit/skillReplaceE2E.test.ts` 钉死此约定。
+**CLI 位置参数约定（最易踩的坑）**：`invokeSkillScript` 把**项目目录作为第一个位置参数**（`node <script> <workspace> ...args`）。**绝不能传 `--project-dir` 旗标** —— 脚本只认 `args._[0]`。`tests/unit/skillReplaceE2E.test.ts` 钉死此约定。
+
+**参数防护（cycle-27 起）**：技能脚本 16 个，全部经 `assets/skill/scripts/lib/args.mjs` 的 `parseCliArgs(argv, spec)` 统一解析——三防线：`--help/-h` 打印用法并退出 0；未知旗标（`--*` 不在 spec 白名单）exit 1 并报旗标名；位置参数数量契约（`min/max`，越界报实收数与清单）。值旗标缺参 / int/float NaN 同样拒绝；kebab 旗标自动映射 camelCase（`--max-retries` → `args.maxRetries`）。注意：`SKILL_SCRIPTS` 宿主白名单是 15 项（不含 `mcp-server.mjs`），脚本文件 16 个 + `lib/args.mjs` 共享库 = 技能 65 文件。
 
 ### 2.3 POST `/anic/evaluate`（`skillRoute.ts:78`）
 

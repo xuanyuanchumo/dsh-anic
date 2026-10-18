@@ -20,7 +20,7 @@
 | 对象式（多数） | `webServer.register({ kind: 'exact', path, handler })` | `snapshotRoute.ts:88`、`cycleRoute.ts`、`ledgerRoute.ts`、`stackProbeRoute.ts:22`、`truthAuditRoute.ts:20` 等 |
 | 位置参数式 | `webServer.register(method, path, handler)` | 仅 `reviewRoute.ts:29` 的注入签名（经 `index.ts:77` 的适配闭包转成对象式） |
 
-**注意**：位置参数式的 `method` 在多数模块里被显式丢弃 —— `evolutionRoute.ts:34` 与 `dualBootstrapRoute.ts:37`（`void method;`）都只把 `path` 传给宿主。**HTTP 方法的判定因此落在 handler 内部**，而不是注册时。只有三个 handler 真正实现了方法检查：`selfInitRoute.ts:44`、`skillInstallRoute.ts:53`、`skillInstallRoute.ts:90`。
+**注意**：位置参数式的 `method` 在多数模块里被显式丢弃 —— `evolutionRoute.ts` 与 `dualBootstrapRoute.ts`（`void method;`）都只把 `path` 传给宿主。**HTTP 方法的判定因此落在 handler 内部**，而不是注册时。当前 5 个 handler 真正实现了方法检查：`selfInitRoute.ts:46`、`skillInstallRoute.ts:45/93/127`、`skillHealthRoute.ts:43`。
 
 `kind: 'exact'` 表示精确路径匹配（非前缀匹配）。全部端点都是 `exact`。
 
@@ -74,7 +74,7 @@ Access-Control-Allow-Origin: *
 | 400 | 参数缺失/非法 | `ledgerRoute.ts`、`cycleRoute.ts`、`segmentedLedgerRoute.ts`、`skillRoute.ts`、`reviewRoute.ts` |
 | 403 | 功能开关关闭 | `selfInitRoute.ts:49`（`flow.selfInit` 关） |
 | 404 | 无工作区 / 无 `.cycles` / 技能脚本缺失 / 路由资源不存在 | 多数模块 |
-| 405 | 方法不符 | `selfInitRoute.ts:45`、`skillInstallRoute.ts:54,91` |
+| 405 | 方法不符 | `selfInitRoute.ts:46`、`skillInstallRoute.ts:45/93/127`、`skillHealthRoute.ts:43` |
 | 409 | 幂等冲突（重复条目 / 状态不允许） | `ledgerRoute.ts`、`segmentedLedgerRoute.ts`、`cycleRoute.ts`（advance/close 的 `result.ok === false`）、`selfInitRoute.ts:59` |
 | 500 | 内部错误 / 无工作区（**governance 域特有**） | `snapshotRoute.ts`、`stepTraceRoute.ts`、`governanceRoute.ts`（`ANIC_ROUTE_NO_WORKSPACE`）、`selfBootstrapRoute.ts`、`selfInitRoute.ts` |
 

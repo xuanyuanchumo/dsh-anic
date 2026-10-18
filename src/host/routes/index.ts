@@ -1,5 +1,5 @@
 /**
- * 路由聚合器（M9 结构优化后纯组合层 ~45 行）。
+ * 路由聚合器（纯组合层，130 行）。
  *
  * 六域分区（doc 14 §4）：
  *  data      snapshot + step-trace + self-check + self-init

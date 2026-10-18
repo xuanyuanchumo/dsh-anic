@@ -1,5 +1,33 @@
 # dsh-anic CHANGELOG
 
+## v0.28.0 — 2026-10-18
+
+cycle-28：**文档代际校准轮**——v0.19→v0.27 九轮演进后 docs/agents 与 README 的数字/行号/描述漂移全量修正，文档回到「与代码可核对」状态。
+
+### ① 架构总览.md 全面校准
+- §2.1 路由表：六域→九分区（+data 域 invocationRoute/self 域 skillHealthRoute/flows 域），聚合位置行号全部按 `index.ts` 实测更新（:54/:64-69/:74-77/:84-93/:94/:98/:101-106/:112/:120-121/:125）；disposer 过滤 :127；snapshotRoute 形状权威锚点行号修正（SNAPSHOT_ROUTE:28/SnapshotCtx:34/resolveWorkspaceRoots:58/sendJson:120）。
+- §2.2 runtime 表补 invocationFeed.ts(216)/scriptParsers.ts(125)；§2.3 evolution 补 autonomyActions/autoFix 三件套/breakerSignals/techDebtQueue/truthAuditTypes；§2.4 governance 7→9 文件（+hitlFix/hitlThreePhase）；§2.5 llm 补 5 文件；§2.6 顶层表补 cors/crossProjectHistory/skillInvokerAsync/skillRegistration/toolsAutoFixGateway/toolsBootstrapGateway/toolsEvolutionGateway/snapshotRoute/pluginRoot 9 文件+全行数。
+- §3 特性表 17 处行数漂移修正（renderGraph 225→245、gateColors 183→200、renderInvocations 140→195、renderLedger 103→137 等）+补 governanceTargets/panelLiveTargets/i18n/panelTheme 组件行；§4 shared 表重写（palette.ts 145/tokens.ts 214/shellTheme.ts 69/panelCss.ts 92/fs-safe.ts 54/stepTrace.ts 222/flows.ts 140）；adapters 114→145；§5 速查表 WorkflowGraphPanel:65→:54。
+
+### ② 设计令牌与主题.md 整篇重写
+- 旧文整篇描述拆分前旧系统（tokens.ts 98 行/PALETTE 16 键 green500 档位/SEMANTIC 11 键/:root 注入/prefers-color-scheme 媒体查询/「40+ 十六进制仍在用、4 套硬编码调色板仍在、hex 禁令守卫不存在」）。
+- 新文按现状：三文件体系（palette.ts 64 原语按角色命名 WCAG 反解 + tokens.ts SEMANTIC 42 键/SEMANTIC_DARK 22 键覆盖 + shellTheme.ts 宿主主题探测）；TOKEN_SCOPE 面板作用域绝不写 :root；暗色走 data-anic-theme 属性选择器非媒体查询；守卫面三份契约（clientRenderContract 颜色字面量禁令——src/client 实测 0 hex；contrastContract 11 用例 WCAG 逐项测量）；§6 落地程度改「已收敛」；§7 脉冲类迁至 components/statusDot.ts。
+
+### ③ 其余文档修正
+- DSH多代兼容 §7.1：「npx 分发未实施」→已实施（cycle-25 bin/anic-init.mjs）。
+- API参考-自举与技能 §2.2：CLI 约定段补 lib/args.mjs parseCliArgs 三防线描述（16 脚本+白名单 15 的精确表述）。
+- API参考.md+开发规范.md：方法检查断言 3 处→5 处 405（+skillInstallRoute:127/skillHealthRoute:43），行号全修正。
+- 开发规范-守卫与约束.md locale 段：49 行/6 键→258 行/19 顶层键/220 扁平键；「t() 只有 9 处全在宿主、客户端硬编码中文」→宿主 8 处+客户端 29 处全量接入；补 JSON 重复键地雷（JSON.parse last-wins vs PowerShell ConvertFrom-Json FIRST-wins）教训。
+- 测试指南.md：269 it()→实跑 1061 用例/88 文件（unit 75 文件 941 + contract 13 文件 90 源码静态计数，it.each 展开计入实跑）。
+- README：L2 132→1061/88 文件；L4 smoke 19→21 断言（169 点 217 线）；snapshotRoute 8→13 用例。
+
+### ④ 源码注释级修正（非行为变更）
+- `src/host/routes/index.ts` 头注释「~45 行」→「130 行」。
+- `src/host/skillInvoker.ts:167`「全部 15 个技能脚本」→「SKILL_SCRIPTS 白名单 15 个（mcp-server 不在白名单，cycle-27 后脚本总数 16）」。
+
+### 验证
+- `pnpm run lint` PASSED 12 checks（dsh-anic@0.27.0→v0.28.0）；文档数字全部经命令实测（Select-String/Get-ChildItem 计数），未引用记忆值。
+
 ## v0.27.0 — 2026-10-18
 
 cycle-27：**统一 CLI 参数防护库轮**——cycle-26 范围界定的 15 脚本敞口全部收口。

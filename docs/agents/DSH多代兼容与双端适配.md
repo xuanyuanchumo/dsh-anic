@@ -140,7 +140,7 @@ grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异
 |---|---|---|
 | **官方 bundle 安装** | `dsh plugin --profile <name> add <pkg>`（pnpm 转发；git 源码安装走 `prepare` 构建脚本 + `allowBuilds` 授权；npm/tarball 免授权） | manifest 已就绪（`dsh.bundle.patch` ✓ / peer 显式预发布分支 ✓ / `engines.dsh` 声明层 ✓） |
 | **市场可视安装** | dshmarket 插件读精选目录 awesome-dsh-plugin（`data/plugins/<owner>__<repo>.yml`）一键装 | 条目草稿 `docs/agents/marketplace-提交草稿.md`（待用户建 GitHub 仓后提 PR） |
-| **技能 CLI 分发** | `npx` 形态（eco 报告 P1，技能-only 路径） | 未实施——评估为后续轮 |
+| **技能 CLI 分发** | `npx dsh-anic init <dir>`（技能-only 路径，不带 DSH 宿主） | **已实施**（cycle-25，`bin/anic-init.mjs` 134 行零依赖）：技能 65 文件 → `.dsh/skills/ai-native-iteration-cycle/` + `.cycles/` 骨架；`--framework claude|codex` 跨 harness；幂等三态；`--dry-run` 零写盘；e2e 由 `tests/unit/npxInit.test.ts` 守护（cycle-27 起 65 文件计数） |
 
 ### 7.2 收录硬性要求（对照本仓库逐项）
 

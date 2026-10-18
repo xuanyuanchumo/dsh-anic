@@ -164,8 +164,9 @@ export function invokeSkillScript(
     };
   }
 
-  // 项目目录 = 第一个位置参数（全部 15 个技能脚本的约定 args._[0]，转录自
-  // mcp-server.mjs:35 的参考调用形态 `node <script> "<projectDir>" <args...>`）。
+  // 项目目录 = 第一个位置参数（SKILL_SCRIPTS 白名单 15 个脚本的约定 args._[0]，
+  // 转录自 mcp-server.mjs 的参考调用形态 `node <script> "<projectDir>" <args...>`；
+  // cycle-27 后脚本总数 16——多出的 mcp-server 不在本白名单）。
   // 此前错误地追加 `--project-dir <ws>`：脚本不认识该旗标，把它当位置参数收进
   // args._[0]，解析出 <scriptsDir>/--project-dir 幽灵目录 —— 无任何测试变红
   // （单元测试只测状态机，从不真正调用脚本）。
