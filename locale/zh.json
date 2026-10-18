@@ -188,6 +188,28 @@
     "hitl": "HITL 三段修复流程",
     "autoFix": "自动修复循环流程"
   },
+  "ledger": {
+    "title": "账本事件流（最近 {shown} / {total} 条）",
+    "chainOk": "链完整 · {total} 条",
+    "chainBroken": "断链 @ 第 {at} 条",
+    "chainUnknown": "链完整性未验证",
+    "genesis": "genesis"
+  },
+  "hitl": {
+    "title": "HITL 审计队列",
+    "checkH1": "敏感数据保护",
+    "checkH2": "回滚安全（破坏性操作可回滚）",
+    "checkH3": "门禁绿态与审计日志",
+    "checkH4": "账本证据一致性",
+    "badgePass": "PASS",
+    "badgeFail": "FAIL",
+    "badgeCircuit": "熔断·待人工",
+    "summaryPass": "全部通过",
+    "summaryFail": "存在未过项",
+    "summaryCircuit": "存在熔断——等待人工介入（三段修复：审计→自动修复→复审）",
+    "cliHint": "只读队列：H4 账本冲突为人工专属裁决（append-only 账本，插件不提供一键改写）；修复动作走技能 CLI hitl-audit 三段修复流程",
+    "disabled": "HITL 批准队列已按开关关闭（flow.approvals）—— 队列降级为只读展示，修复动作请改走技能 CLI"
+  },
   "gate": {
     "PASS": "通过",
     "FAIL": "失败",

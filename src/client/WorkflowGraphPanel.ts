@@ -12,8 +12,9 @@
  * M1 分区（每区独立 feature 模块，开关门控走三层合并的 user 层）：
  * 图区 renderGraph / 步骤流程 renderStepTrace / 诊断 renderDiagnostics /
  * ⚙ 开关抽屉 renderPrefsDrawer / org 全景 renderOrgStatus。
+ * 主题 hooks 在 components/panelTheme.ts（cycle-18 T3 拆分）。
  */
-import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { createElement, useCallback, useRef, useState, type ReactElement } from 'react';
 import { WORKFLOW_SNAPSHOT } from './workflowGraphData.ts';
 import { renderGraph, buildVerdicts, type GraphData } from './features/graph/renderGraph.ts';
 import { renderStepTrace, type StepTraceJson } from './features/stepTrace/renderStepTrace.ts';
@@ -23,62 +24,22 @@ import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgSta
 import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
 import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
+import { useTokenCss, useShellTheme } from './components/panelTheme.ts';
 import { panelLiveTargets, ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
 import { renderCyclesTimeline, isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleListJson, type CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
+import { renderLedger, type LedgerListJson, type LedgerVerifyJson } from './features/ledger/renderLedger.ts';
+import { renderHitl, type HitlAuditJson } from './features/hitl/renderHitl.ts';
+import { governanceTargets } from './governanceTargets.ts';
 import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { renderSectionWrap, renderSectionDisabled } from './components/sectionShell.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
-import { resolveShellTheme, observeShellTheme, token, tokenCssBlock, THEME_ATTRIBUTE, type ShellTheme } from '../shared/tokens.ts';
-import { PANEL_CSS } from '../shared/panelCss.ts';
+import { THEME_ATTRIBUTE, token } from '../shared/tokens.ts';
 import { t } from './i18n.ts';
 
 interface FetchState { source: 'embedded' | 'live'; line: string; }
-
-
-/**
- * 注入面板作用域的样式（P1-TOKENS 令牌块 + P1-1 面板 CSS 块）。
- *
- * 令牌块定义 `--anic-*` 变量；面板块消费它们实现交互态（:hover/:focus-visible）
- * 与响应式（@container）——这两者在内联 style 里表达不了（见 panelCss.ts 头注释）。
- * 挂在 document.head，卸载时移除；同页面多个面板实例不会重复注入（id 去重）。
- */
-function useTokenCss(): void {
-  useEffect(() => {
-    const id = 'anic-panel-css';
-    if (document.getElementById(id)) return;
-    const el = document.createElement('style');
-    el.id = id;
-    el.textContent = `${tokenCssBlock()}\n${PANEL_CSS}`;
-    document.head.appendChild(el);
-    return () => { el.remove(); };
-  }, []);
-}
-
-/**
- * 跟踪宿主主题并把它写到面板根属性上（P0-THEME-MISMATCH）。
- *
- * 为什么不能只靠 CSS：宿主主题是**运行时状态**（用户在设置里切），而我们的
- * 暗色令牌必须跟着它走。原实现用 `@media (prefers-color-scheme: dark)` 近似，
- * 在"OS 暗色 + 宿主浅色"时套用暗色令牌 → 深底深字，实测几乎不可读。
- *
- * 这里读 `body[data-ds-dark-theme]`（宿主 theme-presenter 的权威输出，
- * 见 `tokens.ts` 注释），并订阅其变化，把结果写成 `[data-anic-theme]`。
- * 惰性求值 + 订阅，二者缺一不可：缓存初始值会让设置里切换主题后面板不跟随；
- * 不订阅则只能等下次重挂载。
- */
-function useShellTheme(): ShellTheme {
-  const [theme, setTheme] = useState<ShellTheme>(() => resolveShellTheme());
-  useEffect(() => {
-    // 挂载后立刻再读一次：属性可能晚于首次渲染到达（DOMContentLoaded 之前）。
-    setTheme(resolveShellTheme());
-    return observeShellTheme(setTheme);
-  }, []);
-  return theme;
-}
-
 
 /**
  * 面板组件：挂载即并行拉 live（snapshot/step-trace/self-check/org-status；各自独立降级）。
@@ -102,6 +63,10 @@ export function WorkflowGraphPanel(): ReactElement {
   // B1：cycle 时间线数据源（list 拉不到 → 整区不渲染；state 只服务当前格摘要）。
   const [cycleList, setCycleList] = useState<CycleListJson | null>(null);
   const [cycleState, setCycleState] = useState<CycleStateJson | null>(null);
+  // B2（cycle-18）：账本事件流 + HITL 审计队列数据源（治理证据簇，4s 档）。
+  const [ledgerList, setLedgerList] = useState<LedgerListJson | null>(null);
+  const [ledgerVerify, setLedgerVerify] = useState<LedgerVerifyJson | null>(null);
+  const [hitlAudit, setHitlAudit] = useState<HitlAuditJson | null>(null);
   // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
   // 机制见 components/sectionIds.ts（模块计数 + useRef 惰性初始化，不用 useId）。
   const prefsPanelId = idOf(PREFS_PANEL_ID_BASE, usePanelInstanceSeq());
@@ -145,6 +110,9 @@ export function WorkflowGraphPanel(): ReactElement {
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
   const diagnosticsOn = resolved.flows['flow.diagnostics']?.enabled ?? true;
   const flowsViewOn = resolved.flows['flow.flowsView']?.enabled ?? true;
+  // B2：HITL 队列分区门控（flow.approvals 首次接线真实 UI——声明与实现断层的
+  // 收口；关闭形态契约「队列只读展示 + 指引改走技能 CLI」见 flows.ts:51）。
+  const approvalsOn = resolved.flows['flow.approvals']?.enabled ?? true;
   // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
   // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
@@ -157,6 +125,8 @@ export function WorkflowGraphPanel(): ReactElement {
     { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => setFlowsStatus(v as FlowStatusJson) },
     { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => setCycleList(v as CycleListJson) },
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => setCycleState(v as CycleStateJson) },
+    // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
+    ...governanceTargets({ setLedgerList, setLedgerVerify, setHitlAudit }),
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
@@ -233,6 +203,12 @@ export function WorkflowGraphPanel(): ReactElement {
     flowsViewOn
       ? renderFlows(flowsStatus)
       : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }),
+    // 账本事件流 + HITL 审计队列（B2 · cycle-18）：治理证据簇，旅程排序紧跟
+    // 流程状态机——「状态机走到哪」与「裁决留了什么痕、谁在等人工」相邻呈现。
+    renderLedger(ledgerList, ledgerVerify),
+    approvalsOn
+      ? renderHitl(hitlAudit)
+      : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

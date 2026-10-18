@@ -1,5 +1,27 @@
 # dsh-anic CHANGELOG
 
+## v0.19.0 — 2026-10-18
+
+cycle-18：**治理证据白盒轮**——B2 双分区（账本事件流 + HITL 审计队列）落地，`flow.approvals` 开关 15 轮来首次接线真实 UI（声明与实现断层收口）。桌面宿主重启后全链补验（遗留 #1 收口）：junction 双端 ✓ + self-check 6/6 + anic_* 工具实时响应 + J0 8/8（新测试宿主）。零新增 host 路由（纯消费既有数据面）。
+
+### B2 账本事件流 + HITL 审计队列（P1 UI 缺口）
+
+- **`features/ledger/renderLedger.ts`**：消费 `GET /anic/api/ledger?limit=12` + `GET /anic/api/ledger/verify`——最近 12 条门禁裁决（PASS 绿/FAIL 红语义色、门名、短时间戳、8 位短哈希 + title 悬停完整 64 位、首条 genesis 如实标注、detail 摘要行）+ 链完整性徽章（ok/broken/unknown 三态，断链显示断点序号）。
+- **`features/hitl/renderHitl.ts`**：消费 `GET /anic/hitl-audit`——H1-H4 四检查（域标签 i18n：敏感数据保护/回滚安全/门禁绿态/账本证据一致性）+ 逐项徽章（circuit 优先于 passed——熔断是「等待人工」琥珀语义，与 FAIL 红严格区分）+ 总评行 + **只读边界常驻提示**（H4 账本冲突是人工专属裁决，插件不提供一键改写；修复走技能 CLI 三段流程——degradation 契约落地）。
+- **`flow.approvals` 门控接线**：关闭形态 = 分区隐藏 + 如实说明行（INV-30）；真机实测关闭→显示「队列降级为只读展示，修复动作请改走技能 CLI」，账本分区不受影响。
+- 旅程排序：流程状态机 → 账本事件流 → HITL 队列（治理证据簇相邻呈现：「状态机走到哪」与「裁决留了什么痕、谁在等人工」）。
+- locale：`ledger.*`/`hitl.*` 两段 20 键（zh+en）。
+
+### 桌面端遗留收口（cycle-16 遗留 #1）
+
+- 宿主 7:17 自然重启后：desktop/web profile junction 均指向本工程验证 ✓；桌面宿主（57230）self-check 6/6（快照确定性 86 节点/15 卡片/trace 复现）✓；anic_* 工具实时响应 ✓。
+- B2 客户端分区在 web 测试宿主真机验证（同一 dist：12 条账本 + 链完整徽章 + H1-H4 徽章 [pass,pass,circuit,pass] + 熔断琥珀语义）；桌面宿主 host 路由同版本已验，webview 下次重载即呈现（结构性约束如实留档）。
+
+### 其他
+
+- `docs/agents/架构总览.md` 特性模块表补齐至 20 模块（cycle-16 的 cycles/flows/live/components/stepTrace 更新 + 本轮 ledger/hitl）；数据热更新描述同步 usePanelFetch 架构。
+- 测试 74→76 文件 888→942 用例（ledgerSection 10 + hitlSection 10，renderToStaticMarkup 真渲染纪律）。
+
 ## v0.18.0 — 2026-10-18
 
 cycle-16：**深度研究驱动的全量收口轮**——4 份研究报告（docs 审计 / DSH kb 合规 / 技能生态 / UI 功能域）→ 23 任务：P0-P3 问题全清 + 动态白盒闭环真机验证。测试 71→74 文件 863→888 用例 + trigger-eval 第 4 测试层（新增，recall 80%/FPR 0%）。真机验证：J0 8/8 + DevTools 用户旅程 12 项 + **DSH 模型真调 anic 工具双通道可见**（实时调用流 + 宿主轨迹页）。

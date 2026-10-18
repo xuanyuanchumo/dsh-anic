@@ -189,6 +189,28 @@
     "hitl": "HITL Three-phase Flow",
     "autoFix": "Auto-fix Loop Flow"
   },
+  "ledger": {
+    "title": "Ledger Event Stream (latest {shown} / {total})",
+    "chainOk": "chain intact · {total} entries",
+    "chainBroken": "chain broken @ entry {at}",
+    "chainUnknown": "chain integrity unverified",
+    "genesis": "genesis"
+  },
+  "hitl": {
+    "title": "HITL Audit Queue",
+    "checkH1": "Sensitive-data protection",
+    "checkH2": "Rollback safety (destructive ops reversible)",
+    "checkH3": "Gate-green state & audit log",
+    "checkH4": "Ledger evidence consistency",
+    "badgePass": "PASS",
+    "badgeFail": "FAIL",
+    "badgeCircuit": "CIRCUIT·awaiting human",
+    "summaryPass": "all passed",
+    "summaryFail": "has failing items",
+    "summaryCircuit": "circuit broken — awaiting human (three-phase repair: audit → auto-fix → re-audit)",
+    "cliHint": "Read-only queue: H4 ledger conflicts are human-only verdicts (append-only ledger, no one-click rewrite from the panel); repair goes through the skill CLI hitl-audit three-phase flow",
+    "disabled": "HITL approval queue is off via switch (flow.approvals) — queue degrades to read-only display; use the skill CLI for repair actions"
+  },
   "gate": {
     "PASS": "Passed",
     "FAIL": "Failed",
