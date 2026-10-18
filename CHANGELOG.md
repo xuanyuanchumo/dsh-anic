@@ -1,5 +1,43 @@
 # dsh-anic CHANGELOG
 
+## v0.36.0 — 2026-10-19
+
+cycle-37：**研究驱动优化迭代轮**——三路深度研究（DSH 官方规范审计 / 生态技能对照 / docs-anic 文档审计）汇拢后落地：L4 自主性原生化架构决策（不全面原生化）、SKILL.md 目录描述 P1 修复、生态吸收三件、双端用户旅程真机验证（含宿主轨迹 26 个 anic_* 持久事件确证）。vitest 103→**104 文件 / 1236→1240 用例**。
+
+### ① L4 自主性原生化核心裁决（docs/anic/18 号新建）
+- **不全面原生化**：插件原生引擎（flows 状态机+模块引擎）与技能脚本正典双实现 + 差分契约防漂移（gate-check script/native/diff 三模式）是差异化资产；L4 瓶颈在任务级编排/能力对照测量/触发可靠性三缺位层而非流程原生化。
+- 含 P0-P3 十四项缺口处置、六自记分卡（自评审 85%/自进化 65%/自举 90%/自迭代 75%/自优化 55%/全自主 75%）、增量路线图、negative space、每 5 cycle 复核纪律。
+
+### ② DSH 规范审计结论（kb 镜像 commit 5badb150）
+- 安装宿主 0.2.1-rc.2 在 engines 区间内；0.2.0-rc.2 五条破坏性变更全部天然不受影响（逐条证据核对）；**kb 无 0.3.x 升级指南——证据空白区**，0.3 发布时须重跑 j0+validate 回归。
+- 四 inject 服务用法全部合规；**P1 发现：SKILL.md description 折叠后 789 > catalogDescriptionMaxLength 500（skills.md:233）**——触发词在尾部必被模型目录截断。
+- 轨迹可见性闭环确证：anic_* 工具调用自动产生 tool/call+tool/result 持久会话事件；invocationFeed 接线与 events.md:107-109 逐字吻合。
+- 桌面端 file://+IPC 架构风险记入 18 号文档风险登记（当前实测走 http 可达）。
+
+### ③ P1 修复 + 契约守卫（+4 用例）
+- SKILL.md 目录描述重写：789→**455 字符**，「Triggers:」触发词块前置（截断只损失尾部溢出语）。
+- 新建 tests/contract/skillCatalogDescription.test.ts 4 用例：≤500 守卫/Triggers 前置/双语完整/whenToUse 完整。
+- trigger-eval.mjs 头注释改口：评分面不含 SKILL.md（目录可见性守卫移交契约测试，各管一面）。
+
+### ④ 生态吸收三件（anthropics/skills + skill-creator + superpowers 对照筛选）
+- SKILL.md 新增「会话恢复协议」节（快速启动前：读 workflow-state.json → cycle 工件 → 只读当前阶段 reference）。
+- references/auto-cycle.md 新增「任务级派遣编排」节（任务单元契约表+派遣协议四步+与微观循环关系）。
+- assets/templates/task-list.md 新增 §8 任务级派遣记录表（G1 解析器 parseTaskRows 兼容——占位行首列含文字、末列非状态值不计入）。
+- 不吸收清单及理由沉淀 18 号文档 negative space 节（ECC 巨型聚合/激进 TDD/SessionStart 注入等）。
+
+### ⑤ 文档体系
+- docs/anic/agents/orchestration.md 新建（补 doc13 §1.3 缺口：15 agent 卡三配方 A/B/C）。
+- doc15 §3.1 逐脚本表刷新（v0.36.0 现状全 ✅）+ §3.2 历史记录。
+- docs/anic/README v1.13→v1.14；仓根 README 数字全量校准（37 路由/104 文件/21 smoke/169 节点）。
+
+### ⑥ 双端用户旅程验证（真机）
+- **Web 端**（3080 测试宿主 + Chrome DevTools MCP）：j0 8 checks PASS；ANIC 标签与对话/轨迹/代码图谱共存；179 节点/228 边实时渲染；INV P1-P6 全 PASS；节点详情抽屉交互闭环（开→内容→关）；路由面 200+digest+no-store。截图+a11y 快照存档 verifications/。
+- **桌面端**（65518 真实宿主）：插件 active；三路由 200；**宿主轨迹 26 个 anic_* tool/call 持久事件**（16/17 日两会话，多帧 zstd 逐帧解压取证，脚本存档 verifications/search-session-trace.mjs）——「LLM 调用插件工具出现在宿主轨迹」真机确证。
+
+### ⑦ 验证
+- typecheck host+client 双 exit=0；build exit=0（host-esm 368.33 kB）；npm pack dry-run 75 files/330.1 kB。
+- 四层 ALL GREEN：validate @0.36.0 + vitest **104 文件 1240 用例** + smoke 21 check + trigger-eval 100%（24/24）/0%（0/14）。
+
 ## v0.35.0 — 2026-10-18
 
 cycle-36：**零直测文件第三轮收口**——8 个遗留零直测文件审计后，真实缺口 5 文件行为级直测 26 用例（tests/unit/zeroCoverageFiles.test.ts）。vitest 102→103 文件 / 1210→1236 用例。src/ 零变更（纯测试轮）。

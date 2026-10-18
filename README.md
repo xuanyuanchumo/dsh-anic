@@ -19,7 +19,7 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
 - 19 个 `anic_*` LLM 工具（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复）
-- 62 个 HTTP 路由（六域分区：data / cycle / review / evolution / governance / self）
+- 37 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
@@ -35,8 +35,9 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 65 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
 
 
-## 当前形态（M1..M11 + R3 流程状态机，v0.17.0）
-- **布局根解析统一 + 自举链双缺陷根除（v0.17.0 / cycle-15，P0-DIR-ROOT/D-1415）**：真机验证暴露 truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下审计了**仓库父目录**（T1-T4 全 MISSING、version vunknown——且源码布局下也错，两种布局从未正确工作过；旧测试只断言路由注册故恒绿），dualBootstrap 同病。新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic），四处调用点（truthAudit/dualBootstrap/agents/skill）统一，根未解析双路由显式 500；pluginRoot 9 用例双布局钉死 + truthAuditRouteBehavior 行为级回归钉（T2 version=真实版本、15 cards——修复前必红）。真机复验 truth-audit **T1-T4 全 100**、dual-evaluate 双向真实数据。收口期再抓两枚同型漏网：band-detector.mjs:141 越界变量 `v`（ReferenceError——规则 2 首真触发即崩，历史快照统计量漂移使其「时好时坏」）+ eval-runner checkComplexity `|| true` fail-open（D-1404 漏网同型）→ execFileSync 直跑非零取 stdout。E1/E2 自举诚实化（intent 模板桩 → 真实三件套）。自举评估 **15 PASS + 1 结构性 SKIP**（历史最佳）；71 文件 863 用例全绿。
+## 当前形态（M1..M11 + R3 流程状态机；cycle-37 时点 v0.36.0）
+- **技能目录可见性 + 生态对照 + L4 架构决策（v0.36.0 / cycle-37）**：DSH 规范审计发现 SKILL.md description 折叠后 800 字符 > 官方 `catalogDescriptionMaxLength`（500，skills.md:233）——模型可见目录里触发词整段被截（真机实证）；重写为 455 字符触发词前置 + 新契约守卫 `tests/contract/skillCatalogDescription.test.ts`（4 用例钉死：≤500/Triggers 前置/双语触发面/whenToUse 完整）。生态研究（anthropics/skills + superpowers + ECC）吸收三件：SKILL.md 补「会话恢复协议」小节（planning-with-files 模式）、auto-cycle.md 补「任务级派遣编排」（superpowers 子代理编排：2-5 分钟任务粒度 + fresh context + 两段评审）、task-list 模板补派遣记录表（G1 判定免疫——首列状态约定不变）。L4 自主性原生化决策书落 `docs/anic/18-L4自主性原生化评估与生态对照研究.md`（结论：维持「插件承载状态机与引擎 + 技能脚本正典双实现 + 差分契约防漂移」路线，不全面原生化——双真相源守卫是差异化资产）。docs/anic 15 号文档过时表刷新 + 18 号新增；README 数字全面校准（19 工具/37 路由/104 测试文件）。
+- **布局根解析统一 + 自举链双缺陷根除（v0.17.0 / cycle-15，P0-DIR-ROOT/D-1415）**：真机验证暴露 truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下审计了**仓库父目录**（T1-T4 全 MISSING、version vunknown——且源码布局下也错，两种布局从未正确工作过；旧测试只断言路由注册故恒绿），dualBootstrap 同病。新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic），四处调用点（truthAudit/dualBootstrap/agents/skill）统一，根未解析双路由显式 500；pluginRoot 9 用例双布局钉死 + truthAuditRouteBehavior 行为级回归钉（T2 version=真实版本、15 cards——修复前必红）。真机复验 truth-audit **T1-T4 全 100**、dual-evaluate 双向真实数据。收口期再抓两枚同型漏网：band-detector.mjs:141 越界变量 `v`（ReferenceError——规则 2 首真触发即崩，历史快照统计量漂移使其「时好时坏」）+ eval-runner checkComplexity `|| true` fail-open（D-1404 漏网同型）→ execFileSync 直跑非零取 stdout。E1/E2 自举诚实化（intent 模板桩 → 真实三件套）。自举评估 **15 PASS + 1 结构性 SKIP**（历史最佳）。
 - **自举评估链主平台复活（v0.16.0 / cycle-14，D-1401~D-1408）**：eval-runner 的质量门在 Windows（DSH 宿主主平台）上此前系统性失明——四子检查 `grep|wc` shell-ism 恒 SKIP、环检测 madge 恒 SKIP 且真环被 `|| true` 吞掉（fail-open）、依赖审计 npm audit 无 true 命令恒 SKIP、秘钥扫描 138 命中全假阳性（design-token 惯用形态误伤）。本轮全部根治：scanSourceLines 纯 Node 行扫描、importGraph 纯 Node import 图 + DFS 三色环检测（scripts/lib/importGraph.mjs，零外部依赖）、pnpm audit 回退链（npmmirror 无 bulk 端点 → registry.npmjs.org）、秘钥两段式精筛（pre 粗筛 + 紧邻赋值精筛）。供应链修复：tinypool critical×2 + valibot high（全 dev 链）经 pnpm-workspace.yaml overrides 清零（824 包污染锁 → 239 包）。**自证闭环**：修复后首次真实环检测在自家仓抓到 truthAudit↔truthAuditChecks 真环（type 回边），类型下沉 truthAuditTypes.ts 断环复验 PASS。自举审计 16 维度 14 PASS + 2 结构性 SKIP（历史最佳）；69 文件 852 用例全绿。
 
 - **双格式报告解析 + 抖动加固（v0.15.0 / cycle-13，D-1103/F-T1/F-T2）**：auto-fix 报告计数此前只认旧键值「失败：N」，而正典模板与 G2 门禁规定的是 §2 汇总管道表「| 失败 | N |」——两套正典解析器互不相交，正典报告被读成 0（fail-open 假绿）；现技能脚本（auto-fix-loop.mjs v1.8.5-fork）与原生引擎（autoFixAnalyze.parseReportContent）双侧支持管道表优先 + 键值回退，且引擎侧重复解析器消重为单一源；差分第 4 场景红→绿实证（命令过 + 正典报告 3 失败 → 双侧 circuit/exit 2/repeating），真实宿主（3080）script 模式端到端 409 circuit。F-T1：atomicWriteFileSync rename 瞬时错误重试（EPERM/EACCES 类，1/5/25ms 退避）；F-T2：macroPhaseDifferential 补 afterEach 清理（原先每轮泄漏 ~20 个临时目录）。69 文件 849 用例全绿。
@@ -44,7 +45,7 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **终态重入四流程修复（v0.14.0 / cycle-12，D-1101）**：task 型流程终态后可重新入轮——gate-check（PASSED/FAILED→RUNNING）、archive（DONE→RUNNING）、hitl（PASSED/FAILED→RUNNING）三流程补 run 边，macro-phase 经正典比对排除（maintain 是末相无 reset 语义）；`tests/unit/flowTerminalReentry.test.ts` 四层 9 用例（描述子齐全性/机器层放行/集成层二轮/排除钉）。**桌面端宿主实证（D-1102）**：桌面宿主上插件 fiberPhase active、anic_* 工具真实执行、org-status/workflow-snapshot 路由 200、plugin_manager 禁用→启用往返无 duplicate-route（R12 HMR 安全性真机实证）；v0.13.0+ 新面受 Node 模块缓存限制需宿主自然重启生效。67 文件 837 用例全绿。
 
 - 客户端贡献：`conversation.view` 顶层标签 `ANIC`（`kind:'list'` 可叠加，不顶掉既有标签）。
-- 渲染真实 `.cycles/`：138 节点 / 164 边 / 57 cycles / 56 条账本事件（`autonomy L4`）。
+- 渲染真实 `.cycles/`：嵌入快照随构建更新（当前 169 节点 / 217 边 / autonomy L4，以 smoke 遥测为准）。
 - 流程状态机（R3）：FlowRegistry 5 流程（gate-check/macro-phase/archive/hitl/auto-fix）专属状态机 + 模块引擎；面板 flows 分区实时可视化；Tier-2 多智能体 LLM 评审通道（真模型逐门逐角色）。
 - 零 bundle 依赖（react 之外全部外置或内联）；SVG 渲染，无布局引擎。
 
@@ -84,7 +85,7 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **M8 跨项目+DSH 工具**：`host/tools.ts` + `toolsPointerGateway.ts` + `toolsSkillGateway.ts` + `toolsEvolutionGateway.ts` + `toolsFlowsGateway.ts` 共 16 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status/skill/bootstrap_cycle/bootstrap_analyze/autonomy_downgrade/flows_gate_check/flows_advance/flows_archive）+ skillRoute 4 路由；inject=['tools','webServer','sessions','skills']。
 - **M9 结构优化**：`host/routes/routeContext.ts` 提取共享依赖 + `routes/index.ts` 瘦身至 ~75 行纯组合 + 六域分区（data/cycle/review/evolution/governance/self）。
 - **M10 发布 v0.2.0**：CHANGELOG + README + package.json 0.2.0。
-- **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 63 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
+- **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 65 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
 - **真实性审计（自举目标）**：`host/evolution/truthAudit.ts` + `truthAuditChecks.ts` — T1 真实性（文件存在）/ T2 准确性（计数+版本）/ T3 结构性（250 行模块限制）/ T4 逻辑性（路由注册+工具数）；`dualBootstrap` 评估权重 60% 基线 + 40% 审计分；GET `/anic/api/truth-audit`。
 - **数据结构优化**：snapshotCore O(n²)→O(n)（Map 替 find/some）；stateMachine O(n)→O(1)（buildGraphIndex nodeMap+predecessors 邻接表）。
 - **适配器层**：`adapters/index.ts` — FsAdapter/ExecAdapter/HttpAdapter 三接口隔离外部依赖（Q5 架构约束，eval-runner PASS）+ spawnSync env 清洗（`*KEY*/*SECRET*/*TOKEN*/*PASSWORD*` 剥除）。
@@ -94,7 +95,7 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **R3 阶段 4 前半 Tier-2 LLM 评审通道（v0.11.0）**：`multiAgentTier2.ts` 逐门逐角色真模型评审（证据接地 INV-23 幻觉引用过滤 + 授权带越界不烧配额 + 单角色失败独立降级）+ `llm/jsonExtract.ts`（围栏/花括号平衡扫描，闭合 schema 不放松）+ `llm/providerResolve.ts`（宿主无名 default 事实下的诚实解析）+ LlmChunk/GenerateOptions 契约按 dsh-llm 权威类型重写（systemPrompt 槽位 + ContentBlock[] + reason.failure 终点）+ `GET /anic/flows/status` 一站式 + 面板 flows 分区（第 10 开关）+ org band.weViolations（rule:number）接线；真机 15 角色全走真 LLM 通道实证（MISSING_CREDENTIAL 诚实终态）。
 - **R3 阶段 4 后半 HITL 三段修复流程（v0.12.0）**：`host/governance/hitlFix.ts`（H1-H4 修复器逐字对齐技能 hitl-audit.mjs：H1 .gitignore 模式族追加 / H2 git init 基线或拒绝 / H3 指向 gate-check 或建审计日志 / H4 append-only 永拒——改历史毁哈希链）+ `hitlThreePhase.ts`（Phase0 全审计落审计行 → 无熔断二元判定 → Phase1 仅熔断门修复 → Phase2 全修复成功才重审；fix 失败不重审不落 incident）+ `flows/hitlFlow.ts`（**第 4 流程状态机**：IDLE→RUNNING→PASSED/FAILED/BLOCKED，BLOCKED→RUNNING 重试恢复边；投影 `flows/hitl.json`）+ 路由 `POST /anic/flows/hitl/run`（状态码语义 pass→200/fail→422/circuit→409）+ 第 16 工具 `anic_flows_hitl` + 面板 flows 分区卡片；**存量 P1 连带修复**：`latestCycleDir` 绝对路径 bug（H3 审计日志检查自 cycle-5 起从未工作过）+ J0-2 遥测陈旧（`syncTelemetryCounts`——live 到达后遥测如实反映渲染面，「渲染=遥测」强不变量）；差分契约 `tests/contract/hitlDifferential.test.ts`（孪生夹具 native vs script 逐字节/逐字段对账）；真机双模式实证（BLOCKED/exit 2/suggestedNextStep=autonomy-fallback，面板卡片实时态）。
 - **R3 阶段 5 自动修复循环流程（v0.13.0）**：`evolution/autoFixAnalyze.ts`（纯函数：报告计数解析/失败识别/repeating-cascading-transient 三模式，技能 mjs:57-140 逐字）+ `autoFixEngine.ts`（IO+编排：test→失败识别→retest→判定主循环 + onProgress 逐轮回调）+ `autoFixReport.ts`（落盘三件：审计行/incident/修复报告）+ `flows/autoFixFlow.ts`（**第 5 流程状态机**：IDLE→RUNNING→ITERATING↺→CONVERGED/CIRCUIT；ITERATING 自环轨迹进投影历史——迭代过程可回放；终态重入边 CONVERGED/CIRCUIT→RUNNING——真机发现「终态不可重入」框架级 P1 后当场修复）+ 路由 `POST /anic/flows/auto-fix/run` + 第 17 工具 `anic_flows_auto_fix` + 差分孪生契约；**双 fork 修复（上游技能缺陷）**：H3 per-gate-latest（gate-check 去重×末4条窗口互斥——cycle-10 发现的结构性误熔断，双侧同步修）+ auto-fix-loop readdirSync 未 import（test-reports 目录存在时 ReferenceError，真机复现修复）；**面板轮询修复**（`usePolledSection.ts`）：org/flows 分区从静态单拉改 4s 轮询——POST 后 6s 内卡片 CIRCUIT→CONVERGED 实时更新实证（动态白盒补全）。
-- 冒烟 19/19 PASS · 规范门 12/12 · vitest 153/153 · typecheck 0/0 · **v0.3.0**。
+- 冒烟 21/21 PASS · 规范门 12/12 · vitest 105 文件全绿（见测试体系表） · typecheck 0/0 ·（历史 v0.3.0 时点行，当前以 CHANGELOG 为准）。
 
 ## 热加载与热更新（三层机制）
 
@@ -123,8 +124,8 @@ pnpm --dir dsh-anic run test          # 全链离线测试：规范门 12 + vite
 | 层 | 命令 | 内容 | 数量 |
 |---|---|---|---|
 | L1 规范门 | `pnpm run validate:dsh` | C1-C12 DSH 清单/exports/locale/icon/产物契约（依据 docs/anic/07 §2 asar 取证，每条注出处） | 12 |
-| L2 单元 | `pnpm run test:unit` | snapshotCore + snapshotRoute + runtime（ledger/stateMachine/stackProbe/cycleRunner）+ segmentedLedger + reviewEngine + evolution + governance + native + dshConformance + 五路由 handler 行为（selfCheck/stepTrace/selfInit/stackProbe/dualBootstrap）等 93 文件 | 1087 |
-| L3 契约守卫 | （同上，vitest 内） | 源码形状守卫：register 原型形态（禁未绑定提取，放行 disposer 捕获）/inject 回调形态/disposer 不丢弃/遥测+kill-switch/src 零 console.*；**反向自检 + 样例拼接构造** | 15 |
+| L2 单元 | `pnpm run test:unit` | 九域全覆盖（flows/evolution/governance/llm/routes/runtime/skill 网关/client/shared）——零直测清单已清零（cycle-36） | 104 文件 |
+| L3 契约守卫 | （同上，vitest 内） | 源码形状守卫：register 原型形态（禁未绑定提取，放行 disposer 捕获）/inject 回调形态/disposer 不丢弃/遥测+kill-switch/src 零 console.*；差分契约（native vs script 逐字段对账）；SKILL.md 目录描述 ≤500 字符 | 20 文件 |
 | L4 机制冒烟 | `pnpm run test:smoke` | stub 宿主 21 断言（__ModuleLoader__ 契约/169 点 217 线/热卸载/kill-switch） | 21 |
 | L5 真实宿主 | `pnpm run j0` | j0-probe.mjs 经 CDP(9222) 六判据：标签可见/共存/图渲染/遥测/来源如实/热卸载+恢复/kill-switch | 8 |
 
@@ -259,8 +260,8 @@ dsh-anic/
 
 ```
 typecheck   client 0  host 0
-vitest      147/147  (10 test files)
-smoke       19/19 ALL PASS
-validate    12/12    (dsh-anic@0.3.0)
+vitest      105 文件全绿（v0.36.0 时点，含 4 条新增契约）
+smoke       21/21 ALL PASS
+validate    12/12    (dsh-anic@0.36.0)
 build       dist/client.js + dist/host.js OK
 ```

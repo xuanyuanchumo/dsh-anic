@@ -6,8 +6,9 @@
  *   - 数据集：tests/fixtures/trigger-eval-dataset.json（20 条：10 正 10 负，12 train / 8 test；
  *     2026-10 cycle-16 研究产物的稳定副本，原始出处 .cycles/cycles/cycle-16/research/）
  *   - 评分面：**确定性代理评分**——不调真模型（无凭据/烧配额/不稳定），而是把
- *     每条查询与每个 anic_* 工具 description + SKILL.md description 的触发词面做
- *     双语加权匹配（trigger 词命中 + Use-when 语义锚 + 区分度负分）。
+ *     每条查询与每个 anic_* 工具 description 的触发词面做双语加权匹配（trigger
+ *     词命中 + Use-when 语义锚 + 区分度负分）。SKILL.md 技能面不进本排名（catalog
+ *     触发词可见性由 tests/contract/skillCatalogDescription.test.ts 守卫）。
  *     这是对「模型会不会被 description 触发」的结构化代理——每次 description
  *     改动可复跑，抓回归；真模型采样是后续增强（--live 旗标位预留）。
  *   - 输出：每条 query 的 top-1 工具 vs expectedTool；正例命中率（recall）+

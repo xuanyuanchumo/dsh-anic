@@ -7,18 +7,13 @@ whenToUse: >
   组织状态与自主级（org-status）。若用户要求可视化迭代过程/透明化开发流程，配合
   dsh-anic 插件的 anic_* 工具与 ANIC 标签页使用。
 description: >
-  Use when a software project needs systematic quality assurance or AI-native
-  iterative development — starting a new project or feature (workflow + intent
-  initialization), finishing phase work (evaluation + gates), preparing
-  delivery or release (G0-G3 convergence gates), fixing quality issues in a
-  loop (auto-fix), or checking project organization status and autonomy level.
-  Also use when the user wants structured development process, layered test
-  strategy, or full-autonomy (L4) AI development — even if they only mention
-  wanting a systematic development flow or QA framework. Triggers on: 迭代验证、
-  质量门禁、循环开发、AI 自主开发、评估驱动开发、intent、SDLC、AI-Native、
-  迭代循环、收敛门禁、自主开发流程、AI-Native iteration、convergence gate、
-  eval-driven development. 是 AI-Native 迭代循环技能（AI-Native iteration
-  cycle skill），人类在门禁处保留判断权。
+  Triggers: 迭代验证、质量门禁、循环开发、AI 自主开发、评估驱动开发、迭代循环、
+  收敛门禁、自主开发流程、SDLC、AI-Native、intent、convergence gate、
+  eval-driven development. Use when a software project needs systematic QA or
+  AI-native iterative development — starting a project/feature (workflow +
+  intent init), finishing phase work (evaluation + gates), preparing delivery
+  (G0-G3 convergence gates), fixing quality issues in a loop (auto-fix), or
+  checking org status and autonomy level (L1-L4). 人类在门禁处保留判断权。
 ---
 
 # AI-Native Iteration Cycle
@@ -94,6 +89,16 @@ description: >
 6. 人类主动要求审计/切换到 L3
 7. 无人值守超时/资源上限（单会话 >24h 或上下文水位 >85%）
 8. 自动化资源上限（累计重试 >10 次或熔断 >3 次）
+
+## 会话恢复协议（跨会话持久记忆）
+
+新会话接手项目时（用户说「继续」「接着做」或上下文含本技能工件），按序恢复状态：
+
+1. 读 `.cycles/workflow-state.json` —— 定位当前宏观阶段（plan→…→maintain）与循环号
+2. 读 `.cycles/cycles/cycle-{N}/当前循环总规划.md` 与 `任务清单.md` —— 本轮目标与未完任务
+3. 只读**当前阶段**对应的 reference（见下方导航索引），不预载全部文档
+4. 状态缺失/损坏时从 `.cycles/gates/ledger.json` 哈希链账本重建（账本即真相），
+   仍不可恢复则询问用户而非猜测
 
 ## 快速启动
 
