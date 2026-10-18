@@ -6,6 +6,24 @@ ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
+## 安装（DSH ≥ 0.2.0-rc.2，网页端与桌面端）
+
+```sh
+dsh plugin --profile <你的 profile> add github:<owner>/dsh-anic
+```
+
+安装后重启对应宿主（bundle 在启动时装载），会话页即出现 `ANIC` 顶层标签。插件声明
+`engines.dsh: ">=0.2.0-rc.2 <0.4.0-0"` 与 `peerDependencies: @deepseek-ai/dsh`——
+宿主不在该范围时 pnpm 会先拒绝。首次使用时插件会把内联技能（`assets/skill/`，含
+SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration-cycle/`；`anic_install`
+工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
+
+- 19 个 `anic_*` LLM 工具（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复）
+- 62 个 HTTP 路由（六域分区：data / cycle / review / evolution / governance / self）
+- 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
+
+截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
+
 ## 当前形态（M1..M11 + R3 流程状态机，v0.17.0）
 - **布局根解析统一 + 自举链双缺陷根除（v0.17.0 / cycle-15，P0-DIR-ROOT/D-1415）**：真机验证暴露 truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下审计了**仓库父目录**（T1-T4 全 MISSING、version vunknown——且源码布局下也错，两种布局从未正确工作过；旧测试只断言路由注册故恒绿），dualBootstrap 同病。新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic），四处调用点（truthAudit/dualBootstrap/agents/skill）统一，根未解析双路由显式 500；pluginRoot 9 用例双布局钉死 + truthAuditRouteBehavior 行为级回归钉（T2 version=真实版本、15 cards——修复前必红）。真机复验 truth-audit **T1-T4 全 100**、dual-evaluate 双向真实数据。收口期再抓两枚同型漏网：band-detector.mjs:141 越界变量 `v`（ReferenceError——规则 2 首真触发即崩，历史快照统计量漂移使其「时好时坏」）+ eval-runner checkComplexity `|| true` fail-open（D-1404 漏网同型）→ execFileSync 直跑非零取 stdout。E1/E2 自举诚实化（intent 模板桩 → 真实三件套）。自举评估 **15 PASS + 1 结构性 SKIP**（历史最佳）；71 文件 863 用例全绿。
 - **自举评估链主平台复活（v0.16.0 / cycle-14，D-1401~D-1408）**：eval-runner 的质量门在 Windows（DSH 宿主主平台）上此前系统性失明——四子检查 `grep|wc` shell-ism 恒 SKIP、环检测 madge 恒 SKIP 且真环被 `|| true` 吞掉（fail-open）、依赖审计 npm audit 无 true 命令恒 SKIP、秘钥扫描 138 命中全假阳性（design-token 惯用形态误伤）。本轮全部根治：scanSourceLines 纯 Node 行扫描、importGraph 纯 Node import 图 + DFS 三色环检测（scripts/lib/importGraph.mjs，零外部依赖）、pnpm audit 回退链（npmmirror 无 bulk 端点 → registry.npmjs.org）、秘钥两段式精筛（pre 粗筛 + 紧邻赋值精筛）。供应链修复：tinypool critical×2 + valibot high（全 dev 链）经 pnpm-workspace.yaml overrides 清零（824 包污染锁 → 239 包）。**自证闭环**：修复后首次真实环检测在自家仓抓到 truthAudit↔truthAuditChecks 真环（type 回边），类型下沉 truthAuditTypes.ts 断环复验 PASS。自举审计 16 维度 14 PASS + 2 结构性 SKIP（历史最佳）；69 文件 852 用例全绿。

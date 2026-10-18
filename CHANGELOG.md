@@ -1,5 +1,23 @@
 # dsh-anic CHANGELOG
 
+## v0.24.0 — 2026-10-18
+
+cycle-23：**分发正典化轮**——eco 研究报告 P1「DSH 插件市场正典化」收口：把 dsh-anic 从「本地 link 安装的事实形态」推进到「可被 DSH 市场生态收录的正典形态」（官方 bundle 安装三通道对照见 `docs/agents/DSH多代兼容与双端适配.md` §7）。
+
+### ① 市场收录物料就绪
+- **LICENSE**（MIT）：contributing.md 惯例要求，此前缺失。
+- **screenshots.json** + `docs/screenshots/` 三张真机截图：`workflow-graph.png`（工作流图+实时调用流，1440x960）/ `ledger-hitl.png`（门禁账本+HITL 队列，1154x499）/ `autonomy-gauge.png`（自主级仪表带+技能健康区，1440x960）——Playwright 于 3080 测试宿主真面板拍摄，非设计稿。市场详情页 App Store 式轮播自动读取；截图更新只推本仓库。
+- **README 顶部「安装」段**：`dsh plugin add github:<owner>/dsh-anic` / engines.dsh 与 peer 层说明 / 技能自动安装（SHA-256 清单）/ 19 工具 62 路由白盒面板一览。
+- **投稿条目草稿** `docs/agents/marketplace-提交草稿.md`：`data/plugins/<owner>__dsh-anic.yml` 完整内容（category: workflow；中英描述数字已对照代码核实）+ 用户动作项清单（建 GitHub 仓 / 打 dsh-plugin topic / 提 PR——agent 无 remote 无凭据不能代做）。
+- 描述数字核对纪律：**19 个 anic_ 工具 / 62 个 HTTP 路由**——contributing.md 明确「描述会被对照代码核实」，条目草稿内已警示增减工具/路由后必须同步。
+
+### ② 研究固化
+- awesome-dsh-plugin 收录规则（contributing.md 2026-10-18 快照）全文研读并固化到 `DSH多代兼容与双端适配.md` §7：收录硬性要求逐项对照、peer 范围显式预发布分支陷阱（本仓库 `>=0.2.0-rc.2 <0.4.0-0` 已是正确形态）、screenshots.json 惯例、一个 PR 最多 3 条、README 生成勿手编。
+- npx 技能-only 分发（eco P1 第二项）评估：延后——先让市场正典路径落地，npx 形态需独立 bin 入口与发布链路，收益窗口在市场收录之后。
+
+### ③ 桌面端生命周期事实（如实留档）
+桌面宿主（57230，PID 2592 07:17 起）运行 v0.22.0 host bundle——承载当前会话不可重启；本版 host 侧变更（无）不影响该事实。桌面 webview 新面目验仍待宿主自然重启（cycle-12 D-1102 同款生命周期语义）。
+
 ## v0.23.0 — 2026-10-18
 
 cycle-22：**官方契约对齐轮**——两项 dsh-kb-compliance 研究报告遗留 P2 一次收口：①其余域路由 `getWorkspaceRoot` 带 req 统一（cycle-21 只修了 native 域，其余 7 文件仍无参调用）②safeHandler 吞异常语义修正（与官方 isError 语义相反）+ presentResult 第二参签名偏差（0.3+ 宿主收紧传参形状即碎的多代风险点）。契约出处：`dsh-plugin-dev-kb/kb/site/reference/cookbook/adding-a-tool.md`。

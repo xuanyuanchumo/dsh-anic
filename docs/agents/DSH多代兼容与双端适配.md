@@ -129,3 +129,27 @@ grep 验证全部 `tools*.ts` gateway 无 intentional throw（所有抛出的异
 ### 6.3 已知小偏差（未改，实测无害）
 
 `presentCall` terminal 卡片字段官方为 `description`，dsh-anic 用 `summary`（`toolsSlot.ts TerminalCallView`）。宿主 0.2.0-rc.2 实测渲染正常——若未来版本卡片描述缺失，此处为第一排查点。
+
+## 7. 分发正典化：DSH 市场收录（cycle-23）
+
+> 出处：awesome-dsh-plugin/awesome-dsh-plugin `contributing.md`（2026-10-18 快照，web_fetch raw）+ dshmarket 1.66.35 README.zh.md + dsh-plugin-dev-kb `site/develop/basic/publish.md`。
+
+### 7.1 DSH 插件分发三通道
+
+| 通道 | 机制 | dsh-anic 状态 |
+|---|---|---|
+| **官方 bundle 安装** | `dsh plugin --profile <name> add <pkg>`（pnpm 转发；git 源码安装走 `prepare` 构建脚本 + `allowBuilds` 授权；npm/tarball 免授权） | manifest 已就绪（`dsh.bundle.patch` ✓ / peer 显式预发布分支 ✓ / `engines.dsh` 声明层 ✓） |
+| **市场可视安装** | dshmarket 插件读精选目录 awesome-dsh-plugin（`data/plugins/<owner>__<repo>.yml`）一键装 | 条目草稿 `docs/agents/marketplace-提交草稿.md`（待用户建 GitHub 仓后提 PR） |
+| **技能 CLI 分发** | `npx` 形态（eco 报告 P1，技能-only 路径） | 未实施——评估为后续轮 |
+
+### 7.2 收录硬性要求（对照本仓库逐项）
+
+- `dsh.bundle` manifest ✓（只声明 `dsh.client` 会被 CI 拒——最常见的被拒形态）；
+- 真实可用代码 ✓；仓库满 1 天（CI 自动查）✓；活跃维护 ✓；
+- 仓库打 `dsh-plugin` topic（**用户动作项**，本仓库尚无 git remote）；
+- 描述必须与代码核实一致：**19 个 anic_ 工具 / 62 个 HTTP 路由**——工具或路由增减后必须同步条目与 README（条目草稿内已警示）；
+- peer 范围写显式预发布分支（`>=0.2.0-rc.2 <0.4.0-0`，§1.1 已是正确形态；contributing.md 的 semver 陷阱示例与本仓库实践一致）。
+
+### 7.3 screenshots.json 惯例（已落地）
+
+仓库根 `screenshots.json` 声明 1-8 张相对路径图（不得以 `/` 开头、不得含 `..`、第三方图床拒绝）→ 市场详情页 App Store 式轮播。本仓库三张真机截图（`docs/screenshots/`，Playwright 于 3080 测试宿主拍摄）：`workflow-graph.png`（工作流图+实时调用流顶部）、`ledger-hitl.png`（门禁账本+HITL 队列）、`autonomy-gauge.png`（自主级仪表带+技能健康区）。截图更新只推本仓库，无需再动市场条目。
