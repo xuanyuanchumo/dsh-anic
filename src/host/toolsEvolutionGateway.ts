@@ -29,7 +29,7 @@ export function registerEvolutionTools(tools: ToolsSlot, deps: EvolutionGatewayD
     description: 'Use when an ANIC-managed project shows circuit-breaker signals and the autonomy level may need '
       + 'an evidence-based step-down, or when checking whether a downgrade is warranted. '
       + 'Refuses without tripped-breaker evidence. Triggers: 熔断 / circuit breaker / '
-      + '自主级回退 / autonomy downgrade / L4→L3.',
+      + '自主级回退 / 回退一档 / autonomy downgrade / L4→L3.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

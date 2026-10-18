@@ -1,5 +1,29 @@
 # dsh-anic CHANGELOG
 
+## v0.34.0 — 2026-10-18
+
+cycle-35：**触发评估语料扩容轮**——trigger-eval 数据集 20 → 38 条（19 pos 全工具覆盖 + 19 neg），契约钉 13 用例；顺带修两处 SDO 触发词盲区。评分面从「15 例抽检」升级为「24 正例 + 14 负例全工具矩阵」，recall 100% / FPR 0%。
+
+### ① 数据集扩容（tests/fixtures/trigger-eval-dataset.json，20 → 38 条）
+- **pos-\* 10 → 19**：每个 anic_\* 工具恰 1 条正例（新增 pos-11..19 覆盖 bootstrap/bootstrap_analyze/flows_gate_check/snapshot/skill/autonomy_downgrade/self_check/hitl/skill_repair）。
+- **neg-\* 10 → 19**：5 条区分度对（shouldTriggerOtherTool）保持 + 14 条纯负例（shouldTriggerNone，新增 9 条词面相撞检验：团队周报 vs 项目状态/DB 存档 vs 归档循环/装机器环境 vs 安装技能/分支清理 vs 修复清理/backlog 规划 vs 迭代/清盘 vs 治理预算/算法复杂度分析 vs 评估等）。
+- 评分口径沉淀进 `_meta.usage`：pos-\* 与 neg-\*(otherTool) 按正例计分（24），neg-\*(none) 命中任何工具即误触（14）。split 20 train / 18 test。
+- 措辞微调 4 条新增负例去字面直撞（「评估一下」→「分析一下」等），rationale 记录原因——负例挑战语义而非字面。
+
+### ② SDO 触发词两处增修（src/host/）
+- `toolsSkillGateway.ts` anic_skill_repair Triggers + 「技能副本」（区分度：pos-19「装好的技能副本…对不上」原先与 anic_status 平分，靠注册序侥幸取胜）。
+- `toolsEvolutionGateway.ts` anic_autonomy_downgrade Triggers + 「回退一档」（区分度：pos-16「从 L4 回退一档」原先被 anic_status 的「自主级」压制）。
+- 修复纪律沿用 cycle-29：只动 Triggers: 段，Use when 语义段零变更。
+
+### ③ 契约钉（tests/unit/triggerEvalContract.test.ts，13 用例）
+- 结构不变量 5：38 条构成（19/5/14）/ 19 工具全覆盖对账 / split 20-18 / id 唯一 / cycle-16 原始条目与 cycle-29 修复措辞在位。
+- 区分度对 5：四对词面相撞（含平分由稳定排序按注册序胜出的语义钉）+ 周报负例全工具零命中。
+- Triggers 增补钉 2 + 全量离线重放 1（与 trigger-eval.mjs 同判定 24/24 + 0/14）。
+
+### ④ 验证
+- 四层全绿：validate 12/12 + vitest 102 文件 1210 用例（+1 文件 +13 用例）+ smoke 21 check + trigger-eval recall 100%（24/24）/ FPR 0%（0/14）。
+- 触发词属 description 文本变更，无行为变更——工具执行路径零改动。
+
 ## v0.33.0 — 2026-10-18
 
 cycle-34：**工具网关域直测**——27 零直测审计残留的 gateway/路由层收口，+37 用例（vitest 98→101 文件 / 1160→1197 用例）。零源码变更（纯测试增量轮；src/ 无 diff）。

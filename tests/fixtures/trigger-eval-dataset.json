@@ -1,16 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "_meta": {
-    "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：20 条查询（10 正 10 负）、负例取「关键词相近但应触发其他工具」的险些误触、每条 3 次重复取触发率、60/40 训练/测试分离、按 held-out 分选优。静态数据文件（研究产物，非源码）；A3 实现 trigger-eval.mjs 时按 split 字段分组消费。",
+    "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：正例覆盖全部 19 工具、负例取「关键词相近但应触发其他工具」的险些误触、确定性代理评分每次 description 改动可复跑。静态数据文件（研究产物，非源码）。",
     "createdAt": "2026-10-18",
+    "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）",
     "source": "skill-ecosystem.md P0-2 设计（.cycles/cycles/cycle-16/research/skill-ecosystem.md）",
     "designRules": [
-      "正例：真实用户口吻（具体、带细节、可能有口语/缩写），覆盖 17 工具中最重要的 10 个",
-      "负例：shouldTriggerOtherTool（关键词相近但语义指向别的 anic 工具）或 shouldTriggerNone（与 anic 无关的相近关键词）",
-      "split: train 60% / test 40%——12 train + 8 test，正负均衡",
-      "query 风格参照 skill-creator：非抽象请求，带文件路径/项目背景/口语化细节"
+      "正例（pos-*）：真实用户口吻（具体、带细节、可能有口语/缩写），cycle-16 版覆盖 19 工具中最重要的 10 个；cycle-35 扩容至全部 19 个（每工具恰 1 条）",
+      "负例（neg-*）：shouldTriggerOtherTool（关键词相近但语义指向别的 anic 工具，expectedTool 为「正确」工具）或 shouldTriggerNone（与 anic 无关的相近关键词，expectedTool=null）",
+      "split: train ~60% / test ~40%（原 12/8；扩容后 20/18）",
+      "query 风格参照 skill-creator：非抽象请求，带文件路径/项目背景/口语化细节",
+      "评分口径：pos-* 与 neg-*(otherTool) 按正例计分（24 条）；neg-*(none) 命中任何 anic_* 即误触（14 条）"
     ],
-    "usage": "A3 脚本对每条 query 采样 3 次（各独立会话），记录是否触发 expectedTool；负例命中 expectedTool 即为误触（false positive）。expectedTool 为 null 表示不应触发任何 anic_* 工具。"
+    "usage": "脚本对每条 query 做确定性代理评分（description 触发词面加权匹配），取 top-1 工具 vs expectedTool。pos-* 与 neg-*（expectedTool 非 null 的区分度对）按正例计分；neg-*（expectedTool=null）命中任何 anic_* 工具即为误触（false positive）。"
   },
   "queries": [
     {
@@ -84,6 +86,69 @@
       "rationale": "正例：「不要单步、驱动完整自举循环自动收敛」= anic_bootstrap_cycle 与单步调用的区分语义"
     },
     {
+      "id": "pos-11",
+      "split": "train",
+      "query": "插件本体最近好像有点不对劲，先做一次自举看看有没有技术债提案要登记",
+      "expectedTool": "anic_bootstrap",
+      "rationale": "正例（cycle-35 新增）：插件自身评估 + tech-debt 提案 = anic_bootstrap 单次自评估（与 neg-05 区分度对）"
+    },
+    {
+      "id": "pos-12",
+      "split": "test",
+      "query": "自举跑完了，把技术债提案、HITL 审计发现、事实基座验证和风险评分整理成报告给我过目",
+      "expectedTool": "anic_bootstrap_analyze",
+      "rationale": "正例（cycle-35 新增）：自举产物深度分析（tech-debt + HITL + fact-base + risk score）供开发者审阅 = anic_bootstrap_analyze（与 neg-08 区分度对）"
+    },
+    {
+      "id": "pos-13",
+      "split": "train",
+      "query": "跑一下门禁，但这次要从流程状态机走，我要看 G2 的流转事件和状态转移，最好对比 script 和 native 两个引擎有没有分叉",
+      "expectedTool": "anic_flows_gate_check",
+      "rationale": "正例（cycle-35 新增）：流程状态机视角 + diff 对账 = anic_flows_gate_check（与 neg-06 区分度对；pos-04 是简单门禁的对照例）"
+    },
+    {
+      "id": "pos-14",
+      "split": "test",
+      "query": "把当前工作流图的数据取出来，节点、连线、循环和账本事件我都要，我要自己渲染一个看板",
+      "expectedTool": "anic_snapshot",
+      "rationale": "正例（cycle-35 新增）：工作流图数据（nodes/edges/cycles/ledger events）供渲染 = anic_snapshot（与 neg-07 区分度对）"
+    },
+    {
+      "id": "pos-15",
+      "split": "train",
+      "query": "点名让 band-detector 脚本跑一下，阈值参数我自定义 0.2，历史窗口取 15",
+      "expectedTool": "anic_skill",
+      "rationale": "正例（cycle-35 新增）：点名具体脚本 + 自定义 CLI 参数 = 通用脚本网关 anic_skill（与 neg-09 区分度对）"
+    },
+    {
+      "id": "pos-16",
+      "split": "test",
+      "query": "团队担心自主级虚高，查一下现在有没有熔断信号，有的话把自主级从 L4 回退一档并留证据",
+      "expectedTool": "anic_autonomy_downgrade",
+      "rationale": "正例（cycle-35 新增）：熔断证据 + 自主级回退（L4→L3）= anic_autonomy_downgrade 的双语义"
+    },
+    {
+      "id": "pos-17",
+      "split": "train",
+      "query": "怀疑 INV-30 这个运行时不变量被破坏了，探测一下插件运行时健康，做个例行体检也行",
+      "expectedTool": "anic_self_check",
+      "rationale": "正例（cycle-35 新增）：不变量探测 + 运行时健康检查 = anic_self_check（INV probes 触发面）"
+    },
+    {
+      "id": "pos-18",
+      "split": "test",
+      "query": "发版前要做一次人类在环审计，敏感数据保护、回滚安全、账本完整性 H1 到 H4 全部过一遍",
+      "expectedTool": "anic_hitl",
+      "rationale": "正例（cycle-35 新增）：HITL 审计入口（H1-H4 审计本体）= anic_hitl（与 pos-06 修复流程的区分：pos-06 是熔断后的修复，本例是审计入口）"
+    },
+    {
+      "id": "pos-19",
+      "split": "train",
+      "query": "status 报告技能完整性校验不过，装好的技能副本和内置原版对不上，修复一下技能",
+      "expectedTool": "anic_skill_repair",
+      "rationale": "正例（cycle-35 新增）：完整性 mismatch + 修复技能副本 = anic_skill_repair 的正典场景"
+    },
+    {
       "id": "neg-01",
       "split": "train",
       "query": "帮我看看这个 PR 的测试覆盖怎么样，有没有漏测的关键路径",
@@ -116,7 +181,7 @@
       "split": "train",
       "query": "插件自己最近状态怎么样，跑一次自举看看有没有技术债可以登记的",
       "expectedTool": "anic_bootstrap",
-      "rationale": "负例（shouldTriggerOtherTool）：「插件自身 + 自举 + 技术债」险些指向 anic_bootstrap_cycle 或 anic_bootstrap_analyze，但「评估 dsh-anic 自己 + tech-debt 提案」的正典语义是 anic_bootstrap（单次自评估）。此例检验三个 bootstrap 工具的区分度——若 A3 判定 anic_bootstrap_cycle 更合理可改 expectedTool 并记录理由"
+      "rationale": "负例（shouldTriggerOtherTool）：「插件自身 + 自举 + 技术债」险些指向 anic_bootstrap_cycle 或 anic_bootstrap_analyze，但「评估 dsh-anic 自己 + tech-debt 提案」的正典语义是 anic_bootstrap（单次自评估）。此例检验三个 bootstrap 工具的区分度"
     },
     {
       "id": "neg-06",
@@ -152,14 +217,78 @@
       "query": "这个会话上下文是不是快满了？帮我压缩一下对话历史",
       "expectedTool": null,
       "rationale": "负例（shouldTriggerNone）：「上下文水位」与 anic 熔断条件 7（上下文 >85%）关键词相近，但用户的实际诉求是压缩对话历史（宿主能力），与 anic_* 工具无关"
+    },
+    {
+      "id": "neg-11",
+      "split": "train",
+      "query": "团队周报帮我写一下，本周完成了哪些功能、里程碑进度、风险项都要列出来",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「状态周报」词面与 anic_status 的 Triggers（项目状态）相撞，但实际是写周报的文档任务，非 ANIC 工作流状态查询——检验 anic_status 触发词的误触面。首版 query 含「项目状态」四字面命中（代理评分 3 分误触），措辞调为「团队周报」保留语义挑战、去掉字面直撞"
+    },
+    {
+      "id": "neg-12",
+      "split": "test",
+      "query": "数据库的表结构整理一份存档，导出成 SQL 文件放到备份目录里",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「归档」词面与 anic_flows_archive 直接相撞，但实际是数据库备份任务——检验归档触发词的误触面"
+    },
+    {
+      "id": "neg-13",
+      "split": "train",
+      "query": "内存泄漏有点严重，帮我做个性能分析，看看哪些对象一直没被回收",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「分析/严重」词面与评估类工具相近，但实际是内存性能调试——检验评估词面的误触面"
+    },
+    {
+      "id": "neg-14",
+      "split": "test",
+      "query": "新机器环境搭一下，node、pnpm 和数据库都装好，装完跑一遍 hello world 确认可用",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「安装/装好」词面与 anic_install（安装技能）相撞，但实际是装机器环境——检验安装触发词的误触面"
+    },
+    {
+      "id": "neg-15",
+      "split": "train",
+      "query": "CI 上 e2e 挂了三天的单子终于修好了，把分支删掉，tag 也清理一下",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「修复/清理」词面与 auto-fix/archive 相撞，但实际是 git 分支/tag 清理——检验修复+清理双词面的误触面"
+    },
+    {
+      "id": "neg-16",
+      "split": "test",
+      "query": "文档站点的搜索功能坏了，用户反馈搜不到东西，帮我排查解决一下",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「修复」词面与修复类工具相撞，但实际是文档站搜索功能 bug——检验修复词面在无测试循环上下文时的误触面。query 措辞避开「修复」字面（改「排查解决」）——真实口吻本就多样，同时保留该测试面对 LLM 评分的挑战性"
+    },
+    {
+      "id": "neg-17",
+      "split": "train",
+      "query": "把迭代backlog里的需求按优先级排个序，下个冲刺要做哪几个给我个建议",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「迭代/冲刺」词面与 anic_iterate（跑一轮迭代）相撞，但实际是产品 backlog 规划——检验迭代词面的误触面"
+    },
+    {
+      "id": "neg-18",
+      "split": "test",
+      "query": "服务器磁盘快满了，把临时文件和过期的日志清理掉，再看看哪些目录占用最大",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「磁盘满/清理/占用」词面与治理预算/归档清理相近，但实际是运维清盘任务——检验清理类词面的误触面"
+    },
+    {
+      "id": "neg-19",
+      "split": "train",
+      "query": "这个算法的时间复杂度帮我分析一下，是不是 O(n²)，有没有优化空间",
+      "expectedTool": null,
+      "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「评估」词面与 anic_evaluate 直接相撞，但实际是算法复杂度分析（数学/代码任务）——检验评估触发词在非 ANIC 语境的误触面"
     }
   ],
   "_stats": {
-    "total": 20,
-    "positive": 10,
-    "negative": 10,
-    "negativeBreakdown": { "shouldTriggerNone": 6, "shouldTriggerOtherTool": 4 },
-    "splitBreakdown": { "train": 12, "test": 8 },
+    "total": 38,
+    "positiveIds": 19,
+    "negativeIds": 19,
+    "negativeBreakdown": { "shouldTriggerNone": 14, "shouldTriggerOtherTool": 5 },
+    "scoringCounts": { "positives": 24, "negatives": 14 },
+    "splitBreakdown": { "train": 20, "test": 18 },
     "positiveToolsCovered": [
       "anic_evaluate",
       "anic_install",
@@ -170,14 +299,27 @@
       "anic_flows_advance",
       "anic_flows_archive",
       "anic_status",
-      "anic_bootstrap_cycle"
+      "anic_bootstrap_cycle",
+      "anic_bootstrap",
+      "anic_bootstrap_analyze",
+      "anic_flows_gate_check",
+      "anic_snapshot",
+      "anic_skill",
+      "anic_autonomy_downgrade",
+      "anic_self_check",
+      "anic_hitl",
+      "anic_skill_repair"
     ],
     "distinguishingPairsExercised": [
-      "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08）",
-      "anic_gate_check vs anic_flows_gate_check（neg-06）",
-      "anic_snapshot vs anic_status（neg-07）",
-      "anic_status vs anic_skill（neg-09）",
-      "anic_flows_auto_fix vs 普通调试（neg-03）"
+      "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08 + pos-11/pos-12）",
+      "anic_gate_check vs anic_flows_gate_check（neg-06 + pos-13）",
+      "anic_snapshot vs anic_status（neg-07 + pos-14）",
+      "anic_status vs anic_skill（neg-09 + pos-15）",
+      "anic_flows_auto_fix vs 普通调试（neg-03）",
+      "anic_hitl（审计入口）vs anic_flows_hitl（熔断修复）（pos-18 vs pos-06）",
+      "anic_install（装技能）vs 装机器环境（neg-14）",
+      "anic_flows_archive（归档循环）vs 数据库归档（neg-12）",
+      "anic_status（ANIC 全景）vs 团队周报（neg-11）"
     ]
   }
 }

@@ -93,7 +93,7 @@ export function registerSkillGatewayTools(
     name: 'anic_skill_repair',
     description: 'Use when the installed ai-native-iteration-cycle skill copy is corrupted or drifted from the '
       + 'bundled original — after anic_status or skill status reports integrity mismatches, or skill scripts '
-      + 'behave unexpectedly after manual edits. Triggers: 修复技能 / repair skill / 技能损坏 / 完整性.',
+      + 'behave unexpectedly after manual edits. Triggers: 修复技能 / repair skill / 技能损坏 / 技能副本 / 完整性.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
