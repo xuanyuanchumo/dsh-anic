@@ -1,5 +1,21 @@
 # dsh-anic CHANGELOG
 
+## v0.26.1 — 2026-10-18
+
+cycle-26：**CLI 参数防护轮**——cycle-25 收口时发现的 `--help/` 目录事故根治。
+
+### ① init-workflow.mjs 参数防护（P3 根治项）
+- 事故：parseArgs 把未知旗标（`--help`/`--bogus`）当位置参数推入 `args._`，scaffoldProject 便在 CWD 下脚手架出 `--help/` 目录（cycle-25 提交清理时发现）。
+- 修复三防线：未知旗标（`--*` 不在白名单）exit 1 并报旗标名；位置参数必须**恰好 1 个**（多给报数量与列表）；`--help`/`-h` 打印用法 exit 0（不再落入位置参数桶）。
+- 产物：`assets/skill/scripts/init-workflow.mjs` 95→111 行；技能三锚点 2.0.0 不动（参数防护不算能力变更）。
+
+### ② 测试（+7 用例）
+- 新增 `tests/unit/initWorkflowGuard.test.ts`：--help exit 0/-h 等价/未知旗标拒绝/事故回归钉（--help 不再产生目录）/两位置参数拒绝/零参数用法/正常路径不回归。
+- 教训：拒绝路径输出在 stderr（console.error）——execFileSync 捕获时要拼 stdout+stderr。
+
+### ③ 范围界定（tech-debt 如实记录）
+- 其余 15 个技能脚本的同型 parseArgs 未在本轮统一——宿主侧 invokeSkillScript 显式传 workspace（LLM 面不直接拼 CLI），风险敞口仅限手动 CLI 用户；统一参数防护库列入后续轮。
+
 ## v0.26.0 — 2026-10-18
 
 cycle-25：**npx 技能-only 分发轮**——eco 研究报告最后一个 P1 分发缺口收口。dsh-anic 从「DSH 专属插件」升级为「跨 harness 技能 + DSH 增强插件」双层产品。

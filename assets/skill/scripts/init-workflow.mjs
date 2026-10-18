@@ -20,6 +20,8 @@ function parseArgs(argv) {
     else if (arg === '--framework') args.framework = argv[++i];
     else if (arg === '--git') args.git = true;
     else if (arg === '--dry-run') args.dryRun = true;
+    else if (arg === '--help' || arg === '-h') args.help = true;
+    else if (arg.startsWith('--')) { args.unknownFlag = arg; break; }
     else args._.push(arg);
   }
   return args;
@@ -88,8 +90,21 @@ function scaffoldProject(projectDir, args) {
 }
 
 const args = parseArgs(process.argv);
-if (args._.length === 0) {
-  console.error('Usage: node init-workflow.mjs <project-dir> --name "<项目名>" [--framework claude|codex] [--git]');
+const USAGE = 'Usage: node init-workflow.mjs <project-dir> --name "<项目名>" [--framework claude|codex] [--git]';
+if (args.help) {
+  console.log(USAGE);
+  console.log('  <project-dir> 是唯一位置参数（项目根目录，不存在则创建）');
+  process.exit(0);
+}
+if (args.unknownFlag) {
+  // 未知旗标直接拒绝（cycle-25 教训：--help 误当位置参数会脚手架出 "--help/" 目录）
+  console.error(`[init-workflow] 未知旗标: ${args.unknownFlag}`);
+  console.error(USAGE);
+  process.exit(1);
+}
+if (args._.length !== 1) {
+  // 恰好一个位置参数——多给（如误传旗标值）或少给都拒绝
+  console.error(args._.length === 0 ? USAGE : `[init-workflow] 只接受一个位置参数（project-dir），收到 ${args._.length} 个: ${args._.join(' ')}`);
   process.exit(1);
 }
 scaffoldProject(args._[0], args);
