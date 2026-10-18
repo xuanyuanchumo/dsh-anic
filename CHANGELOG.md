@@ -1,5 +1,24 @@
 # dsh-anic CHANGELOG
 
+## v0.25.0 — 2026-10-18
+
+cycle-24：**治理与审计补完轮**——ui-domain-plan 缺口清单最后两项 P3 一次收口：治理预算视图 + 账本分页。至此 2016 年研究轮（cycle-16）规划的七个 UI 缺口（P0 时间线 / P1 账本 / P1 HITL / P2 仪表带 / P2 turn 分组 / P3 技能健康 / P3 治理预算）全部落地。
+
+### ① 治理预算视图（P3 · ui-domain-plan:135）
+- 新增 `src/client/features/budget/renderBudget.ts`（128 行）：消费既有 `GET /anic/governance/budget`（零新增 host 面）——状态徽标三态（normal/warn/alert 语义色三通道）+ 预算余量条（`role=img` aria 整条播报；填充=totalBytes/alertBytes 封顶 100%；warn 阈值画绝对定位刻度线）+ 统计行（文件数/目录数）+ 大文件 Top 5 榜（>1MB，完整路径 title 悬停）。
+- `humanBytes` 人性化（B/KB/MB/GB/TB，<10 一位小数否则取整；非有限/负数如实返回）。
+- 纯函数渲染器范式与 ledger/hitl 同构：null → 整区不渲染，不伪造空态；largestFiles 空 → 榜区不渲染。
+- 面板接线：4s 轮询档（治理证据簇同节奏），旅程排序在 HITL 队列后——「留了什么痕」之后呈现「这些痕占了多少空间」。
+
+### ② 账本分页（P3 · ui-domain-plan 遗留）
+- 服务端 `?limit&?offset` 早已支持（ledgerRoute.ts:44-47），本侧接线：`ledgerListUrl(limit)` 工厂 + `governanceTargets(setters, ledgerLimit)` 按翻页深度拉取。
+- `renderLedger` 新增第三参 `actions: { hasMore, onShowMore }`：`entries.length < total` 时渲染「显示更多」按钮（`data-anic-ledger-more` 契约标记），点击抬 limit+24 并 bump reloadKey（语义=带新翻页深度的手动刷新）。无 actions / hasMore=false → 不渲染（与既有测试零破坏——第三参可选）。
+
+### ③ 测试（+22 用例，全量 85 文件 1007 用例）
+- 新增 `tests/unit/budgetSection.test.ts` 17 用例：渲染 7（null/锚点+徽标/余量条三契约/三态/统计行/大文件榜/空榜不渲染）+ isBudget 守卫 5 + humanBytes 5。
+- `tests/unit/ledgerSection.test.ts` 追加 5 用例：ledgerListUrl 工厂 1 + 分页 footer 4（无 actions 不渲染/hasMore=false 不渲染/hasMore=true 按钮计数/渲染期不触发回调）。
+- 教训复用：新测试文件 import 深度算错（`../../../src` 越出工程根被 G-IND 独立性守卫拦截）——tests/ 下到 src/ 统一 `../../src`。
+
 ## v0.24.0 — 2026-10-18
 
 cycle-23：**分发正典化轮**——eco 研究报告 P1「DSH 插件市场正典化」收口：把 dsh-anic 从「本地 link 安装的事实形态」推进到「可被 DSH 市场生态收录的正典形态」（官方 bundle 安装三通道对照见 `docs/agents/DSH多代兼容与双端适配.md` §7）。

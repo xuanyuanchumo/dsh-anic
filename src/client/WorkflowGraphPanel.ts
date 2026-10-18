@@ -30,6 +30,8 @@ import { renderCyclesTimeline, isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_
 import { renderLedger, type LedgerListJson, type LedgerVerifyJson } from './features/ledger/renderLedger.ts';
 import { renderHitl, type HitlAuditJson } from './features/hitl/renderHitl.ts';
 import { governanceTargets } from './governanceTargets.ts';
+// cycle-24（P3 治理补完）：预算视图（.cycles/ 磁盘预算白盒）。
+import { renderBudget, isBudget, BUDGET_URL, type BudgetJson } from './features/budget/renderBudget.ts';
 // cycle-20（P2/P3 收口）：自主级仪表带 + 技能健康面板。
 import { renderAutonomyGauge } from './features/autonomy/renderAutonomyGauge.ts';
 import { renderSkillHealth, isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
@@ -70,6 +72,10 @@ export function WorkflowGraphPanel(): ReactElement {
   const [ledgerList, setLedgerList] = useState<LedgerListJson | null>(null);
   const [ledgerVerify, setLedgerVerify] = useState<LedgerVerifyJson | null>(null);
   const [hitlAudit, setHitlAudit] = useState<HitlAuditJson | null>(null);
+  // cycle-24（P3 账本分页）：翻页深度（「显示更多」抬 limit 并触发重拉）。
+  const [ledgerLimit, setLedgerLimit] = useState(12);
+  // cycle-24（P3 治理预算）：.cycles/ 磁盘预算数据源（治理证据簇同 4s 档）。
+  const [budget, setBudget] = useState<BudgetJson | null>(null);
   // cycle-20（P3）：技能健康面板数据源（FlowTracker 调用历史的分析面，4s 档）。
   const [skillHealth, setSkillHealth] = useState<SkillHealthJson | null>(null);
   // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
@@ -131,9 +137,10 @@ export function WorkflowGraphPanel(): ReactElement {
     { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => setCycleList(v as CycleListJson) },
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => setCycleState(v as CycleStateJson) },
     // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
-    ...governanceTargets({ setLedgerList, setLedgerVerify, setHitlAudit }),
-    // cycle-20（P3）：技能健康并入 4s 档（与治理证据簇同节奏——都属健康/证据观测）。
+    ...governanceTargets({ setLedgerList, setLedgerVerify, setHitlAudit }, ledgerLimit),
+    // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
     { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => setSkillHealth(v as SkillHealthJson) },
+    { url: BUDGET_URL, guard: isBudget, apply: (v) => setBudget(v as BudgetJson) },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
@@ -218,10 +225,17 @@ export function WorkflowGraphPanel(): ReactElement {
       : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }),
     // 账本事件流 + HITL 审计队列（B2 · cycle-18）：治理证据簇，旅程排序紧跟
     // 流程状态机——「状态机走到哪」与「裁决留了什么痕、谁在等人工」相邻呈现。
-    renderLedger(ledgerList, ledgerVerify),
+    // cycle-24（P3 分页）：还有未展示条目时渲染「显示更多」——抬 ledgerLimit
+    // 并 bump reloadKey（重拉即新 limit 生效；语义=带新翻页深度的手动刷新）。
+    renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
+      ? { hasMore: true, onShowMore: () => { setLedgerLimit((l) => l + 24); setReloadKey((k) => k + 1); } }
+      : undefined),
     approvalsOn
       ? renderHitl(hitlAudit)
       : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }),
+    // cycle-24（P3 治理预算）：预算余量条 + 大文件榜——治理证据簇收尾
+    //（「留了什么痕」之后呈现「这些痕占了多少空间」）。
+    renderBudget(budget),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

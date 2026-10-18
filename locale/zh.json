@@ -184,7 +184,8 @@
     "chainOk": "链完整 · {total} 条",
     "chainBroken": "断链 @ 第 {at} 条",
     "chainUnknown": "链完整性未验证",
-    "genesis": "genesis"
+    "genesis": "genesis",
+    "showMore": "显示更多（已显示 {shown} / {total}）"
   },
   "hitl": {
     "title": "HITL 审计队列",
@@ -244,5 +245,14 @@
     "levelExpensive": "高耗时",
     "levelInsufficient": "样本不足",
     "levelUnused": "未使用"
+  },
+  "budget": {
+    "title": "治理预算（.cycles/ 工作区）",
+    "status_normal": "正常",
+    "status_warn": "接近预算",
+    "status_alert": "超预算",
+    "barLabel": "已用 {used}；warn 阈值 {warn}，alert 阈值 {alert}",
+    "stats": "已用 {used} · {files} 个文件 · {dirs} 个目录",
+    "largest": "大文件 Top 5（>1MB）"
   }
 }

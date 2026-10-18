@@ -43,6 +43,11 @@ export interface LedgerVerifyJson {
 export const LEDGER_LIST_URL = '/anic/api/ledger?limit=12';
 export const LEDGER_VERIFY_URL = '/anic/api/ledger/verify';
 
+/** 分页 URL 工厂（cycle-24 P3 账本分页：服务端 ?limit&?offset 早已支持，本侧接线）。 */
+export function ledgerListUrl(limit: number): string {
+  return `/anic/api/ledger?limit=${String(limit)}`;
+}
+
 /** 形状守卫：entries 数组且首项含 gate/result 字段才采信（防半截响应进渲染）。 */
 export function isLedgerList(v: unknown): v is LedgerListJson {
   if (!isObjectLike(v)) return false;
@@ -76,8 +81,15 @@ const ROW_STYLE: Record<string, string> = {
 /**
  * 渲染账本事件流分区。
  * list=null（未拉取/路由缺失）→ 整区不渲染；verify=null → 链完整性行如实显示未验证。
+ * actions（可选，cycle-24 分页）：hasMore=true 时渲染「显示更多」按钮，
+ * onShowMore 由面板提供（同时抬 ledgerLimit 与 reloadKey——重拉即新 limit 生效）。
  */
-export function renderLedger(list: LedgerListJson | null, verify: LedgerVerifyJson | null): ReactElement | null {
+export interface LedgerActions {
+  hasMore: boolean;
+  onShowMore: () => void;
+}
+
+export function renderLedger(list: LedgerListJson | null, verify: LedgerVerifyJson | null, actions?: LedgerActions): ReactElement | null {
   if (list === null) return null;
   if (!Array.isArray(list.entries) || list.entries.length === 0) return null;
 
@@ -111,5 +123,15 @@ export function renderLedger(list: LedgerListJson | null, verify: LedgerVerifyJs
         e.previousHash === null ? t('ledger.genesis') : hash8(e.hash)),
       e.detail !== '' ? createElement('span', { style: { color: token('anic-text-faint'), flexBasis: '100%' } }, e.detail) : null,
     )),
+    // 分页footer：还有未展示条目时给「显示更多」（data-anic-ledger-more 契约标记）。
+    actions !== undefined && actions.hasMore
+      ? createElement('div', { style: { padding: '4px 10px 2px' } },
+          createElement('button', {
+            type: 'button',
+            'data-anic-ledger-more': 'true',
+            className: 'anic-btn',
+            onClick: () => { actions.onShowMore(); },
+          }, t('ledger.showMore', { shown: String(list.entries.length), total: String(list.total) })))
+      : null,
   );
 }

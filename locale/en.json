@@ -184,7 +184,8 @@
     "chainOk": "chain intact · {total} entries",
     "chainBroken": "chain broken @ entry {at}",
     "chainUnknown": "chain integrity unverified",
-    "genesis": "genesis"
+    "genesis": "genesis",
+    "showMore": "Show more ({shown} / {total} shown)"
   },
   "hitl": {
     "title": "HITL Audit Queue",
@@ -244,5 +245,14 @@
     "levelExpensive": "Expensive",
     "levelInsufficient": "Insufficient samples",
     "levelUnused": "Unused"
+  },
+  "budget": {
+    "title": "Governance budget (.cycles/ workspace)",
+    "status_normal": "normal",
+    "status_warn": "near budget",
+    "status_alert": "over budget",
+    "barLabel": "used {used}; warn threshold {warn}, alert threshold {alert}",
+    "stats": "{used} used · {files} files · {dirs} dirs",
+    "largest": "Largest files top 5 (>1MB)"
   }
 }
