@@ -97,7 +97,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     name: 'anic_iterate',
     // SDO：触发条件 = 已有基线、要走一轮完整迭代；症状 = 用户说「跑一轮迭代/一轮循环」。
     description: 'Use when an ANIC-managed project should run one full iteration round (evaluation + gate check together). '
-      + 'Triggers: 跑一轮迭代 / run one iteration / one cycle / 迭代一轮.',
+      + 'Triggers: 跑一轮迭代 / run one iteration / one cycle / 迭代一轮 / 跑一轮完整的迭代 / 评估加门禁一起.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

@@ -40,7 +40,7 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
     description: 'Use when convergence gates should run THROUGH the flow state machine — needing flow state '
       + '(IDLE/RUNNING/PASSED/FAILED), transition events, or a script-vs-native verdict comparison (diff mode, '
       + 'dual-source-of-truth guard). Triggers: 流程门禁 / flow gate / 状态机门禁 / '
-      + 'diff 对账 / drift check.',
+      + '流程状态机 / 流转事件 / transition events / diff 对账 / drift check.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',

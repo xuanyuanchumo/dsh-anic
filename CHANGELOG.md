@@ -1,5 +1,23 @@
 # dsh-anic CHANGELOG
 
+## v0.29.0 — 2026-10-18
+
+cycle-29：**触发评估语料修复轮**——cycle-16 以来稳定复现的 3 个 trigger-eval MISS 全部修复，正例命中率 80%（12/15）→ **100%（15/15）**，负例误触率维持 0%。
+
+### ① 三处 SDO 触发词修复（description-only，零行为变更）
+- `anic_iterate`（tools.ts）：补「跑一轮完整的迭代 / 评估加门禁一起」——原触发词「跑一轮迭代」无法命中口语化变体「跑一轮完整的迭代」（词面不连续），评估+门禁组合语义此前落在 anic_evaluate。
+- `anic_flows_gate_check`（toolsFlowsGateway.ts）：补「流程状态机 / 流转事件 / transition events」——原触发词「状态机门禁」与查询语「流程状态机的当前状态和流转事件」词面不连续（中间插了"的"），导致脚本名关键词 script 抢分误中 anic_skill。
+- `anic_skill`（toolsSkillGateway.ts）：补「点名脚本带自定义参数 / 脚本跑一下」——org-status/quick-validate 等脚本名虽已在 description 中但英文 token 权重（2 分）不敌 anic_status 的 status 命中（中文 6 分）；中文触发短语补齐中文查询的正分。
+
+### ② 修复方法论（供后续 description 演进复用）
+- MISS 根因分型：**词面不连续**（trigger 短语被口语插入语打散——加变体短语）与 **跨语言权重失衡**（中文查询 vs 英文 token 得分不对等——补中文触发短语）。
+- 修复纪律：只动 `Triggers:` 段，绝不改 `Use when` 语义段；每处修复后立即 `node scripts/trigger-eval.mjs` 复跑；全部负例（FPR 0%）复核确认新触发词不引入误触。
+- 评估器不改：词面评分器是 description 纪律的守卫面，语料修复优先于评分器调参（防止「改考卷凑分数」）。
+
+### 验证
+- 四层 ALL GREEN：validate 12/12 + vitest 88 文件 1061 用例 + smoke 21/21 + trigger **15/15=100%**/FPR 0%。
+- typecheck exit=0 / build exit=0 / quick-validate 3 anchors 2.1.0 不动。
+
 ## v0.28.0 — 2026-10-18
 
 cycle-28：**文档代际校准轮**——v0.19→v0.27 九轮演进后 docs/agents 与 README 的数字/行号/描述漂移全量修正，文档回到「与代码可核对」状态。

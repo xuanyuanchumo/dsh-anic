@@ -127,7 +127,8 @@ export function registerSkillGatewayTools(
     name: 'anic_skill',
     description: 'Use when a specific whitelisted ai-native-iteration-cycle skill script must be invoked natively — '
       + 'e.g. init-workflow, org-status, band-detector, multi-agent-gate, quick-validate, fact-base-verify, '
-      + 'or any script needing custom CLI args. Triggers: 调用技能脚本 / run skill script / 技能脚本名.',
+      + 'or any script needing custom CLI args. Triggers: 调用技能脚本 / run skill script / 技能脚本名 / '
+      + '点名脚本带自定义参数 / 脚本跑一下.',
     output: makeToolOutput(),
     parameters: {
       type: 'object',
