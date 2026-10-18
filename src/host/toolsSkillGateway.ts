@@ -142,7 +142,9 @@ export function registerSkillGatewayTools(
         args: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Extra CLI args appended after the positional project dir',
+          description: 'Extra CLI args appended after the positional project dir. '
+            + 'NOTICE (cycle-31): quick-validate is the one script whose first positional is the SKILL DIR '
+            + '(assets/skill), not the project dir — pass it here as args: ["assets/skill"]',
         },
         timeout: { type: 'number', description: 'Timeout ms (default 60000, hard cap 120000)' },
       },

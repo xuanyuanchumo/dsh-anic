@@ -190,4 +190,15 @@ describe('全量脚本子进程抽验（真实 exit code）', () => {
     expect(r.out).toContain('位置参数');
     expect(r.out).not.toContain('未知旗标');
   });
+
+  it('quick-validate 工具形态双位置参数（cycle-31：anic_skill 前置 workspace）', () => {
+    // anic_skill 契约：spawn(node,[script, workspace, ...args]) — workspace 恒为
+    // 第一位置参数；quick-validate 取最后位置参数为 skill-dir，两种形态都合法。
+    const two = run('quick-validate', ['.', 'assets/skill']);
+    expect(two.code).toBe(0);
+    expect(two.out).toContain('VALIDATION PASSED');
+    const one = run('quick-validate', ['assets/skill']);
+    expect(one.code).toBe(0);
+    expect(one.out).toContain('VALIDATION PASSED');
+  });
 });

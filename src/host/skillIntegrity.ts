@@ -56,11 +56,17 @@ export interface SkillVerifyResult {
   manifestVersion: string | null;
 }
 
-/** 读技能版本（单一事实源；skillInstallRoute 原地拷贝已收编于此）。 */
+/** 读技能版本（单一事实源；skillInstallRoute 原地拷贝已收编于此）。
+ *
+ * 锚点格式（quick-validate checkVersionConsistency 同源）：SKILL.md 里
+ * 「MCP Tools (vX.Y.Z)：」标题行。cycle-31 修复：旧正则要求字面量 "version"
+ * 前缀，真实锚点无此前缀 → 恒 null → skillInstallRoute 版本门控快路径从未
+ * 生效（null===null 防御兜住落重装路径，但 status 汇报误导性 null）。
+ */
 export function readSkillVersion(skillDir: string): string | null {
   try {
     const md = readFileSync(join(skillDir, 'SKILL.md'), 'utf-8');
-    const m = md.match(/version[:\s]+v?([0-9]+\.[0-9]+\.[0-9]+)/i);
+    const m = md.match(/MCP Tools \(v([0-9]+\.[0-9]+\.[0-9]+)\)/);
     return m?.[1] ?? null;
   } catch { return null; }
 }

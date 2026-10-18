@@ -1,5 +1,32 @@
 # dsh-anic CHANGELOG
 
+## v0.31.0 — 2026-10-18
+
+cycle-31：**桌面宿主实弹验证轮**——等了 11 轮的 P2 桌面端窗口随宿主自然重启（57230→57200）打开；实弹 anic_* 工具链暴露并修复 1 个 P1 真缺陷 + 2 个传播缺陷。
+
+### ① readSkillVersion 正则缺陷修复（P1——版本门控从未生效）
+- 根因：`skillIntegrity.ts:60` 旧正则 `/version[:\s]+v?(\d+\.\d+\.\d+)/i` 要求字面量 "version" 前缀，但真实锚点是 SKILL.md「MCP Tools (vX.Y.Z)：」标题行——无此前缀，恒返回 null。
+- 后果链：anic_status 的 skillIntegrity.installedVersion/inlineVersion 恒 null（误导性汇报）；skillInstallRoute 版本门控快路径从未生效（null===null 防御兜底落重装路径，行为侥幸正确但路径从未被测试）。
+- 修复：锚点正则 `/MCP Tools \(v([0-9]+\.[0-9]+\.[0-9]+)\)/` + 注释说明。修复后实测：inline 2.1.0 vs 陈旧安装 2.0.0——真实差异首次可见。
+- 回归钉：skillIntegrity.test.ts 新增 3 断言用例（真实锚点 2.1.0/无锚点 null/旧式字面量不再匹配防倒退）。
+
+### ② 陈旧技能副本修复（真机 anic_install 实弹）
+- 发现：dsh-anic 工作区 `.dsh/skills/ai-native-iteration-cycle` 停在 2.0.0——cycle-27 的 16 脚本迁移+lib/args.mjs 从未传播（cycle-19 后未重跑 install + 版本门控因 ① 恒 null）。
+- 修复：新桌面宿主实弹 `anic_install` → installed:true + integrity{ok:true, reference:inline, checked:65, mismatches:[]}（65 文件全同步 2.1.0）。
+
+### ③ quick-validate 位置参数冲突修复（工具面契约适配）
+- 冲突：anic_skill 工具契约 `spawn(node,[script, workspace, ...args])`——workspace 恒第一位置参数；quick-validate 旧 spec `min:1 max:1` 只要 skill-dir。工具面调用必然超参被拒，或旧副本静默取 workspace 当 skill-dir（扫全工作区 35285 文件 59 假错）。
+- 修复：spec 放宽 `min:1 max:2` + `skillDir=resolve(args._[args._.length-1])`（取最后位置参数——工具形态 [workspace, skill-dir] 与直接 CLI [skill-dir] 都正确）+ usage 注明工具形态。
+- 工具描述同步：toolsSkillGateway anic_skill args 参数加 NOTICE（quick-validate 第一位置是 skill-dir 非 project dir，须传绝对路径）。
+- 测试：cliArgsGuard 新增双形态贯通用例（两位置/单位置都 VALIDATION PASSED）。
+
+### ④ 桌面宿主实弹验证（P2 桌面端窗口收口）
+- 新宿主 57200（PID 17468）实弹全链：anic_self_check / anic_status（flows 17 条+health 六级+skillIntegrity 全响应）/ anic_skill gate-ledger --verify（83 条链完整）/ anic_skill org-status status（L2 协作模式）/ anic_install / anic_skill quick-validate（2.1.0 PASSED）。
+- FlowTracker 如实记录全部 17 次调用（含调试期 4 次 FAILED）——失败也白盒跟踪，验证过程本身即证据。
+
+### 验证
+- 四层 ALL GREEN：validate 12/12 + vitest 93 文件 1089 用例（1087+2 新增）+ smoke 21 + trigger 100%/0%；typecheck exit=0；build exit=0。
+
 ## v0.30.0 — 2026-10-18
 
 cycle-30：**测试体系深挖轮**（cycle-28 文档轮姊妹篇）——5 个 handler 级零覆盖路由补齐 26 个行为测试，vitest 1061→1087 用例；invokeSkillAsync 并行负载偶发竞态根治。

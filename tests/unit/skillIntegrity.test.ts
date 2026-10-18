@@ -39,6 +39,20 @@ describe('清单构建与落盘', () => {
     expect(m.files.every((f) => f.sha256.length === 64)).toBe(true);
   });
 
+  it('readSkillVersion：锚定 SKILL.md「MCP Tools (vX.Y.Z)」标题（cycle-31 修复回归钉）', () => {
+    // 修复背景：旧正则要求字面量 "version" 前缀，真实锚点无此前缀 → 恒 null，
+    // skillInstallRoute 版本门控快路径从未生效。本用例钉住「真实锚点可读」。
+    expect(readSkillVersion(INLINE)).toBe('2.1.0');
+    // 无锚点目录 → null（诚实降级，不猜）
+    const none = join(TMP, 'no-anchor');
+    mkdirSync(none, { recursive: true });
+    writeFileSync(join(none, 'SKILL.md'), '# no version anchor here\n', 'utf-8');
+    expect(readSkillVersion(none)).toBeNull();
+    // 旧式 "version: x.y.z" 字面量不再匹配（防倒退回旧正则）
+    writeFileSync(join(none, 'SKILL.md'), 'version: 1.2.3\n', 'utf-8');
+    expect(readSkillVersion(none)).toBeNull();
+  });
+
   it('writeSkillManifest → readSkillManifest 往返；清单文件自身被排除', () => {
     mkdirSync(TMP, { recursive: true });
     const target = join(TMP, 'mirror');

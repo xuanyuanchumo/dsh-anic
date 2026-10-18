@@ -318,12 +318,18 @@ function validateSkillPackage(skillDir) {
 
 const args = parseCliArgs(process.argv, {
   script: 'quick-validate',
-  usage: 'Usage: node quick-validate.mjs <skill-dir>',
+  usage: 'Usage: node quick-validate.mjs <skill-dir>\n'
+    + 'anic_skill tool NOTE: the tool prepends the project dir as the first positional; '
+    + 'pass skill-dir via args and it lands as the SECOND positional — pick args._[1] ?? args._[0] below.',
   flags: {},
-  positionals: { min: 1, max: 1, name: 'skill-dir' },
+  positionals: { min: 1, max: 2, name: 'skill-dir' },
 });
 
-const skillDir = resolve(args._[0]);
+// cycle-31：经 anic_skill 工具调用时 spawn 形如
+//   node quick-validate.mjs <project-dir> <skill-dir>
+// （工具契约：workspace 恒为第一位置参数）；直接 CLI 调用时只有 <skill-dir>。
+// 取最后一个位置参数：两种形态都指向 skill-dir；项目目录不参与校验。
+const skillDir = resolve(args._[args._.length - 1]);
 
 if (!existsSync(skillDir)) {
   console.error(`Skill directory not found: ${skillDir}`);
