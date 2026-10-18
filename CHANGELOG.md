@@ -1,5 +1,33 @@
 # dsh-anic CHANGELOG
 
+## v0.35.0 — 2026-10-18
+
+cycle-36：**零直测文件第三轮收口**——8 个遗留零直测文件审计后，真实缺口 5 文件行为级直测 26 用例（tests/unit/zeroCoverageFiles.test.ts）。vitest 102→103 文件 / 1210→1236 用例。src/ 零变更（纯测试轮）。
+
+### ① 摸底结论（T-3601，审计修正遗留清单）
+- skillInvokerAsync 已由 invokeSkillAsync.test.ts 覆盖（cycle-30）——遗留清单该项有误，撤。
+- gateTypes 是纯类型文件——不可测，撤。
+- truthAuditChecks 正路径已由 truthAudit.test.ts 覆盖（真插件目录）——本文件补负路径夹具。
+- 真实缺口 5 文件：graphDataTable / workflowGraphData / gateCheckRunners / truthAuditChecks（负路径）/ flowsRoute / selfBootstrapRoute（合计 6 测试面，26 用例）。
+
+### ② 新测试 tests/unit/zeroCoverageFiles.test.ts（26 用例）
+- **graphDataTable（4）**：WCAG 1.1.1 等价数据表——anic-sr-only 视觉隐藏/table+caption+thead 原生语义/每节点一行四单元格（REJECT→fail 归一）/verdicts Map 覆盖优先于快照 result/与真实 WORKFLOW_SNAPSHOT 同源渲染 169 行。
+- **workflowGraphData（2）**：嵌入快照契约——GENERATED 头注释+重新生成命令/counts 与数组长度自洽。
+- **gateCheckRunners（5）**：CONVERGENCE_GATE_NAMES 与技能 GATE_NAMES 同表四门/门禁行+质量行解析+无总裁决行时逐门禁统计兜底/stderr config 缺失→fatal=CONFIG_MISSING/**ANIC_SKILL_DIR env 覆盖优先级**（候选 0 胜过工作区本地副本——首版「技能目录缺失」用例不可达的替代验证）/native 入账去重（同 result+detail 跳过+判决翻转入账+loadLedger 读回形状）。
+- **truthAuditChecks 负路径（3）**：T1 空目录全 MISSING+score<100/T3 超 251 行文件 fail+modular compliance fail/T4 无注册路由 warn+routeContext.ts 白名单豁免。
+- **flowsRoute（7）**：9 路由注册+disposer 回收/GET flows 5 描述子投影/status 无工作区 neverRun=5 不伪造/state bogus 404+合法 200/POST gate-check 无 ws 500+非法 gate 400/macro-phase 非法 target 400 带 validPhases+dryRun+script 400/hitl 非法 gate 400+auto-fix 无 ws 500。
+- **selfBootstrapRoute（5）**：4 路由注册/status IDLE 初始态/evaluate 假脚本全绿 score=1+状态推进 EVALUATING/gate-check PASSED+GATE_CHECKING/iterate FAIL 路径写 tech-debt 提案（R-31 REVIEW_REQUIRED 不自改代码）。
+
+### ③ 测试基建发现（重要，沉淀进文件头注释）
+- **resolveSkillScriptsDir 回落链含 process.cwd() 候选**：本仓库装有 .dsh/skills（cycle-31 实弹安装），「技能目录缺失」路径在 cwd 环境下不可达——改为验证 ANIC_SKILL_DIR env 覆盖优先级（候选 0）。
+- **selfBootstrapRoute 走 resolveWorkspaceRoots**：不钉 workspaceRegistry 时回落到真实 dsh-anic 工作区，会跑 60s 真实 eval-runner（首版实测 60s 超时的根因）——必须用 makeCtxWithWs 钉住临时工作区。
+- **flowsRoute 的 listFlows 是模块级单例注册表**：不调 registerBuiltinFlows() 时 GET /anic/flows 返回 0 流程——测试须先注册（首个胜出语义，重复调用安全）。
+- `'x\n'.repeat(251)` split 出 252 行（尾换行计空行）——精确 251 行要 `'x\n'.repeat(250)+'x'`。
+
+### ④ 验证
+- typecheck host+client 双 exit=0；build exit=0；lint 12 checks PASS。
+- 四层 ALL GREEN：validate 12/12 @0.35.0 + vitest 103 文件 1236 用例 + smoke 21 check + trigger-eval 100%（24/24）/0%（0/14）。
+
 ## v0.34.0 — 2026-10-18
 
 cycle-35：**触发评估语料扩容轮**——trigger-eval 数据集 20 → 38 条（19 pos 全工具覆盖 + 19 neg），契约钉 13 用例；顺带修两处 SDO 触发词盲区。评分面从「15 例抽检」升级为「24 正例 + 14 负例全工具矩阵」，recall 100% / FPR 0%。
