@@ -15,6 +15,33 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement, type ReactElement } from 'react';
 import { usePanelFetch, type PanelFetchTarget } from '../../src/client/components/usePanelFetch.ts';
 
+/** act 里渲染一个消费钩子的组件；返回控制句柄（bumpKey 重拍 manualKey）。（模块级：两个 describe 共用） */
+async function mount(
+  makeTargets: () => PanelFetchTarget[],
+  pollMs: number,
+  manualKey: number,
+): Promise<{ unmount: () => void; bumpKey: () => Promise<void> }> {
+  const { createRoot } = await import('react-dom/client');
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  let key = manualKey;
+  let targets = makeTargets;
+  let ms = pollMs;
+  const probe = (): ReactElement => createElement(Probe, { makeTargets: targets, pollMs: ms, manualKey: key });
+  function Probe(): null {
+    usePanelFetch(targets(), ms, key, () => ({ 'X-Test': '1' }));
+    return null;
+  }
+  await act(async () => { root.render(probe()); });
+  return {
+    unmount: () => { act(() => { root.unmount(); }); },
+    bumpKey: async () => {
+      key += 1;
+      await act(async () => { root.render(probe()); });
+    },
+  };
+}
+
 describe('usePanelFetch —— 生命周期契约（React act 驱动）', () => {
   type FetchCall = { url: string; headers: Record<string, string> };
   let calls: FetchCall[];
@@ -42,26 +69,6 @@ describe('usePanelFetch —— 生命周期契约（React act 驱动）', () => 
   afterEach(() => {
     delete (globalThis as { fetch?: unknown }).fetch;
   });
-
-  /** act 里渲染一个消费钩子的组件；返回控制句柄。 */
-  async function mount(
-    makeTargets: () => PanelFetchTarget[],
-    pollMs: number,
-    manualKey: number,
-  ): Promise<{ unmount: () => void }> {
-    const { createRoot } = await import('react-dom/client');
-    const host = document.createElement('div');
-    const root = createRoot(host);
-    let element: ReactElement = createElement(Probe, { makeTargets, pollMs, manualKey });
-    function Probe(): null {
-      usePanelFetch(makeTargets(), pollMs, manualKey, () => ({ 'X-Test': '1' }));
-      return null;
-    }
-    await act(async () => { root.render(element); });
-    return {
-      unmount: () => { act(() => { root.unmount(); }); },
-    };
-  }
 
   it('成功路径：guard 过 → apply + onRecover；headers 经 getHeaders() 取', async () => {
     const applied: unknown[] = [];
@@ -176,6 +183,120 @@ describe('usePanelFetch —— 生命周期契约（React act 驱动）', () => 
     }];
     const h = await mount(targets, 0, 0);
     expect(seen).toHaveLength(1);
+    h.unmount();
+  });
+});
+
+describe('usePanelFetch —— cycle-38 V-1 ETag 条件请求 + 隐藏暂停（TanStack Query 轮询纪律吸收）', () => {
+  /** 带可编程 ETag 的响应工厂（headers.get 支持任意名字）。 */
+  function res200(json: unknown, etag: string | null): Response {
+    return {
+      ok: true, status: 200,
+      json: () => Promise.resolve(json),
+      headers: { get: (name: string) => (name.toLowerCase() === 'etag' ? etag : null) },
+    } as unknown as Response;
+  }
+
+  it('V-1 学习与回带：首轮 200 带 ETag → 次轮请求带 If-None-Match（manualKey 重拍触发）', async () => {
+    const seq: Array<Record<string, string>> = [];
+    let call = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((_url: string, init: { headers: Record<string, string> }): Promise<Response> => {
+      call += 1;
+      seq.push(init.headers);
+      // 首轮给 ETag；次轮（带 If-None-Match 且值匹配）回 304。
+      const inm = init.headers['If-None-Match'] ?? init.headers['if-none-match'];
+      if (call === 1) return Promise.resolve(res200({ v: 1 }, '"abc123"'));
+      if (inm === '"abc123"') {
+        return Promise.resolve({ ok: false, status: 304, headers: { get: () => '"abc123"' } } as unknown as Response);
+      }
+      return Promise.resolve(res200({ v: 2 }, '"abc123"'));
+    });
+    const applied: unknown[] = [];
+    const targets = (): PanelFetchTarget[] => [{ url: '/anic/snap', guard: () => true, apply: (v) => { applied.push(v); } }];
+    const h = await mount(targets, 0, 0);
+    expect(applied).toEqual([{ v: 1 }]);
+    expect(seq[0]?.['If-None-Match']).toBeUndefined();
+    // 手动重拍（manualKey bump）→ 第二轮带条件头
+    await h.bumpKey();
+    expect(applied).toEqual([{ v: 1 }]); // 304 → 不重放 apply（结构共享语义）
+    expect(seq[1]?.['If-None-Match']).toBe('"abc123"');
+    h.unmount();
+  });
+
+  it('304 不计失败、触发 onRecover（数据未变是健康形态）', async () => {
+    let call = 0;
+    const failures: string[] = [];
+    const recovered: number[] = [];
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((_url: string, init: { headers: Record<string, string> }): Promise<Response> => {
+      call += 1;
+      const inm = init.headers['If-None-Match'];
+      if (call === 1) return Promise.resolve(res200({ v: 1 }, '"e1"'));
+      return Promise.resolve({ ok: false, status: 304, headers: { get: () => (inm ? inm : null) } } as unknown as Response);
+    });
+    const applied: unknown[] = [];
+    const targets = (): PanelFetchTarget[] => [{
+      url: '/anic/snap', guard: () => true, apply: (v) => { applied.push(v); },
+      onFail: (f) => { failures.push(f.kind); },
+      onRecover: () => { recovered.push(1); },
+    }];
+    const h = await mount(targets, 0, 0);
+    await h.bumpKey();
+    expect(failures).toEqual([]);
+    expect(applied).toEqual([{ v: 1 }]); // 只有首轮 200 落过数据
+    expect(recovered.length).toBeGreaterThanOrEqual(2); // 200 与 304 都算成功恢复
+    h.unmount();
+  });
+
+  it('ETag 变化（服务端数据更新）→ 200 全量重放 apply（正常数据流不因缓存丢失）', async () => {
+    let call = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((_url: string, _init: { headers: Record<string, string> }): Promise<Response> => {
+      call += 1;
+      return Promise.resolve(call === 1 ? res200({ v: 1 }, '"old"') : res200({ v: 2 }, '"new"'));
+    });
+    const applied: unknown[] = [];
+    const targets = (): PanelFetchTarget[] => [{ url: '/anic/snap', guard: () => true, apply: (v) => { applied.push(v); } }];
+    const h = await mount(targets, 0, 0);
+    await h.bumpKey();
+    expect(applied).toEqual([{ v: 1 }, { v: 2 }]);
+    h.unmount();
+  });
+
+  it('无 ETag 响应 → 不带条件头（老宿主/无 ETag 端点零行为变化）', async () => {
+    const seq: Array<Record<string, string>> = [];
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((_url: string, init: { headers: Record<string, string> }): Promise<Response> => {
+      seq.push(init.headers);
+      return Promise.resolve(res200({ v: 1 }, null));
+    });
+    const targets = (): PanelFetchTarget[] => [{ url: '/anic/x', guard: () => true, apply: () => {} }];
+    const h = await mount(targets, 0, 0);
+    await h.bumpKey();
+    expect(seq[0]?.['If-None-Match']).toBeUndefined();
+    expect(seq[1]?.['If-None-Match']).toBeUndefined();
+    h.unmount();
+  });
+
+  it('隐藏暂停：document.hidden → 跳过拉取且不发 fetch；恢复可见 → 正常补拍', async () => {
+    let n = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((): Promise<Response> => {
+      n += 1;
+      return Promise.resolve(res200({ v: n }, null));
+    });
+    const targets = (): PanelFetchTarget[] => [{ url: '/anic/x', guard: () => true, apply: () => {} }];
+    // 首拍发生在可见态（jsdom 默认 visible）
+    const h = await mount(targets, 0, 0);
+    expect(n).toBe(1);
+    // 切隐藏 → manualKey 重拍不产生 fetch
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      await h.bumpKey();
+      expect(n).toBe(1); // 隐藏：跳过本轮
+      // 恢复可见 → 再 bump 即补拍
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      await h.bumpKey();
+      expect(n).toBe(2); // 可见：正常拉取
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
     h.unmount();
   });
 });

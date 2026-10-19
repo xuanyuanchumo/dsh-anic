@@ -86,7 +86,14 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
         const d = c.webServer?.register?.({ kind: 'exact', path, handler: handler as (req: unknown, res: unknown) => void });
         if (typeof d === 'function') disposers.push(d);
       },
-      { getAgentCards: () => cardMap, probeCtx: ctx },
+      {
+        getAgentCards: () => cardMap,
+        probeCtx: ctx,
+        // G5 结论时效：评审结论要落到该工作区的 .cycles/reviews/ledger.json。
+        // 走共享 getWorkspaceRoot（无 req）——评审是工具/HTTP 双通道共用的单一路由，
+        // 没有面板的 X-ANIC-Workspace 头可依，落到宿主当前会话工作区是唯一诚实解。
+        getWorkspaceRoot: () => getWorkspaceRoot(),
+      },
     );
   }
 

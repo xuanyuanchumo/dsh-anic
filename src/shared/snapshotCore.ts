@@ -37,7 +37,7 @@ export function parseWorkflowGraph(text: string): { nodes: { id: string; type: s
   return { nodes, edges };
 }
 
-export interface SnapshotNode { id: string; type: string; label: string; x: number; y: number; result?: string }
+export interface SnapshotNode { id: string; type: string; label: string; x: number; y: number; result?: string; detail?: string }
 export interface SnapshotEdge { from: string; to: string; type: string }
 export interface WorkflowSnapshotData {
   nodes: SnapshotNode[];
@@ -70,12 +70,13 @@ export function buildWorkflowSnapshot(cyclesDir: string, generatedAt = new Date(
         .sort((a, b) => a.num - b.num)
     : [];
 
-  // 3) ledger (structured fields)
+  // 3) ledger (structured fields) — cycle-38 W-3 快档：detail 一并提取（此前被
+  //    丢弃），供节点详情抽屉回答「这一门为什么 PASS/FAIL」——白盒的「为什么」层。
   const ledgerPath = join(cyclesDir, 'gates', 'ledger.json');
-  let entries: { gate?: string; result?: string }[] = [];
+  let entries: { gate?: string; result?: string; detail?: string }[] = [];
   if (existsSync(ledgerPath)) {
     try {
-      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')) as { entries?: { gate?: string; result?: string }[] };
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')) as { entries?: { gate?: string; result?: string; detail?: string }[] };
       entries = ledger.entries ?? [];
     } catch { entries = []; }
   }
@@ -123,7 +124,7 @@ export function buildWorkflowSnapshot(cyclesDir: string, generatedAt = new Date(
 
   entries.forEach((e, i) => {
     const id = `evt:${String(i)}`;
-    node(id, 'event', 'gate-event', `${String(e.gate ?? '?')} ${String(e.result ?? '?')}`, { result: e.result });
+    node(id, 'event', 'gate-event', `${String(e.gate ?? '?')} ${String(e.result ?? '?')}`, { result: e.result, detail: e.detail });
     if (i > 0) edge(`evt:${String(i - 1)}`, id, 'event-seq');
     const gateId = `wf:gate-${String(e.gate ?? '').toLowerCase()}`;
     if (nodeIdSet.has(gateId)) edge(id, gateId, 'evidences');

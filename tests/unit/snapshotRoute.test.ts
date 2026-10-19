@@ -188,6 +188,82 @@ describe('registerSnapshotRoute', () => {
   });
 });
 
+describe('V-1 ETag 条件请求（cycle-38 · doc11 §5 承诺收口）', () => {
+  const reqWithInm = (etag: string | null): unknown =>
+    etag === null ? { headers: {} } : { headers: { 'if-none-match': `"${etag}"` } };
+
+  /** 拉一次完整响应，学得 ETag 与 digest（两者同指纹）。 */
+  function firstFetch(root: string): { ctx: unknown; registered: RegisteredDef[]; etag: string } {
+    const { ctx, registered } = makeCtx({ root });
+    registerSnapshotRoute(ctx);
+    const { res, captured } = makeRes();
+    registered[0]?.handler({}, res);
+    const etag = String(captured.headers?.['ETag'] ?? '').replace(/^"|"$/g, '');
+    return { ctx, registered, etag };
+  }
+
+  it('200 响应带 ETag 头（与 X-ANIC-Snapshot-Digest 同指纹，双通道一致）', () => {
+    const root = workspaceWithCycles(true);
+    const { etag } = firstFetch(root);
+    expect(etag).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('If-None-Match 命中 → 304 空体 + ETag/Workspace 头保留（条件请求语义收益本体）', () => {
+    const root = workspaceWithCycles(true);
+    const { registered, etag } = firstFetch(root);
+    const { res, captured } = makeRes();
+    registered[0]?.handler(reqWithInm(etag), res);
+    expect(captured.status).toBe(304);
+    expect(captured.body).toBe('null'); // sendJson JSON.stringify(null)——空体形态（不重发快照）
+    expect(String(captured.headers?.['ETag'])).toBe(`"${etag}"`);
+    expect(decodeURIComponent(String(captured.headers?.['X-ANIC-Workspace']))).toBe(root);
+  });
+
+  it('指纹稳定：两次请求（generatedAt 必不同）的 ETag 全等——语义指纹排除时间戳', () => {
+    const root = workspaceWithCycles(true);
+    const a = firstFetch(root);
+    const { res, captured } = makeRes();
+    a.registered[0]?.handler({}, res);
+    const etag2 = String(captured.headers?.['ETag'] ?? '').replace(/^"|"$/g, '');
+    expect(etag2).toBe(a.etag); // generatedAt 不同但指纹相同（304 短路的前提）
+  });
+
+  it('If-None-Match 不匹配（数据已变）→ 200 全量响应（条件请求不吞数据更新）', () => {
+    const root = workspaceWithCycles(true);
+    const { registered } = firstFetch(root);
+    const { res, captured } = makeRes();
+    registered[0]?.handler(reqWithInm('deadbeefdeadbeef'), res);
+    expect(captured.status).toBe(200);
+    const body = JSON.parse(captured.body ?? '{}') as { counts: { nodes: number } };
+    expect(body.counts.nodes).toBeGreaterThan(0);
+  });
+
+  it('数据真变（ledger 追加）→ 指纹变 → 旧 ETag 不再命中（缓存失效诚实）', () => {
+    const root = workspaceWithCycles(true);
+    const a = firstFetch(root);
+    // 追加账本事件 → 快照多一个 event 节点 → 语义指纹必变
+    mkdirSync(join(root, '.cycles', 'gates'), { recursive: true });
+    writeFileSync(join(root, '.cycles', 'gates', 'ledger.json'), JSON.stringify({ entries: [
+      { gate: 'G0', result: 'PASS' }, { gate: 'G1', result: 'PASS' },
+    ] }));
+    const { res, captured } = makeRes();
+    a.registered[0]?.handler(reqWithInm(a.etag), res);
+    expect(captured.status).toBe(200); // 旧指纹不命中 → 全量
+    const etag2 = String(captured.headers?.['ETag'] ?? '').replace(/^"|"$/g, '');
+    expect(etag2).not.toBe(a.etag);
+  });
+
+  it('无 If-None-Match 头 → 永远 200（老客户端零行为变化）', () => {
+    const root = workspaceWithCycles(true);
+    const { registered } = firstFetch(root);
+    for (const req of [{}, { headers: {} }, { headers: { 'if-none-match': '' } }, undefined]) {
+      const { res, captured } = makeRes();
+      registered[0]?.handler(req, res);
+      expect(captured.status).toBe(200);
+    }
+  });
+});
+
 describe('X-ANIC-Workspace 请求头（P2 桌面多会话纠偏）', () => {
   const reqWith = (ws: string | null): unknown =>
     ws === null ? {} : { headers: { 'x-anic-workspace': encodeURIComponent(ws) } };

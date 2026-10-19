@@ -295,6 +295,25 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 - **账本即真相**：release 门 gatekeeper 以 `verifyLedger` 真链校验为准；账本写入为原子写（temp+rename）；`gate-check --record` 把每次门禁判定（含 FAIL，带去重）写入账本——门禁结果不落在账本里就等于没发生过。
 - **漂移机器守卫（v1.9.0）**：`quick-validate.mjs` 校验版本三锚点一致、配置入口唯一、无绕过原子写、无 B 族旧词表——守卫是错误级（exit 1），告警级守卫等于没有守卫。
 
+## 跨项目调用契约（v2.2.0）
+
+本技能的脚本有三种调用通道，**目标项目目录的传递方式各不相同**——传错位置参数是
+最常见的新手错误（真机实证：连续 6 次调用失败均为同一形态）：
+
+| 调用通道 | 项目目录怎么传 | 千万不要 |
+|---|---|---|
+| 直接 CLI（终端） | 第一个位置参数：`node <script> <project-dir> ...args` | — |
+| MCP Server | `--project-dir <path>` 旗标（启动参数，`mcp-server.mjs` 前置给每个脚本） | 把项目目录放进工具调用的 args |
+| dsh-anic 插件网关（`anic_skill` 工具 / `POST /anic/skill/invoke`） | `workspace` 参数（网关前置为第一个位置参数） | 把项目目录放进 `args` 数组 |
+
+**唯一例外**：`quick-validate` 的第一个位置参数是 **SKILL DIR**（技能包自身目录，
+相对形态 `assets/skill`），不是项目目录——从网关调用时用 `args: ["assets/skill"]`。
+
+从插件网关误传时的表现与自救：脚本收到 2 个位置参数 → 数量守卫拒绝（exit 1，
+错误行含「只接受 N 个位置参数」）。dsh-anic v0.37+ 的 `anic_skill` 网关对
+「args 首位是合法项目绝对路径」的形态会自动重定向到 workspace 参数并在响应中
+回显 `workspaceRedirected` 字段——看到该字段说明你把目录传错位置了，下轮改正。
+
 ## MCP 集成
 
 确定性脚本已封装为 MCP Server，AI 可直接调用而非通过 bash 执行：
@@ -303,7 +322,7 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 node scripts/mcp-server.mjs --project-dir <path>
 ```
 
-MCP Tools (v2.1.0)：
+MCP Tools (v2.2.0)：
 - `init_workflow` / `init_cycle` / `gate_check`（含 --quality 质量门禁） / `eval_runner`（含 E1-E8 + Q1-Q8）
 - `band_detector`（含 Western Electric 规则） / `workflow_state`（status/advance/check） / `gate_ledger`（record/verify/list 哈希链）
 - `fact_base_verify` / `plan_sync_check`（含 git diff） / `org_status`（status/agent/review/auto-fallback）

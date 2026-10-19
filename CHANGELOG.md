@@ -1,5 +1,43 @@
 # dsh-anic CHANGELOG
 
+## v0.37.0 — 2026-10-19
+
+cycle-38：**研究驱动优化迭代轮（承 37 裁决 + 19 号文档生态吸收收口）**——doc19 §5 四项第三方吸收落地收口（factBaseAnchors 三态/表驱动自举/toolIds 幽灵校验/reviewLedger 时效性）+ 本轮五项能力迭代（V-1 ETag 条件请求/re-gate 复检环/跨项目调用人体工学/技能 v2.2.0/测试场地实验）+ W-3 白盒「为什么」层最小版。vitest 106 文件 **1278→1300+ 用例**。
+
+### ① doc19 §5 生态吸收四项（上轮遗留工作树收口，均有测试钉）
+- **factBaseVerify 三态重写**（`verified`/`missing`/`unscannable`——「核不了」不是「缺失」）+ 新建 factBaseAnchors.ts；riskScore 分母改 verified+missing（72% unscannable 噪声出清）。
+- **自举状态机表驱动**：BOOTSTRAP_TRANSITIONS 9 条迁移表是 status 唯一权威（dsh-per 纪律）；中间态四相位真实落盘；15 张角色卡 toolsAllowlist 存在性校验（toolIds.ts 单一清单，幽灵 id 被拒）。
+- **reviewLedger 结论时效性**：结论绑定 evidenceDigest（sha256 前 16 位内容指纹），响应新增 review.freshness/previous——「证据换了结论就 stale」。
+- 三处一致性修复：fixLoop 原子写/bootstrapEngineIntegration 分母/reviewRoute ReviewAttribution 消费。
+
+### ② V-1 ETag 条件请求（doc18 §3 #5 收口）
+- 服务端：快照端点语义 ETag（**排除 generatedAt**——覆盖它则永 200）+ If-None-Match 命中 304 空体；数据真变指纹变（账本追加用例钉死）。
+- 客户端（TanStack Query 轮询纪律吸收，context7 检索）：usePanelFetch 学 ETag 回带 If-None-Match；**304=数据未变不重放 apply**（结构性共享语义）；document 隐藏暂停轮询（refetchIntervalInBackground=false 缺省语义）。
+- 测试：snapshotRoute 6 用例 + usePanelFetch 5 用例（jsdom act 驱动）。
+
+### ③ 自举 re-gate 复检环（doc18 P1-6 深度收口）
+- 审计发现「中间态已落盘但 re-gate 是空壳」——fix-done 后用修复前裁决结算=伪造复检。
+- 修复：VERIFYING 相位真实重跑 gate-check（FlowTracker 留痕 verify-round）；复检 PASS 以新裁决结算，未过 fire verify-fail 回 GATE_CHECKING。步骤执行器拆分 bootstrapSteps.ts（T3 279→191 行）。
+
+### ④ 跨项目调用人体工学（T-3805，真机 6 连失败实证收口）
+- anic_skill 网关：args 首位合法项目绝对路径（非 quick-validate skill-dir 形态）→ 自动移作 workspace 并回显 workspaceRedirected；非法路径不吞（让脚本守卫报精确错误）。
+- 技能 v2.1.0→**v2.2.0**：SKILL.md 新增「跨项目调用契约」节（三通道对照表）+ auto-cycle.md 复检语义节 + CHANGELOG；三锚点一致（quick-validate PASSED）。
+- 本仓与测试场地副本同步修复（repair 差异重装，integrity 65/65 全绿）。
+
+### ⑤ 测试场地实验（dsh-codegraph-visualizer，doc20 新建）
+- 实验 A：anic_install 场地升级 v1.9.0→v2.2.0 真实工作区验证通过（upgraded:true + integrity 全绿）。
+- 实验 B/C：跨项目 workflow-state status + gate-check --record + advance——**场地 cycle-103 收口**（四门全过，Test→Deploy）。
+- CHAIN_BREAK 裁决：保留为 known-bad 检测夹具（H4/verify 需要真实断裂样本）。
+
+### ⑥ W-3 白盒「为什么」层（最小版）
+- snapshotCore 提取账本 detail → gate-event 节点携带 → 点击节点详情抽屉渲染「这一门为什么 PASS/FAIL」。
+
+### ⑦ 文档体系
+- docs/agents：API参考-数据面（ETag/304/W-3）、API参考-评审进化与治理（§1a 治理底座三模块）、API参考-自举与技能（跨项目重定向）、可观测性（§4a 数据面演进）、README 地图 +6 行。
+- 新建 docs/agents/UI功能域与界面组件规划.md（14 分区矩阵 + 数据面演进 + 缺口排期）。
+- docs/anic/18 处置表扩 cycle-38 列（#5/#7 已修复、#8 部分、新增 #15-17）；新建 docs/anic/20 测试场地实验报告。
+- .cycles/config.yml 旅程扩 J2-J4（面板观测/跨项目调用/技能生命周期）。
+
 ## v0.36.0 — 2026-10-19
 
 cycle-37：**研究驱动优化迭代轮**——三路深度研究（DSH 官方规范审计 / 生态技能对照 / docs-anic 文档审计）汇拢后落地：L4 自主性原生化架构决策（不全面原生化）、SKILL.md 目录描述 P1 修复、生态吸收三件、双端用户旅程真机验证（含宿主轨迹 26 个 anic_* 持久事件确证）。vitest 103→**104 文件 / 1236→1240 用例**。

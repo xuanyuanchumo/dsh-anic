@@ -117,13 +117,18 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
     expect(again).toEqual(snap);
   });
 
-  it('INV-21：节点/边只携带结构化字段', () => {
+  it('INV-21：节点/边只携带结构化字段（detail 为账本结构化键，cycle-38 W-3 白盒层）', () => {
     for (const n of snap.nodes) {
-      expect(Object.keys(n).every((k) => ['id', 'type', 'label', 'x', 'y', 'result'].includes(k))).toBe(true);
+      expect(Object.keys(n).every((k) => ['id', 'type', 'label', 'x', 'y', 'result', 'detail'].includes(k))).toBe(true);
     }
     for (const e of snap.edges) {
       expect(Object.keys(e).every((k) => ['from', 'to', 'type'].includes(k))).toBe(true);
     }
+  });
+
+  it('W-3 快档：gate-event 节点携带账本 detail（「为什么 PASS/FAIL」白盒层）', () => {
+    const evt = snap.nodes.find((n) => n.id === 'evt:0');
+    expect(evt?.detail).toBe('…'); // LEDGER fixture 的 detail 字段如实透传
   });
 });
 

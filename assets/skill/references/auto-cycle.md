@@ -257,6 +257,19 @@ else → PASS，记录到审计日志
 5. 熔断触发后仍不直接降级 → 运行 `org-status.mjs --auto-fallback` 进入"先修复后降级"流程
 6. 输出修复报告
 
+### 修复后的复检语义（v2.2.0 收口）
+
+**「跑过复检」与「复检通过」是两件事。** fix 完成后的 VERIFYING 相位必须**真实重跑
+gate-check**（re-gate）：
+
+- 复检 PASS → 以**新裁决**结算（这是修复生效的直接证据）；
+- 复检未过 → `verify-fail` 边回 GATE_CHECKING，下一轮重新 eval+gate；
+- **禁止**用修复前的门禁裁决直接结算——那等于伪造复检（宣称验证过但验证的是旧状态）。
+
+自举编排器（dsh-anic `bootstrapOrchestrator`）的机器实现：fix-done → VERIFYING →
+重跑 `gate-check --gate all --quality --record`（FlowTracker 留痕）→ 按新裁决走
+settle-pass 或 verify-fail。两次门禁（修复前后）都在 flow-tracker.json 里可审计。
+
 ## L4 全自主的边界
 
 即使在 L4 全自主模式下，以下操作仍需人类介入：

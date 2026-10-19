@@ -54,6 +54,23 @@ provider / model 的取值：`typeof body.provider === 'string' ? body.provider 
 
 `X-ANIC-Review-Tier` 头是消费方判断「本次走的是 LLM 还是启发式」的唯一通道 —— 不要从响应体推断。
 
+**评审结论时效性（cycle-38 · G5，doc19 §5 吸收④）**：`src/host/llm/reviewLedger.ts` 落地「结论绑定证据指纹」——每次评审在 `{workspace}/.cycles/reviews/ledger.json` 记一条摘要（gate/role/verdict/tier/**evidenceDigest**/evidenceIds/provider/model/timestamp，滚动保留 200 条）。`evidenceDigest` 复用 `reviewEngine.buildAttribution(...).promptDigest`（sha256 前 16 位，由门/角色/证据 id+内容决定，刻意不含 provider/model/时间戳）。响应体新增两个字段：
+
+- `review.freshness`：`'none'`（无历史结论）| `'fresh'`（历史结论依据的证据指纹与本次相同）| `'stale'`（证据已换——**提示而非裁决**：不改变本次 verdict，只是把「你正在覆盖一个基于不同证据的历史结论」显式说出来）；
+- `review.previous`：被覆盖的那条历史结论摘要。
+
+**设计来源**：`dsh-plugin-veriscope`「PASS 只说明归档指标通过所绑定门禁」+ `dsh-negative-ledger`（提纲出处，npm 查无此包）「precondition 变化 → 结论 stale」+ `dsh-continual-evolve`「回滚靠账本」。测试钉：`tests/unit/reviewLedger.test.ts` 14 用例 + `tests/unit/skillLifecycleRoute.test.ts` 4 用例（none→fresh→stale 全链路）。
+
+---
+
+## 1a. 治理底座三模块（cycle-38 · doc19 §5 吸收①③）
+
+**`src/host/governance/factBaseAnchors.ts` + factBaseVerify 重写（吸收①）**：事实基座核验的三态分离——`verified`（file:line 锚点可核）/ `missing`（声明的东西源码里没有）/ `unscannable`（**核不了不是缺失**——源码树不可扫描等形态，不进风险分母）。来源：`dsh-model-everything`「结论带 file:line，核不了的直接说明，不猜」+ `dsh-plugin-veriscope`「缺失不补零」。`riskScore` 分母因此从 `total` 改为 `verified + missing`（`bootstrapEngineIntegration.ts`）——72% 的 unscannable 噪声不再稀释风险信号。
+
+**`src/host/toolIds.ts`（吸收③）**：19 个 `anic_*` 工具 id 的**单一清单**——`assets/agents/*.json` 的 `toolsAllowlist` 此前只有形状校验（`anic_ghost_tool` 能混进白名单）。现在两级校验：id 正则 + **存在性**（与注册代码投影双向比对）。15 张角色卡已按最小只读面重填。测试钉：`tests/contract/toolIdsContract.test.ts` 10 用例（集合相等/幽灵 id 被拒/只读面约束）。
+
+**`src/host/selfBootstrap.ts` 表驱动重构（吸收②）**：自举状态机迁移表 `BOOTSTRAP_TRANSITIONS`（9 条）是 status 的**唯一权威**——`transitionBootstrap` 非法触发词拒绝且状态原样（fail-closed）；中间态 EVALUATING/GATE_CHECKING/FIXING/VERIFYING 在编排器四相位边界真实落盘（`bootstrapOrchestrator.ts` 的 `enterPhase`）；cycle-38 re-gate 环收尾后 VERIFYING 真实重跑 gate-check（复检非伪造）。来源：`dsh-per`「transition-table 是唯一权威」+ `dsh-state-graph`「非法转移拒绝」。步骤执行器拆分至 `bootstrapSteps.ts`（T3 ≤250 行纪律）。
+
 ---
 
 ## 2. evolution 域

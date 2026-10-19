@@ -69,7 +69,12 @@ export function analyzeBootstrapWithEngines(
       + techDebt.filter((d) => d.severity === 'high').length / 5, 1)
     : 0;
   const hitlRisk = hitlAuditResult.allPassed ? 0 : 0.3;
-  const factRisk = factBase.total > 0 ? (factBase.missing / factBase.total) * 0.4 : 0;
+  // 分母只取**可核**声明（verified + absent）：`unscannable` 是「核不了」而不是
+  // 「缺失」，把它算进分母会让「文档里没有可核锚点」变成风险分（cycle-38 修：
+  // v1 用 missing/total，而 total 里有 72% 是无锚点声明，风险分实为噪声）。
+  // 一条都不可核 → 该项风险记为 0 并在 factBase.unscannable 里如实暴露，不猜。
+  const verifiable = factBase.verified + factBase.missing;
+  const factRisk = verifiable > 0 ? (factBase.missing / verifiable) * 0.4 : 0;
   const riskScore = Math.min(debtRisk + hitlRisk + factRisk, 1);
 
   return {

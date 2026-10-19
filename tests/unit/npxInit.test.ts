@@ -34,7 +34,7 @@ describe('npx anic-init（技能-only 分发入口）', () => {
   it('全新目录：安装技能 65 文件 + 脚手架 .cycles/ + CLAUDE.md 仓库记忆', () => {
     const dir = freshDir();
     const out = run(['init', dir, '--name', 'demo-project']);
-    expect(out).toContain('installing skill v2.1.0');
+    expect(out).toContain('installing skill v2.2.0');
     // 技能落点与 DSH 插件 anic_install 同构
     const skillDst = join(dir, '.dsh', 'skills', 'ai-native-iteration-cycle');
     expect(existsSync(join(skillDst, 'SKILL.md'))).toBe(true);
@@ -62,7 +62,7 @@ describe('npx anic-init（技能-only 分发入口）', () => {
     const dir = freshDir();
     run(['init', dir]);
     const out2 = run(['init', dir]);
-    expect(out2).toContain('already installed (v2.1.0), skipping copy');
+    expect(out2).toContain('already installed (v2.2.0), skipping copy');
     expect(out2).toContain('already initialized, skipping scaffold');
   });
 

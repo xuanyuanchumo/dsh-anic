@@ -3,8 +3,9 @@
  * 验证 → 失败模式分析 → 根因诊断 → 修复 → 重新验证。
  * 不自我改码（12 §2.1），只产 tech-debt 提案。
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
 import { generateTechDebt, type EvalResult, type TechDebtEntry } from './patchEngine.ts';
 
 export type FixStep = 'verify' | 'diagnose' | 'fix' | 're-verify' | 'converged' | 'exhausted';
@@ -117,12 +118,17 @@ export function runFixLoop(
     }
   }
 
-  // 持久化 tech-debt
+  // 持久化 tech-debt（cycle-38：改原子写，与 patchEngine.writeTechDebt 一致）
+  //
+  // 此前这里是裸 writeFileSync —— 同一种工件（.cycles/tech-debt/*.json）在本仓
+  // 有两条写路径，一条原子一条不原子。崩溃/并发下读者可能读到半截 JSON，
+  // 而 techDebtQueue 会把解析失败当成「不是 TechDebtEntry」如实跳过 → 债务
+  // 静默消失（skip 列表里留一条 reason，但没人会去看）。写形态必须统一。
   if (techDebtGenerated.length > 0) {
     const tdDir = join(workspaceRoot, '.cycles', 'tech-debt');
     mkdirSync(tdDir, { recursive: true });
     const tdPath = join(tdDir, `fix-loop-${Date.now()}.json`);
-    writeFileSync(tdPath, JSON.stringify(techDebtGenerated, null, 2));
+    atomicWriteFileSync(tdPath, JSON.stringify(techDebtGenerated, null, 2));
   }
 
   const finalVerdict: 'PASS' | 'FAIL' | 'EXHAUSTED' = converged ? 'PASS' : round >= maxRetries ? 'EXHAUSTED' : 'FAIL';

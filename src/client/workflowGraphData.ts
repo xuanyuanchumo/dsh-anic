@@ -13,6 +13,8 @@ export interface WorkflowNode {
   x: number;
   y: number;
   result?: string;
+  /** cycle-38 W-3 快档：gate-event 的账本 detail（「为什么 PASS/FAIL」白盒层）。 */
+  detail?: string;
 }
 
 export interface WorkflowEdge {

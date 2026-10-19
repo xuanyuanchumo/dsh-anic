@@ -133,6 +133,45 @@ describe('行为：anic_skill 原生调用（经 stub 宿主槽位）', () => {
   });
 });
 
+describe('cycle-38 T-3805：跨项目调用人体工学（args 首位绝对路径 → workspace 重定向）', () => {
+  // 真机实证：flow-tracker #22-27 六连失败——调用方把目标项目绝对路径放进 args，
+  // 网关又前置 workspace，脚本收到 2 个位置参数被数量守卫拒绝。本轮网关侧收口。
+
+  it('args 首位是合法项目绝对路径 → 移作 workspace 并从 args 剥离（workspaceRedirected 回显）', async () => {
+    // WS_B 是已 init 的工作区（上方用例产物）；WS_A 也已 init。用 WS_A 作重定向目标。
+    mkdirSync(WS_A, { recursive: true });
+    const { ctx, registered } = makeStubHost(WS_B);
+    registerAnicTools(ctx);
+    const skill = registered.find((t) => t.name === 'anic_skill')!;
+    // 模拟真机失败形态：args = ["D:\\...\\ws-A", "status"]（workspace 默认 = WS_B）
+    const r = await skill.execute({ script: 'workflow-state', workspace: WS_B, args: [WS_A, 'status'] });
+    // 重定向发生且如实回显
+    expect(r.workspaceRedirected).toBe(WS_A);
+    expect(String(r.note)).toContain('moved to workspace parameter');
+    // 重定向后脚本在目标工作区成功执行（此前此形态 exitCode=1 拒绝）
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('quick-validate 的 skill-dir 形态（assets/skill 相对路径）不被误吞（cycle-31 契约保持）', async () => {
+    const { ctx, registered } = makeStubHost(WS_A);
+    registerAnicTools(ctx);
+    const skill = registered.find((t) => t.name === 'anic_skill')!;
+    // assets/skill 相对形态 → 不是绝对路径 → 不触发重定向（走既有双位置参数契约）
+    const r = await skill.execute({ script: 'quick-validate', workspace: WS_A, args: ['assets/skill'] });
+    expect(r.workspaceRedirected).toBeUndefined();
+  });
+
+  it('args 首位是不存在的绝对路径 → 不吞不重定向（让脚本数量守卫报精确错误）', async () => {
+    const { ctx, registered } = makeStubHost(WS_A);
+    registerAnicTools(ctx);
+    const skill = registered.find((t) => t.name === 'anic_skill')!;
+    const r = await skill.execute({ script: 'workflow-state', workspace: WS_A, args: ['Z:\\__nonexistent__', 'status'] });
+    expect(r.workspaceRedirected).toBeUndefined();
+    expect(r.exitCode).toBe(1); // 脚本侧数量守卫照常拒绝（两个位置参数）
+    expect(String(r.stderr)).toContain('只接受 2 个位置参数');
+  });
+});
+
 // ── P0-TOOLS-FIELDS 回归：DSH 工具槽位的真实读取面 ──
 // 宿主证据（app.asar ToolRuntime）：register() 注册时只校验 output；`parameters`
 // 在**会话发起**时由 wireSchemas → schemaOf 解构读取（undefined → 整个对话抛

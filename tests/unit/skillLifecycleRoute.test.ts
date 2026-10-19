@@ -11,6 +11,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSkillGatewayTools } from '../../src/host/toolsSkillGateway.ts';
 import { registerReviewRoute } from '../../src/host/routes/reviewRoute.ts';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ToolsSlot } from '../../src/host/toolsSlot.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -170,5 +173,171 @@ describe('reviewRoute：Tier-1 降级 + 形状校验（唯一 register(method,pa
     expect(Array.isArray(out.json?.providers)).toBe(true);
     expect(typeof out.json?.verdict).toBe('string');
     expect(out.headers['X-ANIC-Review-Tier']).toBe('tier-1-heuristic');
+  });
+
+  // ── cycle-38：授权可见性 + 归因留痕（两处此前「有定义无消费方」的接线）──
+
+  it('响应带 grant：该卡的工具白名单与授权带上限原样透出（越权可事后审计）', async () => {
+    const card = {
+      id: 'anic.agent.G1.architect',
+      gate: 'G1',
+      role: 'architect',
+      systemPrompt: '闭合 JSON 输出',
+      toolsAllowlist: ['anic_status', 'anic_self_check'],
+      autonomyBand: 'L2',
+      outputContract: '闭合 JSON',
+      escalation: '升级人类门',
+    };
+    const cards = new Map([['anic.agent.G1.architect', card]]);
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, { getAgentCards: () => cards, probeCtx: null });
+    const out = await post(calls[0]!.handler, JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content: 'x' }],
+    }));
+    const grant = out.json?.grant as { toolsAllowlist?: string[]; autonomyBand?: string };
+    expect(grant.toolsAllowlist).toEqual(['anic_status', 'anic_self_check']);
+    expect(grant.autonomyBand).toBe('L2');
+  });
+
+  it('响应带 attribution：Tier-1 路径 provider/model 如实记 none（不借用 provider 名）', async () => {
+    const card = {
+      id: 'anic.agent.G1.architect',
+      gate: 'G1',
+      role: 'architect',
+      systemPrompt: '闭合 JSON 输出',
+      toolsAllowlist: [],
+      autonomyBand: 'L2',
+      outputContract: '闭合 JSON',
+      escalation: '升级人类门',
+    };
+    const cards = new Map([['anic.agent.G1.architect', card]]);
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, { getAgentCards: () => cards, probeCtx: null });
+    const out = await post(calls[0]!.handler, JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content: 'x' }, { id: 'e2', content: 'y' }],
+    }));
+    const attr = out.json?.attribution as {
+      provider?: string; model?: string; promptDigest?: string; evidenceIds?: string[];
+    };
+    expect(attr.provider).toBe('none');
+    expect(attr.model).toBe('none');
+    expect(attr.evidenceIds).toEqual(['e1', 'e2']);
+    // digest 是 sha256 前 16 位十六进制（不落提示词原文）
+    expect(attr.promptDigest).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('attribution.promptDigest 同输入同摘要、异输入异摘要（可复现比对）', async () => {
+    const card = {
+      id: 'anic.agent.G1.architect',
+      gate: 'G1',
+      role: 'architect',
+      systemPrompt: '闭合 JSON 输出',
+      toolsAllowlist: [],
+      autonomyBand: 'L2',
+      outputContract: '闭合 JSON',
+      escalation: '升级人类门',
+    };
+    const cards = new Map([['anic.agent.G1.architect', card]]);
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, { getAgentCards: () => cards, probeCtx: null });
+    const body = (content: string) => JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content }],
+    });
+    const a = await post(calls[0]!.handler, body('同一份证据'));
+    const b = await post(calls[0]!.handler, body('同一份证据'));
+    const c = await post(calls[0]!.handler, body('换过的证据'));
+    const digest = (o: Captured) => (o.json?.attribution as { promptDigest?: string }).promptDigest;
+    expect(digest(a)).toBe(digest(b));
+    expect(digest(a)).not.toBe(digest(c));
+  });
+
+  // ── cycle-38 G5：结论时效（内容指纹判据，零模型参与）──
+
+  const STALE_CARD = {
+    id: 'anic.agent.G1.architect',
+    gate: 'G1',
+    role: 'architect',
+    systemPrompt: '闭合 JSON 输出',
+    toolsAllowlist: [],
+    autonomyBand: 'L2',
+    outputContract: '闭合 JSON',
+    escalation: '升级人类门',
+  };
+
+  function makeCards() {
+    return new Map([['anic.agent.G1.architect', STALE_CARD]]);
+  }
+
+  function tempWorkspace(): string {
+    return mkdtempSync(join(tmpdir(), 'anic-review-fresh-'));
+  }
+
+  it('首次评审 → freshness none（此前没有结论，不冒充 fresh）', async () => {
+    const ws = tempWorkspace();
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, {
+      getAgentCards: makeCards, probeCtx: null, getWorkspaceRoot: () => ws,
+    });
+    const out = await post(calls[0]!.handler, JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content: 'x' }],
+    }));
+    const review = out.json?.review as { freshness?: string; previous?: unknown; error?: unknown };
+    expect(review.freshness).toBe('none');
+    expect(review.previous).toBeNull();
+    expect(review.error).toBeNull();
+  });
+
+  it('同一批证据再评 → freshness fresh；换证据再评 → stale（判据是指纹不是时间）', async () => {
+    const ws = tempWorkspace();
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, {
+      getAgentCards: makeCards, probeCtx: null, getWorkspaceRoot: () => ws,
+    });
+    const handler = calls[0]!.handler;
+    const body = (content: string) => JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content }],
+    });
+    await post(handler, body('证据甲'));
+    const same = await post(handler, body('证据甲'));
+    expect((same.json?.review as { freshness?: string }).freshness).toBe('fresh');
+    const changed = await post(handler, body('证据乙'));
+    const review = changed.json?.review as {
+      freshness?: string;
+      previous?: { evidenceDigest?: string; verdict?: string; tier?: string };
+    };
+    expect(review.freshness).toBe('stale');
+    // 上一次结论的摘要随响应可见（审计：当时依据的是哪批证据、给出什么裁决）
+    expect(review.previous?.verdict).toBe('approve');
+    expect(review.previous?.tier).toBe('tier-1-heuristic');
+    expect(review.previous?.evidenceDigest).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('结论落盘到 .cycles/reviews/ledger.json（重启后仍可判时效）', async () => {
+    const ws = tempWorkspace();
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, {
+      getAgentCards: makeCards, probeCtx: null, getWorkspaceRoot: () => ws,
+    });
+    await post(calls[0]!.handler, JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content: 'x' }],
+    }));
+    const file = join(ws, '.cycles', 'reviews', 'ledger.json');
+    expect(existsSync(file)).toBe(true);
+    const records = JSON.parse(readFileSync(file, 'utf-8')) as Array<{ gate?: string; role?: string }>;
+    expect(records).toHaveLength(1);
+    expect(records[0]?.gate).toBe('G1');
+    expect(records[0]?.role).toBe('architect');
+  });
+
+  it('未注入 getWorkspaceRoot → freshness unknown + error 如实说明（评审本身不受影响）', async () => {
+    const { calls, register } = makeRegister();
+    registerReviewRoute(register, { getAgentCards: makeCards, probeCtx: null });
+    const out = await post(calls[0]!.handler, JSON.stringify({
+      gate: 'G1', role: 'architect', evidence: [{ id: 'e1', content: 'x' }],
+    }));
+    expect(out.status).toBe(200);
+    const review = out.json?.review as { freshness?: string; error?: string };
+    expect(review.freshness).toBe('unknown');
+    expect(String(review.error)).toContain('workspace root unresolved');
   });
 });

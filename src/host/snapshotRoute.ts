@@ -131,6 +131,40 @@ export function sendJson(res: unknown, status: number, body: unknown, extraHeade
 }
 
 /**
+ * 语义指纹（V-1 · doc11 §5）：**排除 generatedAt** 的内容摘要。
+ *
+ * 为什么不能直接用 HTTP ETag = 全响应哈希：本路由的响应体每次请求都带新的
+ * `generatedAt`（ISO 时间戳），若指纹覆盖它，ETag 永远不等 → 条件请求永远
+ * 200，304 短路形同虚设。语义指纹只覆盖「数据本身」（nodes/edges/autonomy/
+ * counts）——同一份 .cycles 在两次轮询之间未变化时指纹稳定，客户端带
+ * If-None-Match 即可拿到 304 空体。
+ *
+ * 与既有 X-ANIC-Snapshot-Digest 的关系：两者用同一指纹（digest 头继续存在，
+ * 供无条件请求的老客户端做「数据是否变了」的廉价判据）；ETag 是它的条件
+ * 请求语义化（HTTP 标准通道，中间层/浏览器/抓包工具都能理解）。
+ */
+function semanticFingerprint(snap: { nodes: unknown; edges: unknown; autonomy: unknown; counts: unknown }): string {
+  return createHash('sha256').update(JSON.stringify({
+    n: snap.nodes, e: snap.edges, a: snap.autonomy, c: snap.counts,
+  })).digest('hex').slice(0, 16);
+}
+
+/** 从请求头取 If-None-Match（数组形态取首个；去引号——ETag 规范允许 `"` 包裹）。 */
+function ifNoneMatchOfReq(req: unknown): string | null {
+  if (req === null || req === undefined) return null;
+  const raw = (req as { headers?: Record<string, string | string[] | undefined> }).headers?.['if-none-match'];
+  const val = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof val !== 'string' || val.trim() === '') return null;
+  const unquoted = val.trim().replace(/^"|"$/g, '');
+  return unquoted === '' ? null : unquoted;
+}
+
+/** 发送 304（空体 + ETag/Workspace 头；不重发 JSON——这是条件请求的语义收益本体）。 */
+function sendNotModified(res: unknown, etag: string, workspace: string): void {
+  sendJson(res, 304, null, { ETag: `"${etag}"`, 'X-ANIC-Snapshot-Digest': etag, 'X-ANIC-Workspace': encodeURIComponent(workspace) });
+}
+
+/**
  * 注册路由。返回 webServer.register 的 disposer（由 ctx.effect 承接做插件级清理；
  * disposer 不丢弃是九条红线之一）。宿主无 webServer 时静默跳过（telemetry skipped）
  * —— 插件主体（客户端标签）仍可用嵌入快照。
@@ -153,9 +187,16 @@ export function registerSnapshotRoute(ctx: unknown): (() => void) | null {
           return;
         }
         const snap = buildWorkflowSnapshot(cyclesDir);
-        // 内容指纹：客户端可用作"数据是否变了"的廉价判据（展示用，不做条件请求语义）
-        const digest = createHash('sha256').update(JSON.stringify({ n: snap.nodes, e: snap.edges })).digest('hex').slice(0, 16);
-        sendJson(res, 200, snap, { 'X-ANIC-Snapshot-Digest': digest, 'X-ANIC-Workspace': encodeURIComponent(root) });
+        // 内容指纹：客户端可用作"数据是否变了"的廉价判据；V-1 起兼作 ETag。
+        const digest = semanticFingerprint(snap);
+        // V-1 条件请求：客户端带 If-None-Match 且命中 → 304 空体短路
+        //（省的是响应体与二次渲染，不是快照构建——构建总是要跑的，诚实边界）。
+        const inm = ifNoneMatchOfReq(req);
+        if (inm !== null && inm === digest) {
+          sendNotModified(res, digest, root);
+          return;
+        }
+        sendJson(res, 200, snap, { 'X-ANIC-Snapshot-Digest': digest, 'X-ANIC-Workspace': encodeURIComponent(root), ETag: `"${digest}"` });
       } catch (e) {
         sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) });
       }

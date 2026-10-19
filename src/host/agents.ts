@@ -8,13 +8,17 @@
  * 纪律（13 §1.2）：
  * - 卡 schema 闭合：未知字段/未知门/非法授权带 → 拒绝加载并响亮（INV-19），
  *   不静默跳过 —— 角色卡漂移是 R-34，必须在装载时拦截。
- * - toolsAllowlist M1 只做形状校验（^anic_[a-z][a-z0-9_]*$）；存在性校验在
- *   M2-a 工具面落地后接入（ToolRegistry 出现时启用，注释即契约）。
+ * - toolsAllowlist 做**两级**校验（cycle-38 M2-a 落地）：形状（^anic_[a-z][a-z0-9_]*$）
+ *   + 存在性（必须出现在 src/host/toolIds.ts 的 ANIC_TOOL_IDS 里）。此前只校验形状，
+ *   于是 `anic_this_tool_does_not_exist` 这种语法合法的幽灵工具能进白名单——
+ *   白名单因此只是装饰。存在性的单一真相源是注册代码，toolIds.ts 是其投影，
+ *   由 tests/contract/toolIdsContract.test.ts 双向比对钉死。
  * - 诚实前提：agent preset 注册是宿主/部署概念，插件不发明 API —— DSH 调用
  *   本插件的三条路径见 13 §1.3（工具面/编排配方/HTTP 面）。
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isKnownToolId, unknownToolIds } from './toolIds.ts';
 
 export const AGENT_GATES = ['intent', 'spec', 'plan', 'pr', 'release'] as const;
 export type AgentGate = (typeof AGENT_GATES)[number];
@@ -27,7 +31,7 @@ export interface AgentCard {
   role: AgentRole;
   gate: AgentGate;
   systemPrompt: string;
-  /** 可调用工具白名单（M1 形状校验；M2-a 接入 ToolRegistry 存在性校验） */
+  /** 可调用工具白名单（形状 + 存在性双校验，见 toolIds.ts） */
   toolsAllowlist: string[];
   /** 该角色的自主级上限（受授权带约束，12 §2.6） */
   autonomyBand: 'L1' | 'L2' | 'L3' | 'L4';
@@ -67,6 +71,12 @@ export function validateAgentCard(raw: unknown, source: string): { card?: AgentC
   }
   if (!Array.isArray(obj.toolsAllowlist) || obj.toolsAllowlist.some((t) => typeof t !== 'string' || !TOOL_ID_RE.test(t))) {
     errors.push(`${source}: 'toolsAllowlist' must be an array of tool ids matching ${TOOL_ID_RE}`);
+  } else {
+    // 存在性：语法合法但本插件没有的工具 id = 幽灵白名单项（fail-closed 拒绝装载）
+    const ghosts = unknownToolIds(obj.toolsAllowlist as string[]);
+    if (ghosts.length > 0) {
+      errors.push(`${source}: 'toolsAllowlist' references unknown tool id(s): ${ghosts.join(', ')} (see src/host/toolIds.ts)`);
+    }
   }
   if (typeof obj.autonomyBand !== 'string' || !/^L[1-4]$/.test(obj.autonomyBand)) {
     errors.push(`${source}: 'autonomyBand' must match /^L[1-4]$/`);
@@ -91,6 +101,13 @@ export function validateAgentCard(raw: unknown, source: string): { card?: AgentC
     },
     errors: [],
   };
+}
+
+/**
+ * 单条工具 id 是否为本插件真实注册的工具（调用点与测试共用同一判据）。
+ */
+export function isAllowedToolId(id: string): boolean {
+  return TOOL_ID_RE.test(id) && isKnownToolId(id);
 }
 
 /**

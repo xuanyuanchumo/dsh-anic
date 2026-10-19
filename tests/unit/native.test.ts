@@ -144,13 +144,33 @@ describe('hitlAudit', () => {
 });
 
 describe('factBaseVerify', () => {
-  it('returns structured result', () => {
+  it('returns structured result with three-state partition', () => {
     const result = runFactBaseVerify(process.cwd());
     expect(result).toHaveProperty('checks');
     expect(result).toHaveProperty('verified');
     expect(result).toHaveProperty('missing');
+    expect(result).toHaveProperty('unscannable');
     expect(result).toHaveProperty('total');
-    expect(result.verified + result.missing).toBe(result.total);
+    // 三态划分必须覆盖全集：「核不了」（unscannable）与「确实缺失」（absent）
+    // 是两种状态，混算会把无锚点声明误报成缺失（v1 的 132 条伪缺失即此）。
+    expect(result.verified + result.missing + result.unscannable).toBe(result.total);
+    for (const c of result.checks) {
+      expect(['verified', 'absent', 'unscannable']).toContain(c.state);
+      // found 是向后兼容字段：只有 verified 才为 true
+      expect(c.found).toBe(c.state === 'verified');
+      if (c.state === 'verified') expect(typeof c.evidence).toBe('string');
+      else expect(typeof c.reason).toBe('string');
+    }
+  });
+
+  it('本仓库真实形状：源码树可扫描，且存在带 file:line 的 verified 证据', () => {
+    const result = runFactBaseVerify(process.cwd());
+    expect(result.sourceRoot).toContain('src');
+    expect(result.scannedFiles).toBeGreaterThan(100);
+    const verified = result.checks.filter((c) => c.state === 'verified');
+    expect(verified.length).toBeGreaterThan(0);
+    // 符号锚点的证据必须是 file:line 形态（核不了就不该记 verified）
+    expect(verified.filter((c) => c.evidence?.includes('.ts:')).length).toBeGreaterThan(0);
   });
 });
 

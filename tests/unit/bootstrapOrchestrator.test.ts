@@ -261,4 +261,21 @@ describe('runSelfBootstrapCycle — 端到端', () => {
     // 一轮后要么 CONVERGED 要么 EXHAUSTED
     expect(['CONVERGED', 'EXHAUSTED']).toContain(result.state.status);
   });
+
+  it('cycle-38 re-gate 环：门禁未过 → fix → VERIFYING 真实重跑 gate-check（复检非伪造）', () => {
+    autoInstallSkill(workspace);
+    // 临时工作区无 config.yml → 首次 gate-check 解析为 'unknown'（脚本入口即死）
+    // → 走 fix 分支 → fix-done 进 VERIFYING → 复检再跑一次 gate-check。
+    const result = runSelfBootstrapCycle(workspace, 1, 30000);
+
+    const cyclesDir = join(workspace, '.cycles');
+    const stats = flowStats(loadFlowTracker(cyclesDir));
+    // 复检的机器证据：gate-check 调用数 ≥ 2（首次裁决 + 复检各一次）
+    expect(stats['gate-check']).toBeDefined();
+    expect(stats['gate-check'].total).toBeGreaterThanOrEqual(2);
+    // 复检仍未过（同一失败形态）→ 不伪造 CONVERGED（fail-closed 结算）
+    expect(result.state.status).not.toBe('CONVERGED');
+    // 结算用的裁决如实来自解析器（unknown → 未通过）——不因"跑过复检"而放行
+    expect(['unknown', 'FAIL'].includes(result.rounds[0]?.gateVerdict ?? '')).toBe(true);
+  });
 });

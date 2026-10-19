@@ -1,5 +1,23 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.2.0 — 跨项目调用契约与 L4 编排补强（cycle-38）
+
+### 行为变更（minor）
+
+- **新增「跨项目调用契约」节（SKILL.md）**：从插件网关（dsh-anic anic_skill / MCP
+  mcp-server）调用本技能时，目标项目目录走**专门的 workspace 参数**（MCP
+  `--project-dir` / 网关 `workspace`），**绝不能**把它放进 `args` 数组——网关会把
+  workspace 作为第一个位置参数前置，args 再带目录会让脚本收到 2 个位置参数被数量
+  守卫拒绝（真机 6 连失败实证）。唯一例外：`quick-validate` 的第一个位置参数本来就是
+  SKILL DIR（`assets/skill` 相对形态）。
+- **插件网关侧配套（dsh-anic 侧同步）**：`anic_skill` 网关对 args 首位是合法项目
+  绝对路径的形态自动重定向到 workspace 参数并在响应中回显 `workspaceRedirected`。
+- **任务级派遣编排**（2.1.x 文档补强收口）：auto-cycle.md 的派遣协议表更新——
+  派遣记录表落任务清单.md，含 subagent 命名可见（R12）与有界报告要求。
+- **自举复检环语义**（auto-cycle.md）：fix 后 VERIFYING 相位**必须真实重跑
+  gate-check**（re-gate），复检通过才以新裁决结算——「跑过复检」与「复检通过」
+  是两件事，用修复前的裁决结算是伪造复检。
+
 ## 2.1.0 — 统一 CLI 参数防护（cycle-27）
 
 ### 行为变更（minor）

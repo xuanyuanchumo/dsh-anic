@@ -10,10 +10,12 @@ import { type RouteReq, readBody } from './routeContext.ts';
 import { resolveWorkspaceRoots, sendJson } from '../snapshotRoute.ts';
 import {
   type BootstrapState,
+  type BootstrapTrigger,
   loadBootstrapState,
   saveBootstrapState,
   advanceBootstrap,
   initialBootstrapState,
+  transitionBootstrap,
 } from '../selfBootstrap.ts';
 import {
   resolveSkillScriptsDir,
@@ -24,6 +26,27 @@ import {
 import { parseEvalScore, parseGateVerdict } from '../runtime/scriptParsers.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
+
+/**
+ * 相位推进（唯一写 status 的入口，cycle-38）。
+ *
+ * 旧实现直接 `state.status = 'EVALUATING'` 改写字段，绕过状态机：
+ *   - 非法转移（如从未评估直接跳 FIXING）无人拒绝；
+ *   - `VERIFYING` 全仓零赋值，声明了却不可达。
+ * 现在一律走 `transitionBootstrap`（表驱动，非法即拒绝），拒绝时**响亮**返回
+ * 原因而不是静默继续——路由是裁决面，不能把非法转移伪装成成功。
+ */
+function applyPhase(
+  cyclesDir: string,
+  state: BootstrapState,
+  trigger: BootstrapTrigger,
+  patch?: Partial<Pick<BootstrapState, 'lastEvalScore' | 'lastGateVerdict'>>,
+): { state: BootstrapState; rejected: string | null } {
+  const moved = transitionBootstrap(state, trigger, patch);
+  if (!moved.ok) return { state, rejected: moved.reason };
+  saveBootstrapState(cyclesDir, moved.state);
+  return { state: moved.state, rejected: null };
+}
 
 function getLatestCycleDir(cyclesDir: string): string | null {
   const cyclesRoot = path.join(cyclesDir, 'cycles');
@@ -60,14 +83,9 @@ export function registerSelfBootstrapRoutes(
       const result = invokeSkillScript(scriptsDir, 'eval-runner', [], roots, 60000);
       const score = parseEvalScore(result);
 
-      // Update bootstrap state
+      // 相位推进：走状态机（唯一写 status 的入口），非法即响亮返回原因
       const state = loadBootstrapState(cyclesDir);
-      const newState: BootstrapState = {
-        ...state,
-        status: 'EVALUATING',
-        lastEvalScore: score,
-      };
-      saveBootstrapState(cyclesDir, newState);
+      const phase = applyPhase(cyclesDir, state, 'start', { lastEvalScore: score });
 
       send(res, 200, {
         exitCode: result.exitCode,
@@ -76,6 +94,8 @@ export function registerSelfBootstrapRoutes(
         stderr: result.stderr.slice(0, 2000),
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        status: phase.state.status,
+        rejected: phase.rejected,
       });
     }),
 
@@ -95,12 +115,7 @@ export function registerSelfBootstrapRoutes(
       const verdict = parseGateVerdict(result);
 
       const state = loadBootstrapState(cyclesDir);
-      const newState: BootstrapState = {
-        ...state,
-        status: 'GATE_CHECKING',
-        lastGateVerdict: verdict,
-      };
-      saveBootstrapState(cyclesDir, newState);
+      const phase = applyPhase(cyclesDir, state, 'eval-done', { lastGateVerdict: verdict });
 
       send(res, 200, {
         exitCode: result.exitCode,
@@ -108,6 +123,8 @@ export function registerSelfBootstrapRoutes(
         stdout: result.stdout.slice(0, 4000),
         stderr: result.stderr.slice(0, 2000),
         timedOut: result.timedOut,
+        status: phase.state.status,
+        rejected: phase.rejected,
       });
     }),
 
@@ -128,15 +145,13 @@ export function registerSelfBootstrapRoutes(
       }
       state.maxRounds = maxRounds;
 
-      // Step 1: Evaluate
-      state.status = 'EVALUATING';
-      saveBootstrapState(cyclesDir, state);
+      // Step 1: Evaluate —— 相位 EVALUATING（状态机写，落盘可观测）
+      state = applyPhase(cyclesDir, state, 'start').state;
       const evalResult = invokeSkillScript(scriptsDir, 'eval-runner', [], roots, 60000);
       const evalScore = parseEvalScore(evalResult);
 
-      // Step 2: Gate check
-      state.status = 'GATE_CHECKING';
-      saveBootstrapState(cyclesDir, state);
+      // Step 2: Gate check —— 相位 GATE_CHECKING
+      state = applyPhase(cyclesDir, state, 'eval-done', { lastEvalScore: evalScore }).state;
       const gateResult = invokeSkillScript(
         scriptsDir, 'gate-check',
         ['--gate', 'all', '--quality', '--record'],
@@ -147,8 +162,8 @@ export function registerSelfBootstrapRoutes(
       // Step 3: If FAIL, produce tech-debt proposal (do NOT self-modify code — R-31)
       let fixApplied: string | null = null;
       if (gateVerdict !== 'PASS' && gateVerdict !== 'approve') {
-        state.status = 'FIXING';
-        saveBootstrapState(cyclesDir, state);
+        // 相位 FIXING：只在 GATE_CHECKING 起点合法（顺序错误会被状态机拒绝）
+        state = applyPhase(cyclesDir, state, 'gate-fail', { lastGateVerdict: gateVerdict }).state;
         // Write tech-debt proposal (not a code fix)
         const techDebtDir = path.join(cyclesDir, 'tech-debt');
         if (!fs.existsSync(techDebtDir)) fs.mkdirSync(techDebtDir, { recursive: true });

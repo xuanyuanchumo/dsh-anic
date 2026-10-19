@@ -164,22 +164,50 @@ export function registerSkillGatewayTools(
       if (!scriptsDir) {
         return { error: 'skill scripts not found (run anic_install first, or set ANIC_SKILL_DIR)' };
       }
-      const extraArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      const rawArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      // cycle-38（T-3805）跨项目调用人体工学：真机 flow #22-27 六连失败实证——
+      // 调用方把目标项目绝对路径放进 args（如 args:["D:\\...\\dsh-codegraph-visualizer","status"]），
+      // 而网关已把 workspace 作为第一个位置参数前置，脚本收到 2 个位置参数即拒绝。
+      // 唯一例外：quick-validate 的第一个位置参数本来就是 SKILL DIR（cycle-31 契约，
+      // "assets/skill" 相对形态），不能误吞。
+      // 处置：args 首位是绝对路径形态（盘符/反斜杠/正斜杠开头）且非 quick-validate 时，
+      // 视为「调用方想换目标工作区」——把它移到 workspace 参数并告警说明（不静默：
+      // 告警行进入 stdout 让调用方看见发生了什么）。
+      const quickValidateSkillDir = script === 'quick-validate' && rawArgs.length > 0 && /^[.]/.test(rawArgs[0] ?? '');
+      let effectiveWs = ws;
+      let extraArgs = rawArgs;
+      let workspaceRedirect: string | undefined;
+      if (!quickValidateSkillDir && rawArgs.length > 0) {
+        const first = rawArgs[0] ?? '';
+        const looksLikePath = /^[A-Za-z]:[\\/]/.test(first) || first.startsWith('/') || first.startsWith('\\');
+        if (looksLikePath) {
+          const redirect = validateWorkspace(first);
+          if (redirect.ok) {
+            effectiveWs = first;
+            extraArgs = rawArgs.slice(1);
+            workspaceRedirect = first;
+          }
+          // 非法路径（不存在/不是目录）→ 不吞，让脚本侧的数量守卫报错（更精确的失败信息）。
+        }
+      }
       const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
 
       // M10-a：每流程状态跟踪——为每次调用创建独立 FlowRecord，
       // 持久化到 {workspace}/.cycles/flow-tracker.json，供 anic_status 查询和大模型自举审计。
-      const cyclesDir = join(ws, '.cycles');
+      // 注意：重定向后流程记账落在**目标工作区**（调用作用域在哪，证据就落哪）。
+      const cyclesDir = join(effectiveWs, '.cycles');
       if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
       let trackerState = loadFlowTracker(cyclesDir);
-      const { state: startedState, flowId } = startFlow(cyclesDir, trackerState, script, ws, extraArgs);
+      const { state: startedState, flowId } = startFlow(cyclesDir, trackerState, script, effectiveWs, extraArgs);
       trackerState = startedState;
 
       // P3：INVOKING → RUNNING 的真实分界——脚本目录已解析、spawn 即将发生。
       trackerState = markRunning(cyclesDir, trackerState, flowId);
 
       // P1-EXEC-SIGNAL：异步调用 + exec.signal 传播（不阻塞宿主事件循环；可取消）。
-      const result = await invokeSkillScriptAsync(scriptsDir, script, extraArgs, ws, timeout, { signal: exec?.signal });
+      // 重定向后技能脚本目录也按目标工作区解析（workdir 本地副本优先语义不变）。
+      const effectiveScriptsDir = workspaceRedirect ? (resolveSkillScriptsDir(effectiveWs) ?? scriptsDir) : scriptsDir;
+      const result = await invokeSkillScriptAsync(effectiveScriptsDir, script, extraArgs, effectiveWs, timeout, { signal: exec?.signal });
 
       trackerState = finishFlow(cyclesDir, trackerState, flowId, result);
 
@@ -189,6 +217,10 @@ export function registerSkillGatewayTools(
         exitCode: result.exitCode,
         timedOut: result.timedOut,
         ...(result.aborted ? { aborted: true } : {}),
+        ...(workspaceRedirect ? { workspaceRedirected: workspaceRedirect } : {}),
+        ...(workspaceRedirect
+          ? { note: 'first positional arg looked like a project dir — moved to workspace parameter and removed from args (see workspaceRedirected)' }
+          : {}),
         durationMs: result.durationMs,
         stdout: result.stdout.slice(0, 8000),
         stderr: result.stderr.slice(0, 4000),

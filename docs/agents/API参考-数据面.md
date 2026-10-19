@@ -16,19 +16,21 @@
 
 **Query**：无（workspace 由 `resolveWorkspaceRoots` 在服务端解析）。
 
-**响应 200**：`buildWorkflowSnapshot(cyclesDir)` 的结果 —— `{ nodes, edges, autonomy, counts }`（构建器见 `src/shared/snapshotCore.ts:1-6`；客户端类型见 `src/client/workflowGraphData.ts:12-30`，其中 `WorkflowNode.type` 是 8 值联合 `'phase'|'micro-step'|'gate'|'human-gate'|'cycle'|'gate-event'|'incident'|'autonomy'`）。
+**响应 200**：`buildWorkflowSnapshot(cyclesDir)` 的结果 —— `{ nodes, edges, autonomy, counts }`（构建器见 `src/shared/snapshotCore.ts:1-6`；客户端类型见 `src/client/workflowGraphData.ts:12-30`，其中 `WorkflowNode.type` 是 8 值联合 `'phase'|'micro-step'|'gate'|'human-gate'|'cycle'|'gate-event'|'incident'|'autonomy'`；cycle-38 起 `WorkflowNode` 可携带 `detail?: string`——gate-event 节点的账本 detail，W-3「为什么」层的数据源）。
 
-**响应头**（`snapshotRoute.ts:96-101`）：
+**响应头**（cycle-38 V-1 起）：
 
-- `X-ANIC-Snapshot-Digest`：`sha256(JSON.stringify({ n: nodes, e: edges })).slice(0, 16)`
+- `ETag`：`"sha256前16位"`——**语义指纹**（nodes/edges/autonomy/counts，**刻意排除 `generatedAt`**：响应体每次都带新时间戳，覆盖它则 ETag 永不相等、304 形同虚设）
+- `X-ANIC-Snapshot-Digest`：与 ETag 同指纹（老消费方的廉价判据通道保留）
 - `X-ANIC-Workspace`：`encodeURIComponent(root)`
 
-头部注释（`snapshotRoute.ts:8-11`）明确：digest 是**展示用指纹，不是条件请求语义**，不参与 304 协商。改动前必须知道这一点 —— 把它当作 ETag 使用会得到「永远 200」或「假 304」。
+**条件请求（cycle-38 新增）**：请求带 `If-None-Match` 且与当前语义指纹相等 → **304**（空体 + ETag/Workspace 头保留）。省的是响应体与二次渲染，不是快照构建——构建总是要跑的（诚实边界）。数据真变（如账本追加）→ 指纹变 → 旧 ETag 不命中 → 200 全量。测试钉：`tests/unit/snapshotRoute.test.ts` 的 `V-1 ETag 条件请求` describe（6 用例）。
 
 **状态码**：
 
 | 码 | 条件 | 体 |
 | --- | --- | --- |
+| 304 | `If-None-Match` 命中当前语义指纹 | 空（null） |
 | 404 | `<root>/.cycles` 不存在 | `{ error: 'no .cycles in current workspace', workspace: root }` |
 | 200 | 正常 | 快照对象 |
 | 500 | 构建抛错 | `{ error: message }` |
