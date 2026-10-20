@@ -76,7 +76,7 @@ export async function invokeSkillScriptAsync(
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
-    }, Math.min(timeoutMs, 120000));
+    }, timeoutMs);
 
     const onAbort = (): void => {
       aborted = true;

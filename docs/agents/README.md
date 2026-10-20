@@ -11,11 +11,11 @@
 | [架构总览.md](架构总览.md) | 真实模块布局（`src/host` / `src/client` / `src/shared` / `src/adapters`）、单向依赖方向、host/client 编译隔离 | 新增模块、判断一段代码该放哪半边、理解依赖边界时 |
 | [开发规范.md](开发规范.md) | 规范总览表 + §0–§3：单文件 ≤250 行、一域一文件、路由按端点拆 | 新增文件或新增路由时；想知道「哪条规范真的会拦我」 |
 | [开发规范-守卫与约束.md](开发规范-守卫与约束.md) | §4–§9：日志、i18n、CSS 前缀、ESM 扩展名、G-IND 独立性、DSH 清单 + 新增文件清单 | 新增日志/文本/样式/import，或判断跨工程引用是否越界时 |
-| [API参考.md](API参考.md) | HTTP 面**索引与公共约定**：注册机制、请求/响应形状、状态码语义、无工作区解析链、磁盘形状、60 端点总索引 | 需要知道端点属于哪一册，或公共形状/状态码语义时 |
+| [API参考.md](API参考.md) | HTTP 面**索引与公共约定**：注册机制、请求/响应形状、状态码语义、无工作区解析链、磁盘形状、62 端点总索引 | 需要知道端点属于哪一册，或公共形状/状态码语义时 |
 | [API参考-数据面.md](API参考-数据面.md) | data 域 5 端点：snapshot / step-trace / self-check / self-init / invocations-live | 调用或修改数据面端点时 |
 | [API参考-周期面.md](API参考-周期面.md) | cycle 域 13 端点：cycle / ledger / stack-probe / seg-ledger | 调用或修改周期状态机、账本、技术栈探测时 |
 | [API参考-评审进化与治理.md](API参考-评审进化与治理.md) | review + evolution + governance + native + flows（流程状态机），28 端点 | 调用或修改评审、自治、治理、原生脚本、流程状态机端点时 |
-| [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit，14 端点 | 调用或修改自举、技能网关、安装、双自举时 |
+| [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit，16 端点 | 调用或修改自举、技能网关、安装、双自举时 |
 | [测试指南.md](测试指南.md) | 四层金字塔的实际配置、每层能看/看不到什么、守卫测试三条纪律、变更探针纪律 | 新增测试、判断缺陷该由哪层拦、写守卫测试时 |
 | [设计令牌与主题.md](设计令牌与主题.md) | `src/shared/tokens.ts` 的 PALETTE→SEMANTIC 两层模型、`token()`、`tokenCssBlock()`、注入点、守卫与**当前落地程度** | 新增颜色、新增内联样式、暗色适配时 |
 | [DSH多代兼容与双端适配.md](DSH多代兼容与双端适配.md) | 兼容性门真实现（peerDependencies 白名单 + semver）、多代能力探测矩阵 D1-D8、网页端/桌面端差异实测、B1-B6 破坏性变更、已知限制 | 改 package.json 版本范围、适配新宿主版本、排查桌面端差异时 |

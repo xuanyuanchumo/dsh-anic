@@ -107,6 +107,24 @@ export interface ToolRegistration {
   presentCall?: (args: Record<string, unknown>) => ToolCallView | undefined;
   /** M10-d: completed 状态呈现（DSH UI 工具结果卡片）。 */
   presentResult?: (args: Record<string, unknown>, result: Record<string, unknown>) => ToolResultView | undefined;
+  /**
+   * cycle-40（KB 研究 #2 吸收，subsystems/tools.md:68-88）：
+   * 协作式工具调用超时预算（毫秒）。省略 = 无截止。由
+   * `@deepseek-ai/dsh-tool-call-timeout-policy`（tools/execute 包装器）强制；
+   * **绝不进模型请求**（schemas() 白名单只放 name/description/parameters）。
+   * 声明即断言：本工具把 exec.signal 转发给可静止的协作实现——
+   * dsh-anic 的脚本执行类工具经 invokeSkillScriptAsync({ signal }) 满足此断言。
+   */
+  timeoutMs?: number;
+  /**
+   * cycle-40（KB 研究 #2 吸收，subsystems/tools.md:76-88）：
+   * 纯同步分类器——是否可与兄弟工具调用并行。**只有精确 true 入并行组**；
+   * 省略/异常/非 true 返回 = 互斥（fail-closed）。绝不模型可见。
+   * 入组执行不得改父级共享状态；共享状态须容忍并发分派。
+   * dsh-anic 的纯读工具（snapshot/self_check/status 等）标 true；
+   * 写侧工具（install/advance/archive…）与 anic_skill（写 FlowTracker）保持省略。
+   */
+  isConcurrencySafe?: (args: unknown) => boolean;
 }
 
 /**

@@ -131,20 +131,22 @@ export function renderGraph(
     ),
   ];
 
-  edges.forEach((e, i) => {
+  edges.forEach((e) => {
     const a = byId.get(e.from);
     const b = byId.get(e.to);
     if (!a || !b) return;
     children.push(
       createElement('line', {
-        key: `e${String(i)}`,
+        // cycle-40（UI 研究 Top3）：数据派生稳定 key（from→to）——数组序号 key
+        // 在节点集插入/删除时全图错位 patch；数据派生 key 让 diff 精确命中。
+        key: `edge-${e.from}-${e.to}`,
         x1: a.x, y1: a.y, x2: b.x, y2: b.y,
         stroke: token('anic-border-strong'), strokeWidth: 0.7, markerEnd: 'url(#anic-spike-arrow)',
       }),
     );
   });
 
-  nodes.forEach((n, i) => {
+  nodes.forEach((n) => {
     const failed = n.result === 'FAIL';
     const verdict = verdicts?.get(n.id) ?? n.result;
     const fill = gateFillOf(verdict) ?? colorOf(n.type);
@@ -155,7 +157,9 @@ export function renderGraph(
       createElement(
         'g',
         {
-          key: `n${String(i)}`,
+          // cycle-40（UI 研究 Top3）：稳定 key = 节点 id（节点已带 data-anic-node，
+          // id 即唯一身份）——数组序号 key 在插入/删除时错位 patch。
+          key: `node-${n.id}`,
           transform: `translate(${String(n.x)},${String(n.y)})`,
           // 键盘可达性（P2-A11Y-KEY→P1-2 roving tabindex）：改造前每个节点
           // tabIndex=0——169 个停靠点，键盘用户要按 169 次 Tab 才能穿过图区。

@@ -160,18 +160,29 @@ export function buildGraphIndex(graph: WorkflowGraph): WorkflowGraphIndex {
  * - Gate 节点需要 gateApproved=true 才能推进到 done。
  * - 前驱全部 done 才能推进（拓扑序）。
  *
- * 迁移合法性矩阵（doc06 §3.x + doc18 §3 #8，cycle-39 落地 3/5 条）：
+ * 迁移合法性矩阵（doc06 §3.x + doc18 §3 #8，cycle-39 落地 3/5 → cycle-40 全量 5/5）：
  * 1. record.gate === node.gate（门匹配——Gate 节点推进必须携带匹配的门名）；
+ * 2. 哈希链校验（cycleRunner.advanceCycle 侧——账本断链时拒绝推进，fail-closed；
+ *    stateMachine 是纯图/状态层不碰磁盘账本，故 #2 落在编排层）；
  * 3. node.status !== 'done'（不重复推进已 done 节点）；
- * 4. 前驱边存在且源节点 done（触发边已批准——即下方前驱检查）。
- * （#2 哈希链校验、#5 记录类型白名单拆二期，见 doc18 §3。）
+ * 4. 前驱边存在且源节点 done（触发边已批准——即下方前驱检查）；
+ * 5. 记录类型白名单（validateRecordShape——未知字段/非法类型拒绝；
+ *    实现拆至 recordShape.ts，T3 纪律）。
  */
+import { validateRecordShape, type AdvanceRecord } from './recordShape.ts';
+
+export type { AdvanceRecord } from './recordShape.ts';
+
 export function advance(
   graph: WorkflowGraph,
   state: Record<string, NodeState>,
   nodeId: string,
-  record?: { gateApproved?: boolean; gate?: string; gateName?: string; result?: 'PASS' | 'FAIL'; detail?: string },
+  record?: AdvanceRecord,
 ): StateMachineResult {
+  // 矩阵 #5：record 形状白名单——任何越界形态在状态变更前拒绝
+  const shape = validateRecordShape(record);
+  if (!shape.ok) return { ok: false, state, reason: shape.reason };
+
   // O(1) node lookup via precomputed index (was O(n) find)
   const idx = buildGraphIndex(graph);
   const node = idx.nodeMap.get(nodeId);

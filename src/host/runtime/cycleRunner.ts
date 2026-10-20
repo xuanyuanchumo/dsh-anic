@@ -74,7 +74,14 @@ export function initCycle(cyclesDir: string, projectName?: string): CycleInfo {
   return { cycleDir, cycleNumber: n, createdAt: now };
 }
 
-/** 推进 cycle 节点（状态机 + 账本）。 */
+/** 推进 cycle 节点（状态机 + 账本）。
+ *
+ * 迁移合法性矩阵 #2（cycle-40，doc18 §3 #8 收口 5/5）：哈希链校验。
+ * record 携带门禁证据（gate + result，将被追加账本）时，先验证既有链完整性——
+ * 链断即拒绝推进（fail-closed）：账本是门禁证据的唯一载体，往断链上追加
+ * 新记录等于把新证据接到不可信的链上，且状态推进的「批准依据」本身已不可信。
+ * 拒绝时状态原样不动（磁盘 workflow-state.json 未被触碰）。
+ */
 export function advanceCycle(
   cyclesDir: string,
   cycleNumber: number,
@@ -86,6 +93,20 @@ export function advanceCycle(
 
   let state = loadState(cyclesDir);
   if (Object.keys(state).length === 0) state = initState(graph);
+
+  // 矩阵 #2：账本断链时拒绝推进（只在将要追加账本记录时检查——纯状态推进不读账本）
+  if (record.gate && record.result) {
+    const verify = verifyLedger(cyclesDir);
+    if (!verify.ok) {
+      return {
+        ok: false,
+        cycleNumber,
+        nodeId,
+        state,
+        reason: `ledger chain broken at index ${verify.brokenAt} (${verify.reason}) — repair before advancing`,
+      };
+    }
+  }
 
   const adv = advance(graph, state, nodeId, record);
   if (!adv.ok) return { ok: false, cycleNumber, nodeId, state: adv.state, reason: adv.reason };

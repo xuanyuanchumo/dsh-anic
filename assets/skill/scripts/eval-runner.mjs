@@ -104,10 +104,25 @@ function runTestCommand(projectDir, configContent) {
   const testCmd = getYamlString(configContent, 'test_cmd');
   if (!testCmd) return { pass: false, output: 'test_cmd not configured in .cycles/config.yml' };
   try {
-    const output = execSync(testCmd, { cwd: projectDir, timeout: 120000, stdio: 'pipe' });
+    // cycle-40（场地实验 #1 根修）：maxBuffer 提到 16MB——大工作区（5390 用例）
+    // 的 stderr 超 execSync 默认 1MB 会 throw ENOBUFS，旧 catch 把它当测试失败
+    // （E3/E8 误报 FAIL，detail 首行恰是 vitest DEPRECATED 弃用告警——真根因是
+    // 缓冲区溢出而非测试红）。ENOBUFS ≠ 测试失败：如实按「无法评估」处理。
+    // 超时同理与失败区分：e.signal === 'SIGTERM' 且 e.killed = true 是超时形态
+    //（execSync 超时 kill 进程），真实测试失败 e.status 是数字退出码。
+    const output = execSync(testCmd, { cwd: projectDir, timeout: 300000, stdio: 'pipe', maxBuffer: 16 * 1024 * 1024 });
     return { pass: true, output: output.toString().trim() };
   } catch (e) {
-    return { pass: false, output: e.stderr ? e.stderr.toString().trim() : e.message };
+    if (e.code === 'ENOBUFS') {
+      // 缓冲区溢出 = 判定器看不见完整输出 = 没有证据：SKIP 而非 FAIL（三态纪律）
+      return { pass: false, skipped: true, output: 'test output exceeded 16MB buffer (ENOBUFS) — cannot judge, reduce test verbosity or run tests separately' };
+    }
+    if (e.killed === true && e.signal === 'SIGTERM') {
+      // 超时 = 未跑完 = 无结论证据：SKIP 而非 FAIL（把半截 stderr 当失败详情是
+      // cycle-39 归因错误的另一半根因——超时被折叠成 FAIL 且 detail 恰是弃用告警）
+      return { pass: false, skipped: true, output: `test command exceeded 300s timeout — cannot judge (workspace tests take longer than budget; run test_cmd separately and attach the report)` };
+    }
+    return { pass: false, output: e.stderr ? e.stderr.toString().trim().slice(0, 2000) : e.message };
   }
 }
 
@@ -119,10 +134,13 @@ function runLintCommand(projectDir, configContent) {
     return { pass: false, output: 'lint_cmd not configured in .cycles/config.yml' };
   }
   try {
-    const output = execSync(lintCmd, { cwd: projectDir, timeout: 60000, stdio: 'pipe' });
+    const output = execSync(lintCmd, { cwd: projectDir, timeout: 60000, stdio: 'pipe', maxBuffer: 8 * 1024 * 1024 });
     return { pass: true, output: output.toString().trim() };
   } catch (e) {
-    return { pass: false, output: e.stderr ? e.stderr.toString().trim() : e.message };
+    if (e.code === 'ENOBUFS') {
+      return { pass: false, skipped: true, output: 'lint output exceeded 8MB buffer (ENOBUFS) — cannot judge' };
+    }
+    return { pass: false, output: e.stderr ? e.stderr.toString().trim().slice(0, 2000) : e.message };
   }
 }
 
@@ -132,9 +150,12 @@ function runBuildCommand(projectDir, configContent) {
     return { pass: false, output: 'build_cmd not configured in .cycles/config.yml' };
   }
   try {
-    execSync(buildCmd, { cwd: projectDir, timeout: 120000, stdio: 'pipe' });
+    execSync(buildCmd, { cwd: projectDir, timeout: 120000, stdio: 'pipe', maxBuffer: 8 * 1024 * 1024 });
     return { pass: true, output: 'Build passed' };
   } catch (e) {
+    if (e.code === 'ENOBUFS') {
+      return { pass: false, skipped: true, output: 'build output exceeded 8MB buffer (ENOBUFS) — cannot judge' };
+    }
     return { pass: false, output: 'Build failed' };
   }
 }

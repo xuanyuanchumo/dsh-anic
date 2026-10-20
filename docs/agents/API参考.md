@@ -7,7 +7,7 @@
 > | [API参考-数据面.md](API参考-数据面.md) | data（snapshot / step-trace / self-check / self-init）+ invocations（实时调用流） | 5 |
 > | [API参考-周期面.md](API参考-周期面.md) | cycle（cycle / ledger / stack-probe / seg-ledger） | 13 |
 > | [API参考-评审进化与治理.md](API参考-评审进化与治理.md) | review + evolution + governance + native + flows（流程状态机） | 28 |
-> | [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit | 14 |
+> | [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit | 16 |
 >
 > 读取本文件的时机：需要知道某个端点属于哪一册、公共响应形状、或公共状态码语义时。
 
@@ -110,7 +110,7 @@ Access-Control-Allow-Origin: *
 | 流程跟踪 `<root>/.cycles/flow-tracker.json` | 由 `src/host/runtime/flowTracker.ts` 读写 |
 | 工作区覆盖的 agent 卡 `<root>/.cycles/agents/` | 出厂默认在 `assets/agents/*.json`，工作区优先（`src/host/agents.ts:4-5`） |
 
-**快照摘要头**：`GET /anic/api/workflow-snapshot` 额外返回 `X-ANIC-Snapshot-Digest`（sha256 前 16 位十六进制）与 `X-ANIC-Workspace`（`encodeURIComponent` 后的根路径），见 `snapshotRoute.ts:101`。头部注释明确 digest 是**展示用指纹，不是条件请求语义**（不参与 304）。
+**快照摘要头**：`GET /anic/api/workflow-snapshot` 额外返回 `X-ANIC-Snapshot-Digest`（语义指纹的 sha256 前 16 位十六进制，排除 `generatedAt` 等易变字段）与 `X-ANIC-Workspace`（`encodeURIComponent` 后的根路径），见 `snapshotRoute.ts:190` 附近。**cycle-38 V-1 起 digest 即 ETag 同指纹并直接驱动 304 条件请求**（`If-None-Match` 命中即短路 304——`snapshotRoute.ts:194-198`；cycle-40 勘误：旧句「不参与 304」与实现相反，同族数据面册 §2 的 304 描述才是正确口径）。
 
 ## 7. 端点总索引
 
@@ -185,15 +185,7 @@ Access-Control-Allow-Origin: *
 
 ## 8. 客户端消费的端点
 
-`src/client/WorkflowGraphPanel.ts:27-31` 只消费其中 5 个：
-
-```ts
-const SNAPSHOT_URL    = '/anic/api/workflow-snapshot';
-const STEP_TRACE_URL  = '/anic/api/step-trace';
-const SELF_CHECK_URL  = '/anic/api/self-check';
-const ORG_STATUS_URL  = '/anic/org-status';
-const SELF_INIT_URL   = '/anic/self/init';
-```
+客户端面板实际消费 **14 个端点**（cycle-40 勘误：旧文本写「只消费其中 5 个」且引用了 M1 时点在 `WorkflowGraphPanel.ts` 内联的 URL 常量——该常量已随特性模块制迁出至 `panelLiveTargets.ts` / `governanceTargets.ts` / `features/*` 各模块，如 ORG_STATUS_URL / FLOWS_STATUS_URL / CYCLE_LIST_URL / SKILL_HEALTH_URL / BUDGET_URL 等）。完整 14 端点口径与逐分区数据源归属见 [UI功能域与界面组件规划.md](UI功能域与界面组件规划.md) §1 矩阵与 [DSH多代兼容与双端适配.md](DSH多代兼容与双端适配.md) 的十四端点实测清单（14/14 全 200）。
 
 服务端另有三个 URL 构造点供 DSH 工具返回指针：`src/host/tools.ts:195`（`/anic/org-status?workspace=`）、`src/host/toolsPointerGateway.ts:34,51,68`（snapshot / self-check / hitl-audit）、`src/host/toolsSkillGateway.ts:81`（`/anic/skill/install?workspace=`）。
 

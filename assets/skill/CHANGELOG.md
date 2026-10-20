@@ -1,5 +1,19 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.4.0 — eval-runner 大输出判定器根修（cycle-40 场地实验 #1）
+
+### 行为变更（minor）
+
+- **ENOBUFS 不再误判为测试失败**：`runTestCommand`/`runLintCommand`/`runBuildCommand`
+  的 `execSync` maxBuffer 提升到 8-16MB，并在 catch 里识别 `ENOBUFS`——
+  缓冲区溢出 = 判定器看不见完整输出 = 没有证据，按三态纪律记 **SKIP**
+  （「无法评估」）而非 FAIL。旧版在大工作区（如 dsh-codegraph-visualizer
+  5390 用例、stderr >1MB）上 throw ENOBUFS 后把 e.stderr 首行（恰是 vitest
+  DEPRECATED 弃用告警）当失败详情——E3/E8 误报 FAIL 的真根因即此
+  （cycle-39 实验报告的归因「弃用告警污染判定」修正为「缓冲区溢出」）。
+- **失败详情截断 2000 字符**：catch 分支的 stderr 详情不再全量入报告
+  （大输出下报告文件本身也会膨胀）。
+
 ## 2.3.0 — quick-validate 网关相对路径自动解析（cycle-39）
 
 ### 行为变更（minor）

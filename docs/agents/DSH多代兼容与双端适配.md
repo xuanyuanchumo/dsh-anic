@@ -22,13 +22,15 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 `package.json` 同时声明两层：
 
 ```json
-"engines": { "node": ">=22.19", "dsh": ">=0.2.0-rc.2 <0.4.0" },
+"engines": { "node": ">=22.19", "dsh": ">=0.2.0-rc.2 <0.4.0-0" },
 "peerDependencies": {
   "@deepseek-ai/cordis": "^4.0.1",
-  "@deepseek-ai/dsh": ">=0.2.0-rc.2 <0.4.0"
+  "@deepseek-ai/dsh": ">=0.2.0-rc.2 <0.4.0-0"
 },
 "peerDependenciesMeta": { "@deepseek-ai/dsh": { "optional": true } }
 ```
+
+（cycle-40 勘误：上方引用块旧版省略上界预发布排除号 `-0`——`package.json:25/:29` 逐字是 `<0.4.0-0`；语义近似（两者都拦 0.4.0 系全部版本），但 `-0` 形态额外显式排除 0.4.0 的预发布。以下判定行同理按 `<0.4.0-0` 口径理解。）
 
 - **生效层**是 peerDependencies（兼容性门只读它）；`optional: true` 只影响 npm 安装期对等解析，不影响宿主门（门只读键值，忽略 meta）。
 - **为什么写 `>=0.2.0-rc.2` 而不是 `>=0.2.0`**：semver 的 `includePrerelease` 不会让 `>=0.2.0` 接受 `0.2.0-rc.2`（预发布号被排除在非预发布范围外）。实测（宿主自带 semver）：

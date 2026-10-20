@@ -24,8 +24,17 @@
  *     用户不看面板时省掉全部轮询流量；4s 档 8 端点 × N 标签页的常态成本显著下降。
  *     jsdom/无 fetch 沙盒无此 API → 特性静默缺省（不改变既有行为）。
  *
- * 无 fetch（smoke 沙盒）→ 一次都不拉（与原 useInvocations/fetchLive 同纪律）。
- * getHeaders 是取头函数（非对象）：ref 持最新，避免 effect 因引用不等重跑。
+ * cycle-40（context7 UI 研究 Top1/Top5 落地）：
+ *   - **AbortController**：手动刷新（manualKey 变化）时中止 in-flight 拍的
+ *     残余请求（旧 effect cleanup 只断 cancelled 标志，未断网络请求本身）；
+ *   - **inFlight 复位**：旧实现里 inFlightRef 是跨 effect 的共享 ref——旧 effect
+ *     的 cleanup 不复位它，且「手动刷新撞上 in-flight 拍」时新 tick 直接 return、
+ *     旧拍 cancelled 不 apply——这次刷新实际什么都没拉（真时序 bug）。
+ *     修法：inFlight 改为 effect 内局部变量（每轮 effect 生命周期自洽），
+ *     且 manualKey 变化 = 新 effect 立即首拍（刷新不再被吞）；
+ *   - **失败指数退避**：连续网络失败时轮询间隔 ×2（上限 8 倍 = 4s 档退到 32s），
+ *     成功即复位——宿主离线/重启窗口期轮询流量降约 8 倍（/tanstack/query
+ *     refetchInterval 函数式语义的手写等价物）。
  */
 import { useEffect, useRef } from 'react';
 
@@ -82,7 +91,6 @@ export function usePanelFetch(
   ref.current = targets;
   const headersRef = useRef(getHeaders);
   headersRef.current = getHeaders;
-  const inFlightRef = useRef(false);
   // V-1：per-target ETag 学习（url → etag）。不进 React state——它是请求层
   // 内部状态，渲染不消费；ref 持有跨轮次存活。
   const etagsRef = useRef<Map<string, string>>(new Map());
@@ -91,14 +99,23 @@ export function usePanelFetch(
     if (typeof fetch !== 'function') return undefined;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // cycle-40：inFlight 是 effect 局部状态（旧跨 effect 共享 ref 会吞掉
+    // 手动刷新——「撞上 in-flight 拍的新 tick 直接 return」的真时序 bug）。
+    let inFlight = false;
+    // cycle-40：失败指数退避——连续网络级失败 ×2（封顶 8 倍），成功复位。
+    let backoff = 1;
+    let netFailStreak = 0;
+    // cycle-40：AbortController——effect 卸载/手动刷新时中止 in-flight 残余请求。
+    const abortCtl = new AbortController();
     const tick = async (): Promise<void> => {
-      if (inFlightRef.current) return;
+      if (inFlight) return;
       // 隐藏暂停：不可见时跳过本轮（定时器照排——可见时自然恢复；不打断节奏）。
       if (!pageVisible()) {
-        if (!cancelled && pollMs > 0) timer = setTimeout(() => { void tick(); }, pollMs);
+        if (!cancelled && pollMs > 0) timer = setTimeout(() => { void tick(); }, pollMs * backoff);
         return;
       }
-      inFlightRef.current = true;
+      inFlight = true;
+      let hadNetFail = false;
       try {
         await Promise.all(ref.current.map(async (tgt) => {
           try {
@@ -106,7 +123,7 @@ export function usePanelFetch(
             const headers = { ...headersRef.current() };
             const known = etagsRef.current.get(tgt.url);
             if (known) headers['If-None-Match'] = `"${known}"`;
-            const res = await fetch(tgt.url, { headers });
+            const res = await fetch(tgt.url, { headers, signal: abortCtl.signal });
             if (tgt.onResponse !== undefined) tgt.onResponse(res);
             const resOk = res.ok;
             // 304：语义等价「数据未变」——不重放 apply（结构共享语义）、不算失败。
@@ -119,18 +136,29 @@ export function usePanelFetch(
             if (!tgt.guard(json)) { tgt.onFail?.({ kind: 'malformed' }); return; }
             if (!cancelled) { tgt.apply(json); tgt.onRecover?.(); }
           } catch (e) {
+            // abort 不是失败：主动取消（刷新/卸载）走的路，不进退避计数
+            if (abortCtl.signal.aborted) return;
+            hadNetFail = true;
             tgt.onFail?.({ kind: 'network', message: e instanceof Error ? e.message : String(e) });
           }
         }));
       } finally {
-        inFlightRef.current = false;
+        inFlight = false;
       }
+      // 退避更新：连续网络失败 ×2（封顶 8×），任一成功/304/HTTP 级失败即复位
+      //（HTTP 4xx/5xx 不是「网络不通」——照常节奏重试由服务端语义决定）。
+      netFailStreak = hadNetFail ? netFailStreak + 1 : 0;
+      backoff = netFailStreak > 0 ? Math.min(2 ** Math.min(netFailStreak, 3), 8) : 1;
       // pollMs<=0：不排下一轮（autoRefresh 关闭形态）；数据行的 generatedAt
       // 让「最后已知数据」的陈旧性可观测（INV-30 关闭形态可观测的落点之一）。
-      if (!cancelled && pollMs > 0) timer = setTimeout(() => { void tick(); }, pollMs);
+      if (!cancelled && pollMs > 0) timer = setTimeout(() => { void tick(); }, pollMs * backoff);
     };
     void tick();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      abortCtl.abort(); // 中止 in-flight 残余请求（如手动刷新换新 effect 时）
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMs, manualKey]);
 }

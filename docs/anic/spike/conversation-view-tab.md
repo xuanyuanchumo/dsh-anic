@@ -6,7 +6,7 @@
 
 | 问题 | 判定 | 依据 |
 |---|---|---|
-| `conversation.view` 能否承载 ANIC 工作流图？ | **机制级 GO** | stub 宿主复现加载契约全链；真实宿主六步 J0 协议已交付（[dsh-anic/README.md](../../../dsh-anic/README.md)） |
+| `conversation.view` 能否承载 ANIC 工作流图？ | **机制级 GO** | stub 宿主复现加载契约全链；真实宿主六步 J0 协议已交付（[dsh-anic/README.md](../../../README.md)） |
 | 76-cycle 量级（138 节点/164 边）能否渲染？ | **是**（SVG 零依赖） | 机制冒烟 138 circle/164 line 精确计数；布局引擎留待 M3 读路径再评估 |
 | 插件该放哪？ | **独立工程 `dsh-anic/`** | 用户裁决（m02766/m02788/m02810）：技能插件不放项目插件里；命名符合 DSH 规范（包名=目录名=`dsh-anic`） |
 | 失败动作（01 §8 ①）是否触发？ | **否** | 标签可见性/交互的最终判定仍需真实宿主，但机制层无阻断点 |
@@ -65,7 +65,7 @@ useEffect 不触发，故树计数仍走嵌入快照路径）。typecheck client
 
 **未验证不判定**（J0 待用户重启宿主）：标签可见性/席位共存/卸载无残留/`register` 抛重复 id/
 `inject` 回调时机/标签 CSS 尺寸/live 路由在真实宿主的端到端行为。清单见
-[dsh-anic/README.md §J0](../../../dsh-anic/README.md)。
+[dsh-anic/README.md §J0](../../../README.md)。
 
 ## 5. 与文档族的联动
 

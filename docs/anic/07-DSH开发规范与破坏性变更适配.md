@@ -3,7 +3,7 @@
 > 文档族：`docs/anic/`（导航见 [README.md](README.md)）· 版本 v1.2 · 2026-10-13
 > 定位：把"要用哪些 DSH 能力""这些能力坏了怎么办""什么算破坏性变更"写成可执行清单——本文是 ANIC 的**宿主契约文档**，也是未来 DSH 升级时逐条比对的 checklist。
 > v1.2 修订（M0-② spike）：§2.3 **新增 `ctx.llm` 能力行**（双向证据已证实，附静态提供 + base bundle 装配 + 3 个官方调用点）并写明形态约束（不进硬 `inject`、`purpose` 闭合不可扩展、错误按码分派）；§3 新增 **B11 LLM 契约变更**。证据见 [spike/host-llm-service.md](spike/host-llm-service.md)。
-> 证据来源：`docs/research/dsh-0.2.0-插件API权威基线.md`（§1-§7，含 asar 内 `文件:行号` 逐条取证）、`docs/research/dsh-多代API规范差异与兼容矩阵.md`（§2-§7）、`docs/research/dsh-upgrade-research-report.md`（§2.2-§2.5/§3.1-§3.4/§7.1-§7.4）、本仓库 `src/` 实测。
+> 证据来源：`docs/research/【跨仓】dsh-0.2.0-插件API权威基线.md`（§1-§7，含 asar 内 `文件:行号` 逐条取证）、`docs/research/dsh-多代API规范差异与兼容矩阵.md`（§2-§7）、`docs/research/dsh-upgrade-research-report.md`（§2.2-§2.5/§3.1-§3.4/§7.1-§7.4）、本仓库 `src/` 实测。
 
 ---
 

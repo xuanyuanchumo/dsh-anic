@@ -1,6 +1,6 @@
 # dsh-anic API 参考 · 自举与技能
 
-> 本册覆盖 **self 域**（自举 evaluate / gate-check / iterate / status、技能 skill、安装 install）与 **dual 域**（双自举 evaluate / advance / status），共 13 个端点，另附 `truth-audit`（合计 14）。
+> 本册覆盖 **self 域**（自举 evaluate / gate-check / iterate / status、技能 skill list/invoke/evaluate/iterate、安装 install/status/repair/health）与 **dual 域**（双自举 evaluate / advance / status），共 15 个端点，另附 `truth-audit`（合计 **16**；5+13+28+16=62 才与全量闭合——cycle-40 勘误：旧头写 13/14，漏计 v0.20.0 追认的 repair 与 v0.21.0 新增的 health，两端点本册 §3.3/§3.4 早已收录）。
 >
 > 公共约定见 [API参考.md](API参考.md)。读取本文件的时机：调用或修改自举循环、技能脚本网关、技能安装端点时。
 

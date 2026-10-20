@@ -300,3 +300,92 @@ describe('usePanelFetch —— cycle-38 V-1 ETag 条件请求 + 隐藏暂停（T
     h.unmount();
   });
 });
+
+describe('usePanelFetch —— cycle-40：AbortController + inFlight 复位 + 失败指数退避', () => {
+  function res200(json: unknown): Response {
+    return {
+      ok: true, status: 200,
+      json: () => Promise.resolve(json),
+      headers: { get: () => null },
+    } as unknown as Response;
+  }
+
+  it('刷新不被吞：手动刷新撞上 in-flight 拍 → 新 effect 立即首拍（旧实现的真时序 bug）', async () => {
+    let call = 0;
+    const applied: unknown[] = [];
+    // 悬挂的 fetch：永不 resolve——模拟慢响应撞上手动刷新
+    (globalThis as { fetch?: unknown }).fetch = vi.fn((): Promise<Response> => {
+      call += 1;
+      return call === 1 ? new Promise<Response>(() => {}) : Promise.resolve(res200({ v: 99 }));
+    });
+    const targets = (): PanelFetchTarget[] => [{ url: '/anic/x', guard: () => true, apply: (v) => { applied.push(v); } }];
+    const h = await mount(targets, 0, 0);
+    expect(applied).toHaveLength(0); // 首拍悬挂中
+    await h.bumpKey(); // 手动刷新：旧 effect abort（悬挂请求作废），新 effect 立即首拍
+    expect(applied).toEqual([{ v: 99 }]); // 修复前：新 tick 被 inFlightRef 拦截 → 刷新被吞
+    h.unmount();
+  });
+
+  it('abort 不计失败：手动刷新触发的取消不进 onFail 网络通道', async () => {
+    const failures: string[] = [];
+    // call 1：真实尊重 signal 的 fetch——abort 事件触发 AbortError reject；
+    // 刷新后的新拍（call 2+）永不 settle（不产生任何失败信号）。
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(
+      (_url: string, init: { signal?: AbortSignal }): Promise<Response> =>
+        new Promise<Response>((_resolve, reject) => {
+          const sig = init.signal;
+          if (sig) {
+            if (sig.aborted) reject(new Error('already aborted'));
+            else sig.addEventListener('abort', () => {
+              const err = new Error('The operation was aborted');
+              (err as Error & { name: string }).name = 'AbortError';
+              reject(err);
+            }, { once: true });
+          }
+          // 无 abort 则悬挂（模拟慢响应）
+        }),
+    );
+    const targets = (): PanelFetchTarget[] => [{
+      url: '/anic/x', guard: () => true, apply: () => {},
+      onFail: (f) => { failures.push(f.kind); },
+    }];
+    const h = await mount(targets, 0, 0);
+    await h.bumpKey(); // 触发旧 effect abort → call 1 以 AbortError reject
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(failures).toEqual([]); // abort 不是失败（旧实现会把 AbortError 计入 network 失败）
+    h.unmount();
+  });
+
+  it('失败指数退避：连续网络失败 ×2（封顶 8×），成功复位（pollMs>0 轮询路径）', async () => {
+    vi.useFakeTimers();
+    try {
+      let call = 0;
+      const failures: string[] = [];
+      (globalThis as { fetch?: unknown }).fetch = vi.fn((): Promise<Response> => {
+        call += 1;
+        return Promise.reject(new Error(`net-down-${call}`));
+      });
+      const targets = (): PanelFetchTarget[] => [{
+        url: '/anic/x', guard: () => true, apply: () => {},
+        onFail: (f) => { failures.push(f.kind); },
+      }];
+      const h = await mount(targets, 4000, 0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(call).toBe(1); // 首拍立即失败（streak=1 → backoff 2× → 下拍 t=8000）
+      // 退避 2×：t=8000 才第二拍（原 4s 节奏被 ×2）
+      await act(async () => { await vi.advanceTimersByTimeAsync(7999); });
+      expect(call).toBe(1); // t=7999：仍在 8s 退避窗口
+      await act(async () => { await vi.advanceTimersByTimeAsync(2); });
+      expect(call).toBe(2); // t=8001：第二拍（streak=2 → backoff 4× → 下拍 t=24000）
+      // 退避 4×：t=24000 第三拍
+      await act(async () => { await vi.advanceTimersByTimeAsync(15998); });
+      expect(call).toBe(2); // t=23999：仍在 16s 退避窗口
+      await act(async () => { await vi.advanceTimersByTimeAsync(2); });
+      expect(call).toBe(3); // t=24001：第三拍（streak=3 → backoff 8× 封顶）
+      expect(failures.every((k) => k === 'network')).toBe(true);
+      h.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

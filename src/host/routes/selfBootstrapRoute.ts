@@ -21,6 +21,7 @@ import {
   resolveSkillScriptsDir,
   invokeSkillScript,
 } from '../skillInvoker.ts';
+import { verifyLedger } from '../runtime/ledger.ts';
 // cycle-96：解析器移至 runtime/scriptParsers.ts 单一实现
 // （本文件原有一份重复实现，与 bootstrapOrchestrator 的旧版一样按虚构格式解析）
 import { parseEvalScore, parseGateVerdict } from '../runtime/scriptParsers.ts';
@@ -181,6 +182,38 @@ export function registerSelfBootstrapRoutes(
         fixApplied = `tech-debt/self-bootstrap-round-${state.round + 1}.json`;
       }
 
+      // Step 3b（cycle-40，cycle-39 债务 #7 收口）：Post-Verify 写后回读断言。
+      // 此路由的「fix」是 tech-debt 提案而非代码修复（R-31），盲目 re-gate 重跑
+      // 门禁不会变绿——正确的复检形态是结构原则 7（效果即记录）：
+      //   1. tech-debt 落盘后回读（文件存在 + JSON 可解析 + round 匹配）；
+      //   2. gate-check --record 落账后验证账本链完整（写侧证据闭环）。
+      // 任一失败都会把 verification.failed 带在响应里——「写了」与「写成了」
+      // 是两件事，效果未确认的动作不得在响应里报告为已确认。
+      const verification: { techDebtVerified: boolean; ledgerValid: boolean; ledgerEntries: number; failed?: string[] } = {
+        techDebtVerified: true,
+        ledgerValid: true,
+        ledgerEntries: 0,
+      };
+      if (fixApplied) {
+        const tdPath = path.join(cyclesDir, fixApplied);
+        try {
+          const reread = JSON.parse(fs.readFileSync(tdPath, 'utf-8')) as { round?: number };
+          if (reread.round !== state.round + 1) {
+            verification.techDebtVerified = false;
+            verification.failed = [`tech-debt reread round mismatch (expected ${state.round + 1}, got ${String(reread.round)})`];
+          }
+        } catch (e) {
+          verification.techDebtVerified = false;
+          verification.failed = [`tech-debt reread failed: ${e instanceof Error ? e.message : String(e)}`];
+        }
+      }
+      const ledgerVerify = verifyLedger(cyclesDir);
+      verification.ledgerValid = ledgerVerify.ok;
+      verification.ledgerEntries = ledgerVerify.total;
+      if (!ledgerVerify.ok) {
+        verification.failed = [...(verification.failed ?? []), `ledger chain broken at index ${String(ledgerVerify.brokenAt)} (${ledgerVerify.reason})`];
+      }
+
       // Step 4: Advance state
       state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied);
       saveBootstrapState(cyclesDir, state);
@@ -193,6 +226,7 @@ export function registerSelfBootstrapRoutes(
         gateVerdict,
         fixApplied,
         techDebtProposals: fixApplied ? [fixApplied] : [],
+        verification,
         converged: state.status === 'CONVERGED',
         exhausted: state.status === 'EXHAUSTED',
       });

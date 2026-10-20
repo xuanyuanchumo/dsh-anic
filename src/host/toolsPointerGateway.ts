@@ -41,6 +41,8 @@ export function registerPointerTools(
     },
     presentCall: (args) => genericCall('anic_snapshot', 'search', { workspace: args.workspace }),
     presentResult: () => genericResult('anic_snapshot ✓'),
+    // cycle-40：纯读指针工具——无副作用无共享写，可入并行组（KB tools.md:76-88）。
+    isConcurrencySafe: () => true,
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(root);
@@ -65,6 +67,8 @@ export function registerPointerTools(
     },
     presentCall: (args) => genericCall('anic_self_check', 'search', { workspace: args.workspace }),
     presentResult: () => genericResult('anic_self_check ✓'),
+    // cycle-40：纯读指针工具——可入并行组。
+    isConcurrencySafe: () => true,
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
       return { selfCheckUrl: `/anic/api/self-check?workspace=${encodeURIComponent(root)}`, desktopNote: DESKTOP_NOTE };
@@ -87,6 +91,8 @@ export function registerPointerTools(
     },
     presentCall: (args) => genericCall('anic_hitl', 'search', { workspace: args.workspace }),
     presentResult: () => genericResult('anic_hitl ✓'),
+    // cycle-40：纯读指针工具——可入并行组。
+    isConcurrencySafe: () => true,
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
       return { hitlUrl: `/anic/hitl-audit?workspace=${encodeURIComponent(root)}`, desktopNote: DESKTOP_NOTE };

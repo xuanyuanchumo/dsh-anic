@@ -72,6 +72,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     presentCall: evaluatePresentCall,
     // cycle-22：terminalResult 内置 normalizeToolResult 双形状归一化
     presentResult: (_args, result) => terminalResult(result, 'anic_evaluate ✓'),
+    // cycle-40（KB 吸收 #2）：脚本执行类超时预算——声明即断言 exec.signal 已
+    // 转发（下方 invokeSkillScriptAsync({ signal })），60s 与内部默认一致。
+    timeoutMs: 60000,
     // P1-EXEC-SIGNAL：execute 第二参 exec 携带宿主 AbortSignal（官方契约「遵守
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
@@ -102,18 +105,29 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
       type: 'object',
       properties: {
         workspace: { type: 'string', description: 'Target project directory' },
+        // cycle-40（cycle-39 债务 #6）：硬编码 60s 对大工作区（如测试场地 5390
+        // 用例）不够——eval 与 gate 各自的脚本执行超时可配置，默认 90s。
+        timeout: { type: 'number', description: 'Per-script timeout ms (default 90000; large workspaces need more)' },
       },
     },
     presentCall: iteratePresentCall,
     presentResult: () => ({ card: 'generic' as const, title: 'anic_iterate ✓' }),
+    // cycle-40（KB 吸收 #2）：iterate 是 eval+gate 两段脚本——超时预算取内部
+    // 上限档 300s（每脚本 90s 默认 + 余量；防宿主侧先于内部预算掐断）。
+    timeoutMs: 300000,
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
       if (!check.ok) return { error: check.error };
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
-      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], ws, 60000, { signal: exec?.signal });
-      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], ws, 60000, { signal: exec?.signal });
+      // cycle-40：超时可配（默认 90s；上限 10min 与 autoFixFlow 对齐——
+      // iterate 是"一轮完整评估+门禁"，不是常驻循环，10min 足够且防悬挂）。
+      const timeout = typeof args.timeout === 'number' && args.timeout > 0
+        ? Math.min(args.timeout, 600000)
+        : 90000;
+      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], ws, timeout, { signal: exec?.signal });
+      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], ws, timeout, { signal: exec?.signal });
       return {
         eval: { exitCode: evalResult.exitCode, stdout: evalResult.stdout.slice(0, 4000) },
         gate: { exitCode: gateResult.exitCode, stdout: gateResult.stdout.slice(0, 4000) },
