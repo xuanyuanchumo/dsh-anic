@@ -45,7 +45,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
     expect(await find(h.tools, 'anic_install').execute({ workspace: '../x' }))
       .toEqual({ error: 'path traversal not allowed' });
   });
-  it('全新工作区安装：installed=true + integrity 全绿（inline 直比 65 文件）+ 落点正确', async () => {
+  it('全新工作区安装：installed=true + integrity 全绿（inline 直比 64 文件）+ 落点正确', async () => {
     const h = makeSlot(WS_A);
     registerSkillGatewayTools(h.slot, { getRoot: h.getRoot, register: h.register });
     const r = await find(h.tools, 'anic_install').execute({});
@@ -54,7 +54,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
     expect(r.skillInstalled).toBe(true);
     expect(existsSync(join(INSTALLED(WS_A), 'SKILL.md'))).toBe(true);
     expect(r.integrity).toMatchObject({ ok: true, reference: 'inline' });
-    expect(r.integrity?.checked).toBe(65);
+    expect(r.integrity?.checked).toBe(64);
   });
   it('repair 前置拒绝：未安装 / 路径穿越 / 无 workspace', async () => {
     const h = makeSlot(WS_B); // WS_B 未装技能

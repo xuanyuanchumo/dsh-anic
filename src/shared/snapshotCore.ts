@@ -37,7 +37,7 @@ export function parseWorkflowGraph(text: string): { nodes: { id: string; type: s
   return { nodes, edges };
 }
 
-export interface SnapshotNode { id: string; type: string; label: string; x: number; y: number; result?: string; detail?: string }
+export interface SnapshotNode { id: string; type: string; label: string; x: number; y: number; result?: string; detail?: string; testReport?: { report: string; passed: number; failures: number; errors: number; layers: string[] } }
 export interface SnapshotEdge { from: string; to: string; type: string }
 export interface WorkflowSnapshotData {
   nodes: SnapshotNode[];
@@ -87,6 +87,45 @@ export function buildWorkflowSnapshot(cyclesDir: string, generatedAt = new Date(
     ? readdirSync(incidentsRoot).filter((f) => f.endsWith('.md'))
     : [];
 
+  // 4b) W-3 全档（cycle-39 T-3904）：最新 test-report 摘要投影进快照——
+  //     gate-event 节点携带，节点详情抽屉可答「这轮测试什么状态」。
+  //     解析语义与 gateArtifacts.parseTestSummary 同构（§2 汇总表契约），
+  //     但本文件是 shared（client 可用），不 import host 模块——正则复制
+  //     + flowDifferential 差分已钉死双侧一致。
+  let testReport: { report: string; passed: number; failures: number; errors: number; layers: string[] } | null = null;
+  if (cycleDirs.length > 0) {
+    const latestCycleDirPath = join(cyclesRoot, cycleDirs[cycleDirs.length - 1]?.name ?? '', 'test-reports');
+    if (dirExists(latestCycleDirPath)) {
+      const reports = readdirSync(latestCycleDirPath).filter((f) => f.endsWith('.md'))
+        .map((f) => ({ f, m: statSync(join(latestCycleDirPath, f)).mtimeMs }))
+        .sort((a, b) => b.m - a.m);
+      const latest = reports[0]?.f;
+      if (latest) {
+        try {
+          const content = readFileSync(join(latestCycleDirPath, latest), 'utf8');
+          if (/^\|\s*(通过|失败|错误)\s*\|/m.test(content)) {
+            const num = (label: string): number => {
+              const m = content.match(new RegExp(`\\|\\s*${label}\\s*\\|\\s*(\\d+)\\s*\\|`));
+              return m ? parseInt(m[1] ?? '0', 10) : 0;
+            };
+            // 分层结果行（| 层 | 结果 | 关键数字 | 形态）
+            const layers = content.split('\n')
+              .filter((l) => /^\|\s*(validate|vitest|smoke|trigger|typecheck|build|L\d)\b/i.test(l.trim()))
+              .map((l) => l.trim().replace(/\|/g, '·').replace(/\s+/g, ' ').slice(0, 120))
+              .slice(0, 8);
+            testReport = {
+              report: latest,
+              passed: num('通过'),
+              failures: num('失败'),
+              errors: num('错误'),
+              layers,
+            };
+          }
+        } catch { /* unreadable → skip */ }
+      }
+    }
+  }
+
   // 5) autonomy scalar
   let autonomy = 'L?';
   const configPath = join(cyclesDir, 'config.yml');
@@ -124,7 +163,13 @@ export function buildWorkflowSnapshot(cyclesDir: string, generatedAt = new Date(
 
   entries.forEach((e, i) => {
     const id = `evt:${String(i)}`;
-    node(id, 'event', 'gate-event', `${String(e.gate ?? '?')} ${String(e.result ?? '?')}`, { result: e.result, detail: e.detail });
+    // W-3 全档：G2 相关事件节点携带最新测试报告摘要（节点详情的 why 层）
+    const isG2Event = String(e.gate ?? '').toUpperCase() === 'G2';
+    node(id, 'event', 'gate-event', `${String(e.gate ?? '?')} ${String(e.result ?? '?')}`, {
+      result: e.result,
+      detail: e.detail,
+      ...(isG2Event && testReport ? { testReport } : {}),
+    });
     if (i > 0) edge(`evt:${String(i - 1)}`, id, 'event-seq');
     const gateId = `wf:gate-${String(e.gate ?? '').toLowerCase()}`;
     if (nodeIdSet.has(gateId)) edge(id, gateId, 'evidences');

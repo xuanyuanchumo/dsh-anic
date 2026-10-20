@@ -1,5 +1,52 @@
 # dsh-anic CHANGELOG
 
+## v0.38.0 — 2026-10-20
+
+cycle-39：**研究驱动优化轮（1×P0 + 6×P1 修复 + journey 门禁落地 + 场地 3 实验）**——P0-DAG-PARSE 根除（stateMachine 解析器三形状实证失明）+ quick-validate 网关相对路径自动解析（flow #29）+ journey_coverage 门禁双侧实现（场地首跑抓 3 处真漂移）+ W-3 全档测试报告投影 + 19/19 presentCall 完备 + TerminalCallView 官方字段名 + skillRoute 行为测试 + 文档数字契约。技能 v2.2.0→**v2.3.0**。vitest 106→**109 文件 1294→1325 用例**。
+
+### ① P0-DAG-PARSE：stateMachine 真实图形状解析（多年空转根除）
+- **缺陷**：parseWorkflowGraph 只认纯文本边（`- from: X to: Y`）+ 大写 `Gate`——本仓 `.cycles/workflow-graph.yaml`、技能模板、测试场地**三处真实图**全是流式边（`- { from: X, to: Y, type: "..." }`）+ 小写 gate → 解析出 **0 边 0 Gate 节点**：advance 前驱检查恒过、gate 批准检查恒不触发，cycle 状态机（advance/close/checkStrict + 账本联动）全链空转——只有合成测试夹具「工作」。
+- **修复**：边双形态（流式 + 旧文本兼容）+ type 大小写归一（gate/human-gate/phase/micro-step/trigger/play）+ 迁移合法性矩阵 3/5 条（doc06 §3.x / doc18 #8：#1 门匹配 record.gate===node.gate 不符拒绝 / #3 done 不可重复推进 / #4 前驱边——既有语义回归钉）；human-gate 节点同样受门约束（修复前只查大写 Gate）。
+- **契约**：tests/contract/stateMachineGraphShape.test.ts 12 用例（真实图 15 边 4 门 5 human-gate/模板同形状/边 type 透传/旧形态兼容/矩阵逐条）。
+
+### ② quick-validate 网关相对路径自动解析（flow #29 实证）
+- 工具描述与 SKILL.md 教的 `args: ["assets/skill"]` 相对形态在 spawn cwd=scriptsDir 下解析成 `<scripts>/assets/skill` 幽灵路径必 404。修复：`resolveQuickValidateSkillDir`（skillInvoker.ts 纯函数）把相对 skill-dir 映射为目标工作区已装技能根的绝对路径（"assets/skill"→根 / "assets/skill/scripts"→根/scripts；未装回退内联根）。技能 v2.3.0 三锚点（SKILL.md MCP Tools/mcp-server/CHANGELOG）。
+
+### ③ journey_coverage 门禁双侧实现（装饰性声明→真门禁）
+- gate-check.mjs `checkJourneyCoverage` + `getYamlNestedBoolean`（技能侧）+ gateArtifacts.ts 同构移植 + gateEngine checkG2 接线（原生侧）——config journeys 声明的 test_files 必须存在且非空，否则 G2 FAIL；差分契约 flowDifferential +2 用例钉死双侧 detail 全等。
+- chaos_coverage 声明删除（journeys 协议无 chaos 旅程定义——装饰性门禁声明是负债）。
+- **实战验证**：dsh-codegraph-visualizer 场地首跑即抓 3 处旅程-测试映射漂移（J2/J12 引用不存在的 tests/e2e/large-repo.spec.ts、J9 引用已删除的 tests/unit/services.test.ts）——此前恒假绿。
+
+### ④ W-3 全档：测试报告行投影进节点详情
+- snapshotCore 提取最新 cycle test-report 的 §2 汇总（通过/失败/错误计数）+ 分层结果行（validate/vitest/smoke/trigger/typecheck/build）→ G2 事件节点携带 testReport；renderNodeDetail 渲染测试报告分区（失败/错误计数 >0 时红显 anic-fail 语义色，走设计令牌）。
+
+### ⑤ 透明性与契约收角
+- **19/19 工具 presentCall/presentResult 完备**（anic_gate_check/anic_bootstrap/anic_snapshot/anic_self_check/anic_hitl/anic_status 补齐；anic_status 拆分 toolsStatusGateway.ts 维持 T3）——调用时轨迹卡片无缺口。
+- **TerminalCallView 字段名对齐官方**（summary→description，presentation.d.ts:85 契约——DSH 规范审计 P1）。
+- 指针工具与 anic_status 返回 desktopNote（桌面端 dsh-app:// IPC 桥接语义标注——asa 实证 main.js forwardWebRequest）。
+- skillRoute 4 路由行为测试补齐（全仓唯一零行为测试路由文件；6 用例含 bootstrapSync ok/failed 双形态）。
+
+### ⑥ 文档数字契约 + 漂移修复（三路研究产出）
+- README：19 工具清单（补 anic_skill_repair）/62 路由/cycle-39 形态节；readmeNumbers.test.ts 4 用例钉死（README 数字 == glob 计数——「以 README 为准」的指针链从此有守卫）。
+- docs/anic 8 文件：README v1.15（补 20 号入地图）/03（inject 数组 +peerDeps 声明更新）/06（子 fiber 裁决指针注记）/07（engines.dsh 0.2.1 硬门语义 + 宿主基线 0.2.1-rc.2）/11（RingBuffer deferred 标注）/13（agents 扩展名 .json）/14（--project-dir 反模式示例修正）/15/16/17（时点声明制度）。
+- 元数据：smoke 21 断言实数（头注释/run-tests）/doc10 evals 13 时点注。
+
+### ⑦ 清理
+- assets/skill/evals/trigger-eval.json 删除（cycle-16 的 20 条旧格式零消费方双真相源；manifest 65→64）。
+- 测试体系审计处置：skillRoute 行为测试（P1#1）✅ / journey_coverage（P1#2）✅ / trigger-eval 清理（P2#3）✅ / J2 reverse 面板降级离线测试（P2#4→cycle-40）/ 元数据五处（P3#5）✅。
+
+### ⑧ DSH 规范 asar 实证发现（文档同步）
+- **engines.dsh 已是硬门**（0.2.1-rc.2 dsh-app-boot:279-298「own range decides alone, peerDependencies ignored」）——doc07/DSH多代兼容 的「纯声明」记载更新。
+- **桌面端 dsh-app:// 自定义 scheme + IPC 转发**（非 file://，pathname 完整透传）——anic 路由桌面可达有机制保证；隐性依赖：桥删除 origin 头（CORS 前瞻放行建议登记）。
+- 宿主实际 0.2.1-rc.2 + cordis 4.0.5（文档基线滞后一代，已标注）。
+- 可吸收新能力登记 cycle-40：tools.guard()（熔断升宿主级）/isConcurrencySafe（只读工具并行）/timeoutMs（声明式超时）/defineTool 迁移评估。
+
+### ⑨ 场地实验（doc20 §4）
+- #2 cycle-103 收口 ✅（git commit 11 files + advance）/ #1 跨项目评估 ✅（E1-E8 逐维，抓到 E3/E8 vitest 弃用告警污染判定新缺陷）/ #3 差分门禁 ✅（双源 G0-G3 逐门全等）/ #4 auto-fix 推迟 cycle-40 / #5 CO-4 用户动作。
+
+### 验证
+- typecheck 0/0 · vitest **109 文件 1325 用例**全绿（基线 106/1294）· smoke 21/21 · validate 12/12 · trigger recall 100%/FPR 0% · build OK · J0 8/8 · 账本 113 条链完整 · G0-G3 --record 全 PASS（G2 首带 journey coverage verified）
+
 ## v0.37.0 — 2026-10-19
 
 cycle-38：**研究驱动优化迭代轮（承 37 裁决 + 19 号文档生态吸收收口）**——doc19 §5 四项第三方吸收落地收口（factBaseAnchors 三态/表驱动自举/toolIds 幽灵校验/reviewLedger 时效性）+ 本轮五项能力迭代（V-1 ETag 条件请求/re-gate 复检环/跨项目调用人体工学/技能 v2.2.0/测试场地实验）+ W-3 白盒「为什么」层最小版。vitest 106 文件 **1278→1300+ 用例**。

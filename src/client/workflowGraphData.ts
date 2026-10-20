@@ -15,6 +15,8 @@ export interface WorkflowNode {
   result?: string;
   /** cycle-38 W-3 快档：gate-event 的账本 detail（「为什么 PASS/FAIL」白盒层）。 */
   detail?: string;
+  /** cycle-39 W-3 全档：G2 事件节点的最新测试报告摘要（分层行投影）。 */
+  testReport?: { report: string; passed: number; failures: number; errors: number; layers: string[] };
 }
 
 export interface WorkflowEdge {

@@ -215,7 +215,8 @@
     "iterateSummary": "迭代循环 eval + gate-check",
     "bootstrapCycleTitle": "anic_bootstrap_cycle (≤{maxRounds} 轮)",
     "bootstrapCycleSummary": "自举链编排 eval→gate→fix",
-    "bootstrapAnalyzeSummary": "自举分析 + 引擎洞察"
+    "bootstrapAnalyzeSummary": "自举分析 + 引擎洞察",
+    "gateSummary": "收敛门禁检查 {gate}"
   },
   "review": {
     "badJson": "请求体不是合法 JSON",

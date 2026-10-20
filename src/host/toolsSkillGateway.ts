@@ -25,6 +25,7 @@ import {
   autoInstallSkill,
   isSkillInstalled,
   inlineSkillRoot,
+  resolveQuickValidateSkillDir,
 } from './skillInvoker.ts';
 import { verifySkillInstall, repairSkillInstall } from './skillIntegrity.ts';
 import {
@@ -143,8 +144,8 @@ export function registerSkillGatewayTools(
           type: 'array',
           items: { type: 'string' },
           description: 'Extra CLI args appended after the positional project dir. '
-            + 'NOTICE (cycle-31): quick-validate is the one script whose first positional is the SKILL DIR '
-            + '(assets/skill), not the project dir — pass it here as args: ["assets/skill"]',
+            + 'NOTICE: quick-validate is the one script whose first positional is the SKILL DIR '
+            + '(e.g. "assets/skill" — the gateway resolves it to the installed copy), not the project dir.',
         },
         timeout: { type: 'number', description: 'Timeout ms (default 60000, hard cap 120000)' },
       },
@@ -168,16 +169,14 @@ export function registerSkillGatewayTools(
       // cycle-38（T-3805）跨项目调用人体工学：真机 flow #22-27 六连失败实证——
       // 调用方把目标项目绝对路径放进 args（如 args:["D:\\...\\dsh-codegraph-visualizer","status"]），
       // 而网关已把 workspace 作为第一个位置参数前置，脚本收到 2 个位置参数即拒绝。
-      // 唯一例外：quick-validate 的第一个位置参数本来就是 SKILL DIR（cycle-31 契约，
-      // "assets/skill" 相对形态），不能误吞。
-      // 处置：args 首位是绝对路径形态（盘符/反斜杠/正斜杠开头）且非 quick-validate 时，
-      // 视为「调用方想换目标工作区」——把它移到 workspace 参数并告警说明（不静默：
-      // 告警行进入 stdout 让调用方看见发生了什么）。
-      const quickValidateSkillDir = script === 'quick-validate' && rawArgs.length > 0 && /^[.]/.test(rawArgs[0] ?? '');
+      // 唯一例外（cycle-31 契约 + cycle-39 T-3902 修正）：quick-validate 的
+      // 第一个位置参数**本来就是 SKILL DIR**（任何形态——"assets/skill" 相对 /
+      // 绝对路径），绝不是工作区——不参与重定向判定。
+      const isQuickValidate = script === 'quick-validate' && rawArgs.length > 0;
       let effectiveWs = ws;
       let extraArgs = rawArgs;
       let workspaceRedirect: string | undefined;
-      if (!quickValidateSkillDir && rawArgs.length > 0) {
+      if (!isQuickValidate && rawArgs.length > 0) {
         const first = rawArgs[0] ?? '';
         const looksLikePath = /^[A-Za-z]:[\\/]/.test(first) || first.startsWith('/') || first.startsWith('\\');
         if (looksLikePath) {
@@ -191,6 +190,17 @@ export function registerSkillGatewayTools(
         }
       }
       const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
+
+      // cycle-39 T-3902（flow #29 实证）：quick-validate 的 skill-dir 相对形态
+      // （"assets/skill"——工具描述与 SKILL.md 教的正是这个形态）在 spawn
+      // cwd=scriptsDir 下被解析成 `<scripts>/assets/skill` 幽灵路径 → 必 404。
+      // 处置：网关把相对 skill-dir 解析为**目标工作区已装技能根**的绝对路径再传
+      // （语义：校验那份副本；未装则回退内联根——永远存在）。绝对形态原样透传。
+      // 解析逻辑提取至 skillInvoker.resolveQuickValidateSkillDir（T3 行数纪律）。
+      if (isQuickValidate) {
+        const resolved = resolveQuickValidateSkillDir(effectiveWs, extraArgs[0] ?? '');
+        if (resolved !== null) extraArgs = [resolved, ...extraArgs.slice(1)];
+      }
 
       // M10-a：每流程状态跟踪——为每次调用创建独立 FlowRecord，
       // 持久化到 {workspace}/.cycles/flow-tracker.json，供 anic_status 查询和大模型自举审计。

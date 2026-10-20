@@ -6,19 +6,18 @@
 import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
 import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
+import { registerStatusTool } from './toolsStatusGateway.ts';
 import type { ToolsSlot } from './toolsSlot.ts';
-import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace, inlineSkillRoot } from './skillInvoker.ts';
-import { skillIntegritySummary } from './skillIntegrity.ts';
+import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace } from './skillInvoker.ts';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
-import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
-import { analyzeSkillHealth, formatHealthSummary } from './runtime/continuousLearning.ts';
 import {
   evaluatePresentCall,
   iteratePresentCall,
-  statusPresentCall,
   terminalResult,
+  terminalCall,
+  genericCall,
 } from './presentation.ts';
+import { t } from './i18n.ts';
 import { makeToolOutput } from './toolsSlot.ts';
 import { registerPointerTools } from './toolsPointerGateway.ts';
 import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
@@ -137,6 +136,13 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
         gate: { type: 'string', description: 'Specific gate (default: all)' },
       },
     },
+    // cycle-39 T-3907：调用透明性收角（19/19 presentCall 完备）。
+    presentCall: (args) => terminalCall(
+      `anic_gate_check: ${typeof args.gate === 'string' ? args.gate : 'all'}`,
+      typeof args.workspace === 'string' ? args.workspace : '.',
+      t('presentation.gateSummary', { gate: typeof args.gate === 'string' ? args.gate : 'all' }),
+    ),
+    presentResult: (_args, result) => terminalResult(result, 'anic_gate_check ✓'),
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
@@ -167,6 +173,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
         maxRounds: { type: 'number', description: 'Max bootstrap rounds (default 3)' },
       },
     },
+    // cycle-39 T-3907：调用透明性收角。
+    presentCall: (args) => genericCall('anic_bootstrap', 'other', { maxRounds: args.maxRounds }),
+    presentResult: () => ({ card: 'generic' as const, title: 'anic_bootstrap ✓' }),
     execute: async (args, exec) => {
       const root = getRoot();
       if (!root) return { error: 'no workspace' };
@@ -199,43 +208,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // 自动修复循环工具（anic_flows_auto_fix，R3 阶段 5）拆分至 toolsAutoFixGateway.ts
   disposers.push(...registerAutoFixTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
 
-  // Tool: anic_status — get full org status panorama + recent flow tracker records
-  disposers.push(tools.register({
-    name: 'anic_status',
-    // SDO：触发条件 = 要看项目全景/调用历史/技能健康/技能完整性；只读查询，无副作用。
-    description: 'Use when an ANIC-managed project needs a status panorama — cycles, ledger, trust/autonomy level, '
-      + 'band violations, recent skill-invocation flows, skill health report, or installed-skill integrity. '
-      + 'Read-only. Triggers: 项目状态 / org status / 自主级 / 技能健康 / flow records / 全景.',
-    output: makeToolOutput(),
-    parameters: {
-      type: 'object',
-      properties: {
-        workspace: { type: 'string', description: 'Target project directory' },
-        flowLimit: { type: 'number', description: 'Max recent flow records to return (default 10, max 50)' },
-      },
-    },
-    presentCall: statusPresentCall,
-    execute: async (args) => {
-      const root = (args.workspace as string) ?? getRoot() ?? '';
-      const flowLimit = Math.min(Math.max(typeof args.flowLimit === 'number' ? args.flowLimit : 10, 1), 50);
-      // M10-a/e：FlowTracker 最近记录 + 统计 + 持续学习健康报告
-      const cyclesDir = join(root, '.cycles');
-      let flows: unknown[] = []; let stats: Record<string, unknown> = {};
-      let health: unknown = null; let healthSummary = '';
-      if (existsSync(cyclesDir)) {
-        const ts = loadFlowTracker(cyclesDir);
-        flows = recentFlows(ts, flowLimit); stats = flowStats(ts);
-        const report = analyzeSkillHealth(ts);
-        health = report; healthSummary = formatHealthSummary(report);
-      }
-      // eco P0：技能完整性（doctor 语义），installedDir 解析收窄为本地函数
-      const installedDir = existsSync(join(root, '.dsh', 'skills', 'ai-native-iteration-cycle'))
-        ? join(root, '.dsh', 'skills', 'ai-native-iteration-cycle')
-        : null;
-      const skillIntegrity = skillIntegritySummary(installedDir, inlineSkillRoot());
-      return { statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`, flows, flowStats: stats, health, healthSummary, skillIntegrity };
-    },
-  }) ?? null);
+  // 状态全景工具（anic_status）拆分至 toolsStatusGateway.ts（cycle-39 T3：
+  // presentCall 补齐后 tools.ts 264 行超限——一域一文件纪律，聚合面不变）
+  disposers.push(...registerStatusTool((tool) => tools.register!(tool), getRoot));
 
   // 技能调用域工具（anic_install + anic_skill 通用网关）拆分至 toolsSkillGateway.ts；
   // 自举域工具（anic_bootstrap_cycle + anic_bootstrap_analyze）拆分至 toolsBootstrapGateway.ts

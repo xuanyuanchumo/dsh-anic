@@ -17,11 +17,17 @@ export interface GenericCallView {
   rawInput?: unknown;
 }
 
-/** 终端卡片视图（pending 状态）——命令执行类工具。 */
+/** 终端卡片视图（pending 状态）——命令执行类工具。
+ *
+ * 字段名对齐官方 0.2.0-rc.2 presentation.d.ts:77-93（TerminalCallView）：
+ * `description?` 是渲染在终端卡片上方的单行摘要（官方注释原文 "rendered ABOVE
+ * the terminal card"）。cycle-39 T-3914 前 dsh-anic 用自造 `summary?`——
+ * capable UI 按官方字段读取时丢弃该行（DSH 规范审计 P1）。
+ */
 export interface TerminalCallView {
   card: 'terminal';
   title: string;
-  summary?: string;
+  description?: string;
   cwd?: string;
 }
 

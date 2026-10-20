@@ -7,11 +7,11 @@
  * 最小 hooks 桩 —— 面板已升级为取数组件，stub 不触发 useEffect）；
  * ctx.slots 用记录器实现 register/inject 语义（register 返回 disposer）。
  *
- * 断言（19）：
+ * 断言（21）：
  *   1. exports 形状（name='dsh-anic-client'/inject=['slots']/apply）
  *   2. factory require 解析 react
  *   3. 默认 → register 恰一次，def {conversation.view / anic-workflow-tab / order 101 / label 'ANIC'}
- *   4. render() 元素树含 138 circle + 164 line —— **函数组件必须展开**（首轮 13/15 的
+ *   4. render() 元素树含 数据驱动圆点/边线计数（快照一致）—— **函数组件必须展开**（首轮 13/15 的
  *      2 个 FAIL 即树遍历没展开函数组件，circle/line 计 0）
  *   5. telemetry nodes/edges/autonomy 与快照一致
  *   6. FAIL 结果节点带红圈标记（数量 = 快照中 result==='FAIL' 的节点数，数据驱动）

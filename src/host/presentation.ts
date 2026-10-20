@@ -60,13 +60,14 @@ export function normalizeToolResult(
 /**
  * 构造终端调用视图（pending 状态）。
  * 用于脚本执行类工具（anic_skill/anic_evaluate/anic_iterate 等）。
+ * cycle-39 T-3914：summary → description（官方 TerminalCallView 字段名）。
  */
 export function terminalCall(
   title: string,
   cwd: string,
-  summary?: string,
+  description?: string,
 ): TerminalCallView {
-  return { card: 'terminal', title, cwd, summary };
+  return { card: 'terminal', title, cwd, description };
 }
 
 /**

@@ -4,7 +4,7 @@
  *
  *   [1/3] validate-dsh    DSH 规范符合性门（清单/exports/locale/icon/产物）
  *   [2/3] vitest          单元（snapshotCore/snapshotRoute/apply）+ 契约守卫
- *   [3/3] offline-smoke   机制冒烟（stub 宿主 19 断言）
+ *   [3/3] offline-smoke   机制冒烟（stub 宿主 21 断言）
  *
  * 用法：
  *   node scripts/run-tests.mjs            # 全部离线层

@@ -133,6 +133,33 @@ export function inlineSkillRoot(): string | null {
   return scriptsDir ? path.join(scriptsDir, '..') : null;
 }
 
+/**
+ * quick-validate 相对 skill-dir 解析（cycle-39 T-3902，flow #29 实证修复）。
+ *
+ * 工具描述与 SKILL.md 教的 `args: ["assets/skill"]` 相对形态在 spawn
+ * cwd=scriptsDir 下会被解析成 `<scripts>/assets/skill` 幽灵路径 → 必 404。
+ * 本函数把相对 skill-dir 映射为**目标工作区已装技能根**的绝对路径：
+ * - "assets/skill" → 技能根（repo 视角 assets/skill 装到工作区就是根本身）
+ * - "assets/skill/scripts" → 根/scripts（子路径剥前缀）
+ * - 绝对路径 / 其他形态 → 原样返回（null 表示无需重写）
+ * 未装技能时回退内联根（永远存在）。纯函数（除 existsSync 探测）。
+ */
+export function resolveQuickValidateSkillDir(
+  workspaceDir: string,
+  arg: string,
+): string | null {
+  const looksAbsolute = /^[A-Za-z]:[\\/]/.test(arg) || arg.startsWith('/') || arg.startsWith('\\');
+  if (looksAbsolute) return null;
+  const norm = arg.replace(/\\/g, '/').replace(/^\.\//, '');
+  let rel = norm;
+  if (norm === 'assets/skill') rel = '';
+  else if (norm.startsWith('assets/skill/')) rel = norm.slice('assets/skill/'.length);
+  else if (!norm.startsWith('.')) return null; // 非技能相对形态（如普通旗标误传）不动
+  const installed = path.join(workspaceDir, '.dsh', 'skills', 'ai-native-iteration-cycle');
+  const root = fs.existsSync(installed) ? installed : (inlineSkillRoot() ?? installed);
+  return path.join(root, rel);
+}
+
 export function validateWorkspace(ws: string): { ok: boolean; error?: string } {
   if (!ws || typeof ws !== 'string') return { ok: false, error: 'workspace is required' };
   const resolved = path.resolve(ws);

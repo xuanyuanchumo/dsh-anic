@@ -4,10 +4,19 @@
  * 拆分自 tools.ts（T3 ≤250 行模块化纪律）。
  * anic_snapshot / anic_self_check / anic_hitl 三个工具的共同模式：
  * 校验 workspace → 返回对应路由 URL。无副作用，无脚本调用。
+ *
+ * cycle-39 T-3907：三工具补 presentCall/presentResult 卡片（19/19 完备）。
+ * cycle-39 T-3914：URL 字段附 desktopNote——官方 web-server.md:9 明示桌面端
+ * （Electron）经 IPC 桥接不经本服务器；实测桌面宿主走 dsh-app:// scheme 转发
+ * （main.js forwardWebRequest，pathname 完整透传），URL 在双端可达，但语义
+ * 标注让桌面端异常时第一排查点明确。
  */
 import type { ToolRegistration } from './toolsSlot.ts';
 import { makeToolOutput } from './toolsSlot.ts';
 import { validateWorkspace } from './skillInvoker.ts';
+import { genericCall, genericResult } from './presentation.ts';
+
+const DESKTOP_NOTE = 'URL routes are served by the dsh web host; desktop (Electron) reaches them via the dsh-app:// IPC bridge — if unreachable on desktop, check the bridge, not the route registration.';
 
 /** 注册指针型 DSH 工具（anic_snapshot/anic_self_check/anic_hitl）。 */
 export function registerPointerTools(
@@ -30,11 +39,13 @@ export function registerPointerTools(
         workspace: { type: 'string', description: 'Target project directory' },
       },
     },
+    presentCall: (args) => genericCall('anic_snapshot', 'search', { workspace: args.workspace }),
+    presentResult: () => genericResult('anic_snapshot ✓'),
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(root);
       if (!check.ok) return { error: check.error };
-      return { snapshotUrl: `/anic/api/workflow-snapshot?workspace=${encodeURIComponent(root)}` };
+      return { snapshotUrl: `/anic/api/workflow-snapshot?workspace=${encodeURIComponent(root)}`, desktopNote: DESKTOP_NOTE };
     },
   }) ?? null);
 
@@ -52,9 +63,11 @@ export function registerPointerTools(
         workspace: { type: 'string', description: 'Target project directory' },
       },
     },
+    presentCall: (args) => genericCall('anic_self_check', 'search', { workspace: args.workspace }),
+    presentResult: () => genericResult('anic_self_check ✓'),
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
-      return { selfCheckUrl: `/anic/api/self-check?workspace=${encodeURIComponent(root)}` };
+      return { selfCheckUrl: `/anic/api/self-check?workspace=${encodeURIComponent(root)}`, desktopNote: DESKTOP_NOTE };
     },
   }) ?? null);
 
@@ -72,9 +85,11 @@ export function registerPointerTools(
         workspace: { type: 'string', description: 'Target project directory' },
       },
     },
+    presentCall: (args) => genericCall('anic_hitl', 'search', { workspace: args.workspace }),
+    presentResult: () => genericResult('anic_hitl ✓'),
     execute: async (args) => {
       const root = (args.workspace as string) ?? getRoot() ?? '';
-      return { hitlUrl: `/anic/hitl-audit?workspace=${encodeURIComponent(root)}` };
+      return { hitlUrl: `/anic/hitl-audit?workspace=${encodeURIComponent(root)}`, desktopNote: DESKTOP_NOTE };
     },
   }) ?? null);
 

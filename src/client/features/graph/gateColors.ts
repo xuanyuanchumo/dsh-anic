@@ -133,6 +133,8 @@ export interface NodeDetail {
   detail?: string;
   timestamp?: string;
   previousHash?: string;
+  /** W-3 全档（cycle-39）：G2 事件节点的测试报告摘要（「这轮测试什么状态」）。 */
+  testReport?: { report: string; passed: number; failures: number; errors: number; layers: string[] };
 }
 
 /**
@@ -189,6 +191,24 @@ export function renderNodeDetail(node: NodeDetail | null, opts?: NodeDetailOptio
       : null,
     node.detail !== undefined
       ? createElement('div', { style: { color: token('anic-text-dim'), marginTop: 4, wordBreak: 'break-all' } }, node.detail)
+      : null,
+    node.testReport !== undefined
+      ? createElement(
+          'div',
+          { 'data-anic-node-testreport': 'true', style: { marginTop: 6, paddingTop: 6, borderTop: `1px solid ${token('anic-border')}` } },
+          createElement('div', { style: { fontWeight: 'bold' } }, `测试报告: ${node.testReport.report}`),
+          createElement(
+            'div',
+            { style: { marginTop: 2 } },
+            `通过 ${node.testReport.passed} · `,
+            createElement('span', { style: { color: node.testReport.failures > 0 ? token('anic-fail') : token('anic-text-strong'), fontWeight: 'bold' } }, `失败 ${node.testReport.failures}`),
+            ` · `,
+            createElement('span', { style: { color: node.testReport.errors > 0 ? token('anic-fail') : token('anic-text-strong'), fontWeight: 'bold' } }, `错误 ${node.testReport.errors}`),
+          ),
+          ...node.testReport.layers.map((l, i) =>
+            createElement('div', { key: `layer-${String(i)}`, style: { color: token('anic-text-faint'), marginTop: 1 } }, l),
+          ),
+        )
       : null,
     node.timestamp !== undefined
       ? createElement('div', { style: { color: token('anic-text-faint'), marginTop: 4 } }, `ts: ${node.timestamp}`)

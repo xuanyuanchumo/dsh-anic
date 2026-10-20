@@ -51,7 +51,7 @@
 | 优先级 | 缺口 | 说明 | 状态 |
 |---|---|---|---|
 | W-3 | **「为什么」层（最小版已落地）** | gate-event 节点携带账本 `detail` → 点击节点详情抽屉可见「这一门为什么 PASS/FAIL」 | ✅ cycle-38 快档（snapshotCore 提取 detail + 面板传递 + renderNodeDetail 渲染） |
-| W-3 全档 | test-report 行投影 | 把测试报告的 通过/失败 行解析后按门投影到节点详情（host 侧复用 gateArtifacts.parseQualityRow） | 排期 cycle-39 |
+| W-3 全档 | test-report 行投影 | 把测试报告的 通过/失败/错误 行解析后投影到 G2 事件节点详情（数字 + 分层结果行，复用 gateArtifacts 语义） | ✅ cycle-39（snapshotCore testReport 提取 + renderNodeDetail 测试报告分区 + 失败/错误计数红显） |
 | V-1 | ETag 条件请求 | 见 §2.1 | ✅ cycle-38 |
 | R-1 | @container 断点表验证 | 响应式基础已有（@media + flex wrap），@container 查询断点表未验证 | 排期 |
 | — | aria-live 状态行的节流 | 刷新按钮的 status 行每次轮询都可能变更文案；高频播报干扰（APG live region 实践：变更要有意义） | 观察项——当前文案仅 source/line 变化时改，实际频率低 |

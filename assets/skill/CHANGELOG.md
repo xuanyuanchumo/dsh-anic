@@ -1,5 +1,16 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.3.0 — quick-validate 网关相对路径自动解析（cycle-39）
+
+### 行为变更（minor）
+
+- **网关相对 skill-dir 自动解析（SKILL.md 跨项目调用契约节）**：`quick-validate`
+  从 dsh-anic 插件网关调用时，相对形态 `args: ["assets/skill"]` 此前被 spawn
+  cwd（=技能 scripts 目录）解析成 `<scripts>/assets/skill` 幽灵路径而必 404
+  （真机 flow #29 实证）。dsh-anic v0.38+ 的网关现在把相对 skill-dir 解析为
+  **目标工作区已装副本**的绝对路径再传——文档教的形态从「必失败」变为「可用」。
+  直接 CLI 调用不受影响（相对路径语义按进程 cwd 不变）。
+
 ## 2.2.0 — 跨项目调用契约与 L4 编排补强（cycle-38）
 
 ### 行为变更（minor）

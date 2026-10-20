@@ -222,11 +222,13 @@ describe('ledger', () => {
 });
 
 describe('stateMachine', () => {
+  // cycle-39 P0-DAG-PARSE：type 词表改为小写正典（真实 YAML 是 gate/human-gate/
+  // phase/micro-step；旧夹具用大写 Play/Gate 是解析器从未在真实图上工作的同因）。
   const graph: WorkflowGraph = {
     nodes: [
-      { id: 'intent', type: 'Play' },
-      { id: 'spec', type: 'Gate', gate: 'spec' },
-      { id: 'code', type: 'Play' },
+      { id: 'intent', type: 'play' },
+      { id: 'spec', type: 'gate', gate: 'spec' },
+      { id: 'code', type: 'play' },
     ],
     edges: [
       { from: 'intent', to: 'spec' },
@@ -275,16 +277,16 @@ describe('stateMachine', () => {
     const yaml = `
 nodes:
   - id: intent
-    type: Play
+    type: play
   - id: spec
-    type: Gate
+    type: gate
     gate: spec
 edges:
   - from: intent to: spec
 `;
     const g = parseWorkflowGraph(yaml);
     expect(g.nodes).toHaveLength(2);
-    expect(g.nodes[1].type).toBe('Gate');
+    expect(g.nodes[1]?.type).toBe('gate');
     expect(g.edges).toHaveLength(1);
   });
 });

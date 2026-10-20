@@ -135,4 +135,64 @@ describe('差分契约：native vs script 逐字段全等', () => {
     expect(native.gates.G1?.pass).toBe(false);
     expect(native.gates.G1?.detail).toContain('1 of 2 tasks not completed');
   });
+
+  it('cycle-39 T-3903：journey_coverage 两侧同构（声明旅程的 test_files 缺失 → G2 FAIL）', () => {
+    // config 显式声明 gates.G2.journey_coverage: true + journeys 段
+    // （test_files 一个存在一个缺失 → 必须两侧都 FAIL 且 detail 全等）
+    const dir = join(tmp, '.cycles');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.yml'), [
+      'autonomy_level: L2',
+      'build_cmd: exit 0',
+      'journeys:',
+      '  J1:',
+      '    name: 插件安装与自举',
+      '    test_files: ["package.json"]',
+      '  J2:',
+      '    name: 面板观测',
+      '    test_files: ["tests/missing-file.test.ts"]',
+      'gates:',
+      '  G2:',
+      '    journey_coverage: true',
+    ].join('\n'));
+    // package.json 不在夹具根 → J1 也 missing；两个都应被点名
+    writeCycle({
+      '任务清单.md': '| T-01 | P0 | a | b | c | 完成 |',
+      'test-reports/test-report.md': '| 结果 | 数量 |\n| --- | --- |\n| 通过 | 1 |\n| 失败 | 0 |\n| 错误 | 0 |',
+    });
+    const script = runScriptSide('G2');
+    const native = runNativeGateCheck(tmp, { gate: 'G2', quality: false });
+    expect(native.gates.G2?.pass).toBe(script.result.gates.G2?.pass);
+    expect(native.gates.G2?.detail).toBe(script.result.gates.G2?.detail);
+    expect(native.gates.G2?.pass).toBe(false);
+    expect(String(native.gates.G2?.detail)).toContain('Journey coverage broken');
+    expect(String(native.gates.G2?.detail)).toContain('J2: tests/missing-file.test.ts');
+  });
+
+  it('cycle-39 T-3903：journey_coverage 全存在 → G2 PASS 且 detail 带 verified 标记', () => {
+    const dir = join(tmp, '.cycles');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.yml'), [
+      'autonomy_level: L2',
+      'build_cmd: exit 0',
+      'journeys:',
+      '  J1:',
+      '    name: 冒烟',
+      '    test_files: ["real-file.md"]',
+      'gates:',
+      '  G2:',
+      '    journey_coverage: true',
+    ].join('\n'));
+    writeFileSync(join(tmp, 'real-file.md'), 'exists');
+    writeCycle({
+      '任务清单.md': '| T-01 | P0 | a | b | c | 完成 |',
+      'test-reports/test-report.md': '| 结果 | 数量 |\n| --- | --- |\n| 通过 | 1 |\n| 失败 | 0 |\n| 错误 | 0 |',
+    });
+    const script = runScriptSide('G2');
+    const native = runNativeGateCheck(tmp, { gate: 'G2', quality: false });
+    expect(native.gates.G2?.pass).toBe(true);
+    expect(script.result.gates.G2?.pass).toBe(true);
+    expect(String(native.gates.G2?.detail)).toContain('journey coverage verified');
+    expect(native.gates.G2?.detail).toBe(script.result.gates.G2?.detail);
+  });
 });

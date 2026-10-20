@@ -19,6 +19,8 @@ import {
   parseTestSummary,
   parseQualityRow,
   readYamlString,
+  readYamlNestedBoolean,
+  checkJourneyCoverage,
   QUALITY_CHECKS,
 } from './gateArtifacts.ts';
 import type { GateCheckResult, NativeGateResult } from './gateTypes.ts';
@@ -79,7 +81,7 @@ export function checkG1(workspaceRoot: string): GateCheckResult {
 }
 
 /** G2（gate-check.mjs:82-117 同构：mtime 最新报告 + §2 汇总表格式契约）。 */
-export function checkG2(workspaceRoot: string): GateCheckResult {
+export function checkG2(workspaceRoot: string, configContent: string | null = null): GateCheckResult {
   const latest = latestCycle(workspaceRoot);
   if (!latest) return { pass: false, detail: 'No cycle workspace' };
   const testReportsDir = join(latest.dir, 'test-reports');
@@ -97,7 +99,13 @@ export function checkG2(workspaceRoot: string): GateCheckResult {
   if (summary.failures > 0 || summary.errors > 0) {
     return { pass: false, detail: `${summary.failures} failures, ${summary.errors} errors` };
   }
-  return { pass: true, detail: `Zero failures, zero errors (${latestReport})` };
+  // cycle-39 T-3903：journey_coverage（双侧同构，差分契约钉死）
+  const journeyCoverage = readYamlNestedBoolean(configContent, 'gates', 'G2', 'journey_coverage');
+  if (journeyCoverage) {
+    const j = checkJourneyCoverage(workspaceRoot, configContent);
+    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})` };
+  }
+  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})` };
 }
 
 /** G3（gate-check.mjs:119-131 同构：build_cmd 走 shell，timeout 120s）。 */
@@ -136,7 +144,7 @@ export function checkQualityGate(workspaceRoot: string, gateId: string): GateChe
 const GATE_FN: Record<string, (ws: string, cfg: string | null) => GateCheckResult> = {
   G0: (ws) => checkG0(ws),
   G1: (ws) => checkG1(ws),
-  G2: (ws) => checkG2(ws),
+  G2: (ws, cfg) => checkG2(ws, cfg),
   G3: (ws, cfg) => checkG3(ws, cfg),
 };
 

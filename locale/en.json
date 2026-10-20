@@ -215,7 +215,8 @@
     "iterateSummary": "Iteration cycle eval + gate-check",
     "bootstrapCycleTitle": "anic_bootstrap_cycle (≤{maxRounds} rounds)",
     "bootstrapCycleSummary": "Bootstrap chain eval→gate→fix",
-    "bootstrapAnalyzeSummary": "Bootstrap analysis + engine insights"
+    "bootstrapAnalyzeSummary": "Bootstrap analysis + engine insights",
+    "gateSummary": "Convergence gate check {gate}"
   },
   "review": {
     "badJson": "Request body is not valid JSON",

@@ -37,7 +37,7 @@
 | `exports["./client"]` | 必须存在 | 缺失即 throw（`dsh-client-modules:170-181`） |
 | `icon` | ≤256KiB，`.svg/.png/.jpg/.jpeg/.webp` | 读自包顶层 `icon`，限安装目录内 |
 | `locale/{en,zh}.json` | `{meta:{title,description}}` | en 为锚 |
-| `peerDependencies` | **实测未声明**（`dsh-anic/package.json` 无该字段）⇒ 兼容门必过（`dsh-anic/README.md:71` 同此记载）。父工程参考：`@deepseek-ai/dsh*`: `^0.2.0-rc.2 \|\| ^0.3.0-rc.2`（cycle-92 抬窗），`@deepseek-ai/cordis`: `^4.0.1` / devDep `^4.0.4` | **唯一被强制执行的兼容门**（`dsh-app-boot` evaluatePluginCompatibility，semver includePrerelease）。无声明 = 无承诺 = 不设门 |
+| `peerDependencies` | **cycle-92 后已声明**（`@deepseek-ai/cordis: ^4.0.1` + 可选 `@deepseek-ai/dsh: >=0.2.0-rc.2 <0.4.0-0`，与 engines.dsh 同值）。**0.2.1-rc.2 起兼容门语义变更（asar 实证 dsh-app-boot/lib/index.js:279-298）**：插件若声明 `engines.dsh`，该区间**单独决定**且 peerDependencies 被忽略（"An own engines.dsh range decides alone"）；未声明 engines.dsh 才走 peer 门。dsh-anic 双层同值无冲突。父工程参考：`@deepseek-ai/dsh*`: `^0.2.0-rc.2 \|\| ^0.3.0-rc.2`（cycle-92 抬窗），`@deepseek-ai/cordis`: `^4.0.1` / devDep `^4.0.5` | **唯一被强制执行的兼容门**（`dsh-app-boot` evaluatePluginCompatibility，semver includePrerelease；宿主实测基线 0.2.1-rc.2 + cordis 4.0.5）。无声明 = 无承诺 = 不设门 |
 
 ### 2.2 客户端槽位契约（ANIC 主入口）
 

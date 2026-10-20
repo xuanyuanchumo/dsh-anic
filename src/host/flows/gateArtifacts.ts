@@ -12,6 +12,8 @@
  * 修改任何正则前先跑差分测试——两侧判定分叉 = 双真相源（R3 最大风险项）。
  */
 import type { TaskRow, TestSummary, QualityRow } from './gateTypes.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** 任务行状态值（lib/tasks.mjs:10 同源）。 */
 export const TASK_STATUS_RE = /^(待办|进行中|完成)$/;
@@ -85,4 +87,56 @@ export function readYamlString(configContent: string | null, key: string): strin
     v = v.slice(1, -1);
   }
   return v.length > 0 ? v : null;
+}
+
+/**
+ * 嵌套 YAML 布尔读取（gate-check.mjs getYamlNestedBoolean 同构，cycle-39 T-3903）。
+ * 形态：section → 两空格 key2 → 四空格 leaf。未声明 → false。
+ */
+export function readYamlNestedBoolean(content: string | null, section: string, key2: string, leaf: string): boolean {
+  if (!content) return false;
+  const re = new RegExp(
+    `^${section}:\\s*$\\n(?:[^\\n]*\\n)*?^\\s{2}${key2}:\\s*$\\n(?:[^\\n]*\\n)*?^\\s{4}${leaf}:\\s*(true|false)\\s*$`,
+    'm',
+  );
+  const m = content.match(re);
+  return m?.[1] === 'true';
+}
+
+/**
+ * 旅程覆盖检查（gate-check.mjs checkJourneyCoverage 同构，cycle-39 T-3903）。
+ * journeys 声明的每条旅程的 test_files 必须存在且非空——装饰性声明从此有门禁。
+ */
+export function checkJourneyCoverage(projectDir: string, configContent: string | null): { pass: boolean; detail: string } {
+  if (!configContent || !/^journeys:\s*$/m.test(configContent)) {
+    return { pass: true, detail: 'No journeys declared (journey_coverage vacuously true)' };
+  }
+  const lines = configContent.split('\n');
+  const startIdx = lines.findIndex((l) => /^journeys:\s*$/.test(l));
+  const missing: string[] = [];
+  let journeyCount = 0;
+  let currentJourney = '';
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^\S/.test(line)) break;
+    const jm = line.match(/^\s{2}([A-Za-z0-9_-]+):\s*$/);
+    if (jm) { journeyCount++; currentJourney = jm[1] ?? ''; continue; }
+    const tfm = line.match(/^\s*test_files:\s*\[(.*)\]\s*$/);
+    if (tfm) {
+      const files = (tfm[1] ?? '')
+        .split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      if (files.length === 0) {
+        missing.push(`${currentJourney}: test_files declared but empty`);
+      } else {
+        for (const f of files) {
+          if (!existsSync(join(projectDir, f))) missing.push(`${currentJourney}: ${f}`);
+        }
+      }
+    }
+  }
+  if (journeyCount === 0) return { pass: true, detail: 'journeys section empty' };
+  if (missing.length > 0) {
+    return { pass: false, detail: `Journey coverage broken: ${missing.join('; ')} (journey_coverage requires declared test files to exist)` };
+  }
+  return { pass: true, detail: `Journey coverage OK (${journeyCount} journeys, all test files exist)` };
 }

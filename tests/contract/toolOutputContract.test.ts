@@ -111,3 +111,46 @@ describe('源码形态面：tools 域不得再出现裸字符串 render', () => 
     expect(offenders, `发现裸字符串 render（会复现 content.some 崩溃）:\n${offenders.join('\n')}`).toEqual([]);
   });
 });
+
+describe('cycle-39 T-3907/T-3914：19/19 presentCall 完备 + TerminalCallView 官方字段名', () => {
+  it('全部 19 个注册工具都有 presentCall 与 presentResult（调用透明性收角）', async () => {
+    const { registerAnicTools } = await import('../../src/host/tools.ts');
+    const registered: Array<{ name: string; presentCall?: unknown; presentResult?: unknown }> = [];
+    const disposers = Array.from({ length: 32 }, () => () => undefined);
+    let call = 0;
+    const ctx = {
+      tools: { register: (t: (typeof registered)[number]) => { registered.push(t); return disposers[call++] ?? (() => undefined); } },
+      workspaceRegistry: { list: () => [] },
+    };
+    registerAnicTools(ctx);
+    expect(registered.length).toBe(19); // toolIds.ts 双向集合比对同源
+    const missing = registered.filter((t) => typeof t.presentCall !== 'function' || typeof t.presentResult !== 'function');
+    expect(missing.map((t) => t.name), '缺 presentCall/presentResult 的工具（动态白盒卡片缺口）').toEqual([]);
+  });
+
+  it('TerminalCallView 用官方字段名 description（0.2.0-rc.2 presentation.d.ts:85），不再有 summary', async () => {
+    const { terminalCall } = await import('../../src/host/presentation.ts');
+    const view = terminalCall('anic_test', '/tmp', '测试摘要');
+    expect(view).toHaveProperty('description', '测试摘要');
+    expect(view).not.toHaveProperty('summary');
+    // 源码形态守卫：toolsSlot.ts 与 presentation.ts 不再含 summary 字段定义
+    for (const f of ['toolsSlot.ts', 'presentation.ts']) {
+      const code = readFileSync(join(HOST_DIR, f), 'utf-8');
+      expect(code, `${f} 不得再定义 summary 字段（官方是 description）`).not.toMatch(/\bsummary\?\s*:/);
+    }
+  });
+
+  it('指针型工具返回 desktopNote（桌面端 dsh-app:// 桥接语义标注）', async () => {
+    const { registerPointerTools } = await import('../../src/host/toolsPointerGateway.ts');
+    const registered: Array<{ name: string; execute: (a: Record<string, unknown>) => Promise<Record<string, unknown>> }> = [];
+    const ctx = {
+      tools: { register: (t: (typeof registered)[number]) => { registered.push(t); return () => undefined; } },
+      workspaceRegistry: { list: () => [] },
+    };
+    registerPointerTools((t) => { registered.push(t); return () => undefined; }, () => process.cwd());
+    const snapshot = registered.find((t) => t.name === 'anic_snapshot');
+    expect(snapshot).toBeDefined();
+    const r = await snapshot!.execute({ workspace: process.cwd() });
+    expect(String(r.desktopNote)).toContain('dsh-app');
+  });
+});

@@ -26,6 +26,14 @@ function loadConfig(projectDir) {
 // 修字典序缺陷：数值序取最新 cycle（原 .sort().pop() 在 cycle-10 之后选错目录）
 const getLatestCycle = getLatestCycleDir;
 
+// cycle-39 T-3903：读嵌套 YAML 布尔（gates.G2.journey_coverage 形态，两空格缩进）。
+// 行级解析，零依赖；未声明 → false（默认不启用——旧行为不变）。
+function getYamlNestedBoolean(content, section, key2, leaf) {
+  const re = new RegExp(`^${section}:\\s*$\\n(?:[^\\n]*\\n)*?^\\s{2}${key2}:\\s*$\\n(?:[^\\n]*\\n)*?^\\s{4}${leaf}:\\s*(true|false)\\s*$`, 'm');
+  const m = content.match(re);
+  return m ? m[1] === 'true' : false;
+}
+
 function checkG0(projectDir) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
   if (!existsSync(cyclesDir)) return { pass: false, detail: 'No .cycles directory' };
@@ -69,7 +77,52 @@ function checkG1(projectDir) {
   return { pass: true, detail: `All ${taskRows.length} tasks completed` };
 }
 
-function checkG2(projectDir) {
+// cycle-39 T-3903：journey_coverage 门禁实现（此前 config.yml 的
+// gates.G2.journey_coverage: true 是装饰性声明——零代码消费，审计发现）。
+// 语义：config journeys 声明的每条旅程的 test_files 必须真实存在且非空。
+// 「声明了旅程覆盖但没有可验证的测试映射」= 没有证据 = 不许关 G2。
+// chaos_coverage：语义应为「混沌用例全过」，但 journeys 协议没有 chaos
+// 旅程定义——声明与协议脱节，本仓 config.yml 已删除该键（诚实优先：
+// 装饰性门禁声明是负债，不是保护）。
+function checkJourneyCoverage(projectDir, configContent) {
+  const journeyMatch = configContent.match(/^journeys:\s*$/m);
+  if (!journeyMatch) return { pass: true, detail: 'No journeys declared (journey_coverage vacuously true)' };
+
+  // 解析 journeys 段（行级，与 lib/config.mjs 同风格；test_files 形态 ["a", "b"]）
+  const lines = configContent.split('\n');
+  const startIdx = lines.findIndex(l => /^journeys:\s*$/.test(l));
+  const missing = [];
+  let journeyCount = 0;
+  let inTestFiles = false;
+  let currentJourney = '';
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\S/.test(line)) break; // 段结束
+    const jm = line.match(/^\s{2}([A-Za-z0-9_-]+):\s*$/);
+    if (jm) { journeyCount++; currentJourney = jm[1]; inTestFiles = false; continue; }
+    if (/^\s*test_files:\s*\[(.*)\]\s*$/.test(line)) {
+      inTestFiles = true;
+      const files = (line.match(/^\s*test_files:\s*\[(.*)\]\s*$/)?.[1] ?? '')
+        .split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      if (files.length === 0) {
+        missing.push(`${currentJourney}: test_files declared but empty`);
+      } else {
+        for (const f of files) {
+          if (!existsSync(join(projectDir, f))) missing.push(`${currentJourney}: ${f}`);
+        }
+      }
+      continue;
+    }
+    if (inTestFiles) continue; // 多行数组形态忽略（本仓正典是单行）
+  }
+  if (journeyCount === 0) return { pass: true, detail: 'journeys section empty' };
+  if (missing.length > 0) {
+    return { pass: false, detail: `Journey coverage broken: ${missing.join('; ')} (journey_coverage requires declared test files to exist)` };
+  }
+  return { pass: true, detail: `Journey coverage OK (${journeyCount} journeys, all test files exist)` };
+}
+
+function checkG2(projectDir, configContent) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
   const latestCycle = getLatestCycle(projectDir);
   if (!latestCycle) return { pass: false, detail: 'No cycle workspace' };
@@ -103,7 +156,14 @@ function checkG2(projectDir) {
   if (failures > 0 || errors > 0) {
     return { pass: false, detail: `${failures} failures, ${errors} errors` };
   }
-  return { pass: true, detail: `Zero failures, zero errors (${latestReport})` };
+
+  // cycle-39 T-3903：journey_coverage 检查（config gates.G2.journey_coverage: true 时启用）
+  const journeyCoverage = getYamlNestedBoolean(configContent, 'gates', 'G2', 'journey_coverage');
+  if (journeyCoverage) {
+    const j = checkJourneyCoverage(projectDir, configContent);
+    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})` };
+  }
+  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})` };
 }
 
 function checkG3(projectDir, configContent) {
@@ -176,7 +236,7 @@ const configContent = loadConfig(projectDir);
 const gates = {
   G0: () => checkG0(projectDir),
   G1: () => checkG1(projectDir),
-  G2: () => checkG2(projectDir),
+  G2: () => checkG2(projectDir, configContent),
   G3: () => checkG3(projectDir, configContent),
 };
 

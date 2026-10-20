@@ -63,6 +63,17 @@ function writeFullFixture(): string {
     mkdirSync(join(cycles, 'cycles', n), { recursive: true });
     writeFileSync(join(cycles, 'cycles', n, '任务清单.md'), '- [x] P0 完成');
   }
+  // W-3 全档（cycle-39）：最新 cycle 的 test-reports（§2 汇总表 + 分层行）
+  mkdirSync(join(cycles, 'cycles', 'cycle-10', 'test-reports'), { recursive: true });
+  writeFileSync(join(cycles, 'cycles', 'cycle-10', 'test-reports', 'tr.md'), [
+    '# 测试报告', '',
+    '## 2. 汇总', '',
+    '| 指标 | 数量 |', '|---|---|', '| 通过 | 1301 |', '| 失败 | 0 |', '| 错误 | 0 |', '',
+    '## 3. 分层结果', '',
+    '| 层 | 结果 | 关键数字 |', '|---|---|---|',
+    '| validate | ✅ PASS | 12 checks |',
+    '| vitest | ✅ PASS | 106 文件 |',
+  ].join('\n'));
   mkdirSync(join(cycles, 'gates'), { recursive: true });
   writeFileSync(join(cycles, 'gates', 'ledger.json'), LEDGER);
   mkdirSync(join(cycles, 'incidents'), { recursive: true });
@@ -117,9 +128,9 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
     expect(again).toEqual(snap);
   });
 
-  it('INV-21：节点/边只携带结构化字段（detail 为账本结构化键，cycle-38 W-3 白盒层）', () => {
+  it('INV-21：节点/边只携带结构化字段（detail/testReport 为结构化键，W-3 白盒层）', () => {
     for (const n of snap.nodes) {
-      expect(Object.keys(n).every((k) => ['id', 'type', 'label', 'x', 'y', 'result', 'detail'].includes(k))).toBe(true);
+      expect(Object.keys(n).every((k) => ['id', 'type', 'label', 'x', 'y', 'result', 'detail', 'testReport'].includes(k))).toBe(true);
     }
     for (const e of snap.edges) {
       expect(Object.keys(e).every((k) => ['from', 'to', 'type'].includes(k))).toBe(true);
@@ -129,6 +140,23 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
   it('W-3 快档：gate-event 节点携带账本 detail（「为什么 PASS/FAIL」白盒层）', () => {
     const evt = snap.nodes.find((n) => n.id === 'evt:0');
     expect(evt?.detail).toBe('…'); // LEDGER fixture 的 detail 字段如实透传
+  });
+
+  it('W-3 全档（cycle-39）：G2 事件节点携带最新测试报告摘要（数字 + 分层行）', () => {
+    // evt:1 是 G2 PASS 事件（LEDGER fixture 第二条）
+    const g2 = snap.nodes.find((n) => n.id === 'evt:1');
+    expect(g2?.testReport).toBeDefined();
+    expect(g2?.testReport?.report).toBe('tr.md');
+    expect(g2?.testReport?.passed).toBe(1301);
+    expect(g2?.testReport?.failures).toBe(0);
+    expect(g2?.testReport?.errors).toBe(0);
+    expect(g2?.testReport?.layers.length).toBe(2);
+    expect(g2?.testReport?.layers[0]).toContain('validate');
+  });
+
+  it('W-3 全档：非 G2 事件节点不携带 testReport（最小数据面纪律）', () => {
+    const g0 = snap.nodes.find((n) => n.id === 'evt:0');
+    expect(g0?.testReport).toBeUndefined();
   });
 });
 

@@ -188,7 +188,7 @@ export function WorkflowGraphPanel(): ReactElement {
         : null,
     ),
     prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
-    renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result, detail: n.detail }); }),
+    renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result, detail: n.detail, testReport: n.testReport }); }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
     // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
     renderInvocations(invocations, invocationsError, autoRefreshOn),

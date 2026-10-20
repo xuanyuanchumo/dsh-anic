@@ -30,13 +30,13 @@ describe('M10-d presentation helpers', () => {
       expect(view.card).toBe('terminal');
       expect(view.title).toBe('anic_skill: eval-runner');
       expect(view.cwd).toBe('/tmp/proj');
-      expect(view.summary).toBe('评估');
+      expect(view.description).toBe('评估'); // cycle-39 T-3914：官方 TerminalCallView 字段名
     });
 
-    it('summary 可选', () => {
+    it('description 可选', () => {
       const view = terminalCall('test', '/tmp');
       expect(view.card).toBe('terminal');
-      expect(view.summary).toBeUndefined();
+      expect(view.description).toBeUndefined();
     });
   });
 
@@ -115,7 +115,7 @@ describe('M10-d presentation helpers', () => {
 
     it('iteratePresentCall 含迭代描述', () => {
       const view = iteratePresentCall({ workspace: '/p' });
-      expect(view.summary).toContain('迭代');
+      expect(view.description).toContain('迭代');
     });
 
     it('bootstrapCyclePresentCall 含轮次', () => {
@@ -125,7 +125,7 @@ describe('M10-d presentation helpers', () => {
 
     it('bootstrapAnalyzePresentCall 含分析描述', () => {
       const view = bootstrapAnalyzePresentCall({ workspace: '/p' });
-      expect(view.summary).toContain('分析');
+      expect(view.description).toContain('分析');
     });
 
     it('statusPresentCall 返回通用卡片 kind=read', () => {

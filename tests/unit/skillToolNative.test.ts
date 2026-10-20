@@ -161,6 +161,29 @@ describe('cycle-38 T-3805：跨项目调用人体工学（args 首位绝对路�
     expect(r.workspaceRedirected).toBeUndefined();
   });
 
+  it('cycle-39 T-3902：quick-validate 相对 skill-dir 解析为工作区已装副本（修复前 flow #29 形态必 404）', async () => {
+    // 真机实证：flow #29（2026-10-19）args:["assets/skill"] exitCode 1——
+    // spawn cwd=scriptsDir 把相对路径解析成 <scripts>/assets/skill 幽灵目录。
+    // 修复：网关把相对 skill-dir 重写为 <ws>/.dsh/skills/.../ 的绝对路径。
+    const { ctx, registered } = makeStubHost(WS_B);
+    registerAnicTools(ctx);
+    const skill = registered.find((t) => t.name === 'anic_skill')!;
+    const r = await skill.execute({ script: 'quick-validate', workspace: WS_B, args: ['assets/skill'] });
+    expect(r.exitCode).toBe(0);
+    expect(String(r.stdout)).toContain('Skill Package Validation');
+    // 已装副本 = 技能根全部文件（含根 README.md，比 integrity 清单的 65 多 1）
+    expect(String(r.stdout)).toMatch(/Total files: 6[56]/);
+  });
+
+  it('cycle-39 T-3902：quick-validate 绝对 skill-dir 形态不重写（原样透传，flow #17 成功形态回归）', async () => {
+    const { ctx, registered } = makeStubHost(WS_B);
+    registerAnicTools(ctx);
+    const skill = registered.find((t) => t.name === 'anic_skill')!;
+    const absSkillDir = join(WS_B, '.dsh', 'skills', 'ai-native-iteration-cycle');
+    const r = await skill.execute({ script: 'quick-validate', workspace: WS_B, args: [absSkillDir] });
+    expect(r.exitCode).toBe(0);
+  });
+
   it('args 首位是不存在的绝对路径 → 不吞不重定向（让脚本数量守卫报精确错误）', async () => {
     const { ctx, registered } = makeStubHost(WS_A);
     registerAnicTools(ctx);
