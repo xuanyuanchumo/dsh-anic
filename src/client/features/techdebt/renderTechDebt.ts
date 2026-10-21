@@ -21,7 +21,7 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
-import { isObjectLike } from '../live/fetchJson.ts';
+import { isObjectLike } from '../../components/fetchJson.ts';
 
 export const TECH_DEBT_URL = '/anic/api/tech-debt/list';
 

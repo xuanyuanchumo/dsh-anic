@@ -13,7 +13,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
-import { isObjectLike } from '../live/fetchJson.ts';
+import { isObjectLike } from '../../components/fetchJson.ts';
 import { t } from '../../i18n.ts';
 
 /** GET /anic/api/ledger 响应（与 host/runtime/ledger.ts LedgerEntry 对齐）。 */

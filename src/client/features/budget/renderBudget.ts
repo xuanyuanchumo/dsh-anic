@@ -14,7 +14,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
-import { isObjectLike } from '../live/fetchJson.ts';
+import { isObjectLike } from '../../components/fetchJson.ts';
 import { t } from '../../i18n.ts';
 
 /** GET /anic/governance/budget 响应（与 host/governance/budget.ts BudgetReport 对齐）。 */

@@ -11,7 +11,7 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
-import { isObjectLike } from '../live/fetchJson.ts';
+import { isObjectLike } from '../../components/fetchJson.ts';
 
 export const SKILL_HEALTH_URL = '/anic/skill/health';
 

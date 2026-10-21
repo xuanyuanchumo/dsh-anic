@@ -144,6 +144,19 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 **两缺陷同轮修复**（夹具驱动发现——「夹具暴露实现缺陷时修实现非改夹具迁就」教训）：①formatHealthSummary 单值形态字符串比较 bug；②乱序数组 slice(-8) 取「最晚追加」而非「最近发生」。
 
+## 2.10 共享层落位：G-FEAT 特性边界收口（cycle-58 T-5801a 落地）
+
+**背景**：doc12 §3.2 特性模块制「跨特性只经共享层与编排器」——但 `isObjectLike`（4 行纯类型守卫）落位 `features/live/fetchJson.ts`，造成 budget/hitl/ledger/skillhealth/techdebt 五域 `../live/` 跨特性深 import；`OrgStatusJson` 类型定义在 org 域，autonomy 域跨域 import type。G-FEAT 守卫建立（guardRegistry.test.ts）当轮把真违规清零。
+
+| 共享物 | 原落位 | 新落位 | 消费域 |
+|---|---|---|---|
+| fetchJsonGuarded / isObjectLike / isFlowStatus / syncTelemetryCounts | features/live/fetchJson.ts | **components/fetchJson.ts**（唯一实现） | live（经 re-export 垫片）+ budget/hitl/ledger/skillhealth/techdebt + panelLiveTargets/WorkflowGraphPanel |
+| OrgStatusJson 接口 | features/org/renderOrgStatus.ts | **components/panelTypes.ts**（单一事实源，org 域 re-export type） | org + autonomy |
+
+- `features/live/fetchJson.ts` 转 re-export 垫片（域内 useInvocations 与 fetchJson.test.ts 路径不破坏；G-SINGLE 守卫语义「唯一实现在 components」）；
+- 类型 import 无运行时耦合，但 G-FEAT 守卫按文件路径机械判定——类型共享同样需中立落位（panelTypes.ts 只收**跨域消费**类型，YAGNI）；
+- 守卫面：guardRegistry.test.ts G-FEAT 块 3 用例（零跨特性 import 扫描/扫描集非空下限/共享工具落位存在性）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |

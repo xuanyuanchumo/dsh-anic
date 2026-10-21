@@ -14,7 +14,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
-import { isObjectLike } from '../live/fetchJson.ts';
+import { isObjectLike } from '../../components/fetchJson.ts';
 import { t } from '../../i18n.ts';
 
 /** GET /anic/hitl-audit 响应（与 nativeRoute hitlAuditView 对齐）。 */

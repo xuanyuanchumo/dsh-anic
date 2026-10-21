@@ -11,7 +11,7 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
-import type { OrgStatusJson } from '../org/renderOrgStatus.ts';
+import type { OrgStatusJson } from '../../components/panelTypes.ts';
 
 /** 刻度顺序与 trustModel.AutonomyBand 一致（L1–L4；宿主自主级枚举的单一事实源在那）。 */
 const BANDS = ['L1', 'L2', 'L3', 'L4'] as const;
