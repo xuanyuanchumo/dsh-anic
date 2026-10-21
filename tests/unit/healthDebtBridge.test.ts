@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mapSeverity, suggestionToEntry, persistHealthSuggestionsAsDebt } from '../../src/host/evolution/healthDebtBridge.ts';
-import { listTechDebt } from '../../src/host/evolution/techDebtQueue.ts';
+import { listTechDebt, markTechDebtConsumed } from '../../src/host/evolution/techDebtQueue.ts';
 import type { ImprovementSuggestion } from '../../src/host/runtime/continuousLearning.ts';
 
 function sugg(overrides: Partial<ImprovementSuggestion> = {}): ImprovementSuggestion {
@@ -55,7 +55,7 @@ describe('cycle-55 T-5501 healthDebtBridge 纯函数', () => {
 describe('cycle-55 T-5501 persistHealthSuggestionsAsDebt 落盘语义', () => {
   it('空建议零落盘（file=null）', () => {
     const r = persistHealthSuggestionsAsDebt(dir, [], NOW);
-    expect(r).toEqual({ written: 0, skipped: 0, file: null });
+    expect(r).toEqual({ written: 0, skipped: 0, skippedResolved: 0, file: null });
     expect(existsSync(join(dir, 'tech-debt'))).toBe(false);
   });
 
@@ -104,5 +104,34 @@ describe('cycle-55 T-5501 persistHealthSuggestionsAsDebt 落盘语义', () => {
     expect(listing.open[0].entry.dimension).toBe('skill:workflow-state');
     expect(listing.open[0].entry.severity).toBe('medium');
     expect(listing.skipped).toHaveLength(0);
+  });
+
+  it('cycle-56 T-5601 债务复活防御：已 resolved 且 severity 未升级的次日建议跳过（不落新提案）', () => {
+    // day1 落盘 + 消费（resolved）
+    persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], NOW);
+    markTechDebtConsumed(dir, ['health-sugg-gate-check-critical-2026-10-21'], 'cycle-56 复活测试');
+    // day2 同建议（severity 同级 warn）→ 应走复活防御跳过，不落新文件
+    const r2 = persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], '2026-10-22T09:00:00.000Z');
+    expect(r2.written).toBe(0);
+    expect(r2.skippedResolved).toBe(1);
+    expect(existsSync(join(dir, 'tech-debt', 'health-2026-10-22.json'))).toBe(false);
+  });
+
+  it('cycle-56 T-5601 恶化例外：已 resolved 但 severity 升级（warn→critical）→ 重开新提案', () => {
+    persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], NOW);
+    markTechDebtConsumed(dir, ['health-sugg-gate-check-critical-2026-10-21'], 'cycle-56 复活测试');
+    const r2 = persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'critical', script: 'gate-check' })], '2026-10-22T09:00:00.000Z');
+    expect(r2.written).toBe(1);
+    expect(existsSync(join(dir, 'tech-debt', 'health-2026-10-22.json'))).toBe(true);
+    const raw = JSON.parse(readFileSync(join(dir, 'tech-debt', 'health-2026-10-22.json'), 'utf-8'));
+    expect(raw[0].severity).toBe('critical');
+  });
+
+  it('cycle-56 T-5601 复活防御不误伤 open 态：未消费的同建议跨日仍落新提案（既有语义保持）', () => {
+    persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], NOW);
+    // 未 consume——open 态，跨日新提案（cycle-55 既有语义：恶化可追踪/未偿还在视野内）
+    const r2 = persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], '2026-10-22T09:00:00.000Z');
+    expect(r2.written).toBe(1);
+    expect(r2.file).toBe('health-2026-10-22.json');
   });
 });
