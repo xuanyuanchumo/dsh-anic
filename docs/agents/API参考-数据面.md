@@ -148,7 +148,51 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 | 注册签名 | `registerInvocationRoute(ctx, { send, feed })` |
 | 聚合位置 | `src/host/routes/index.ts:68` |
 
-**动态白盒数据面**（cycle-97）：返回 `InvocationFeed` 实时调用环回缓冲（drop-oldest，limit 50）的只读快照——`anic_*` 工具执行的实时轨迹（脚本名 / 工作目录 / 退出码 / 摘要），供调试「调用没显示」类问题。
+**动态白盒数据面**（cycle-97 建立；cycle-47..48 扩展诊断与结果预览）：返回 `InvocationFeed` 实时调用环回缓冲（drop-oldest，limit 50）的只读快照，供调试「调用没显示」类问题。
+
+### 响应体形状
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `invocations` | `InvocationRecord[]` | 环回缓冲内条目（时间序，最新在后） |
+| `total` | `number` | 当前缓冲条目数（≤50） |
+| `generatedAt` | `string`(ISO) | 快照生成时刻——面板 in-flight 已进行时长的时钟基准（cycle-64：与 startedAt 同为宿主进程时钟） |
+| `diagnostics` | `FeedDiagnostics \| null` | 通道计数（cycle-47）；`null`=旧宿主无此字段（协议三态见下） |
+
+### InvocationRecord 字段（12）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `callId` | `string` | 宿主调用 ID（tools/result 按 exec.callId 配对） |
+| `name` | `string` | 工具名（`anic_*` 前缀或 `skill`） |
+| `argumentsPreview` | `string` | 模型原始参数串（未解析），截断 200 字符 |
+| `turn` / `step` | `number?` | 会话轮/步坐标（如 `t8/s1`） |
+| `startedAt` | `number` | epoch 开始时刻（in-flight 已进行时长的基准） |
+| `endedAt` | `number?` | epoch 结束时刻（in-flight 未落定则缺省） |
+| `status` | `'in-flight' \| 'done' \| 'error'` | 三态生命周期 |
+| `error` | `{name, code, reason?}?` | error 态的错误三元组 |
+| `durationMs` | `number?` | done/error 态耗时（终态精确值；in-flight 不设） |
+| `resultPreview` | `string?` | 结果内容预览（cycle-48，截断 200 字符对齐 argumentsPreview；提取自 tools/result 的 content 文本块；错误调用无此字段） |
+| `possiblyOrphaned` | `boolean?` | in-flight 超 15 分钟：结束事件大概率永不到来，如实标记 |
+
+### FeedDiagnostics 五计数（排障语义：feed 空时区分「事件没到」与「到了被过滤」）
+
+| 字段 | 说明 |
+| --- | --- |
+| `sessionEvents` | 订阅后看到的 session/event 事件总数（任意类型） |
+| `sessionToolCalls` | 其中 `tool/call` 事件数（任意工具名） |
+| `toolsResults` | `tools/result` 事件总数（任意工具） |
+| `anicCalls` | 通过过滤、进入 feed 的开始相位数 |
+| `anicResults` | 结束相位到达且 feed 内有对应记录的次数 |
+
+全 0 = 事件没到（宿主未派发/监听未接线）；`sessionToolCalls>0` 但 `anicCalls=0` = 到了但被过滤（调用不属本插件能力面）。两者排障动作不同。
+
+### 语义要点
+
+- **过滤面**：`isAnicInvocation` = 工具名 `anic_*` 前缀，或工具名 `skill` 且参数 JSON 解析后 `name === 'ai-native-iteration-cycle'`（解析失败回退子串——误报优先于漏报）。
+- **per-host 进程语义**：feed 是宿主进程内存态——主宿主的调用只出现在主宿主本路由的响应里，测试宿主看不到（cycle-47 实证：双宿主并行时各自计数独立）。跨进程调用史查 flow-tracker（磁盘持久化）。
+- **协议三态**：新字段（`diagnostics`/`resultPreview`）缺省=旧宿主（渲染层跳过不伪造）；`diagnostics: null`=路由已知无数据。客户端契约见 [UI功能域与界面组件规划.md](UI功能域与界面组件规划.md) §2.6-§2.11。
+- **本端点无工作区依赖**（实时缓冲在内存，不读磁盘工件）。与 flow-tracker（`.cycles/flow-tracker.json`，持久化调用史）互补：invocations/live 是**当下**的环回窗口，flow-tracker 是**持久**的审计记录。接线细节见 [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md)。
 
 | 码 | 条件 | 体 |
 | --- | --- | --- |
