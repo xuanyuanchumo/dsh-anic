@@ -89,6 +89,23 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 写侧 actions 收口 → ✅ 本轮落地（见 §2.6）。
 
+### 2.7 live 域动态白盒补录（cycle-47..50 三轮连续落地）
+
+实时调用分区的白盒能力在四个维度完成闭环（本节为 cycle-48/49 的文档欠账补录）：
+
+| 维度 | 落地轮 | 交付物 | 真机证据 |
+|---|---|---|---|
+| **通道诊断计数**（「事件没到」vs「到了被过滤」区分） | cycle-47 T-4702 | `renderInvocationsTypes.ts` `FeedDiagnosticsJson` + `renderInvocations.ts` `feedDiagnosticsLine()`（`data-anic-feed-diagnostics` 契约标记，空态/列表态双渲染）+ zh/en `live.diagnostics` 键 | 测试宿主两态对比：调用前「事件 0 · 工具调用 0 · 结果 2 · anic 调用 0」→ 调用后「事件 15 · 工具调用 1 · 结果 3 · anic 调用 1 · anic 结果 1」 |
+| **结果预览**（动态白盒三元组「参数→状态→**结果**」最后一元） | cycle-48 T-4801（代码）+ cycle-49 T-4901（真机） | 宿主 `InvocationRecord.resultPreview`（`invocationFeedPreview.ts` `extractResultPreview` 纯函数——官方冻结载荷 `content` 文本块提取，200 字符对齐 argumentsPreview；isError 不提取）+ 客户端 `InvocationJson.resultPreview` + done 态渲染（`⇒` 前缀独立行，`data-anic-invocation-result` 标记，flexBasis 100%）+ zh/en `live.resultPreview` 键 | DOM 断言：`anic_status 完成 88ms t3/s1 {"flowLimit": 3} ⇒ {"statusUrl":"…","desktopNote":"…dsh-app://…"}`——参数与结果成对呈现；anic-cycle49-result-preview.png |
+| **契约权威源**（宿主 asar 考古） | cycle-48 T-4801a | dsh-tools `materializeFinalResult` 完整契约编码进 `invocationFeedPreview.ts` 注释：`{content: ContentBlock[], meta?, additionalContexts?, isError, error?, concludesTurn?, value}` deepFreeze 后派发，observer 收 (exec, result) 双参 | asar 定向读取（marker 字符串定位） |
+| **latestCycle 数值序**（Cycle 全景行数据真实性） | cycle-50 T-5001 | `orgStatus.ts` reduce 数值序取最新（字典序假象「最新 cycle-9」修复——缺陷潜伏 40 轮） | DOM 前后对比：修复前「最新 cycle-9」→ 修复后「最新 cycle-50」 |
+
+结果预览的排障语义（三负例钉死，见 invocationsRender.test.ts）：
+- done 无预览（空结果/旧 feed）→ 不渲染节点（不伪造空预览）；
+- error 态 → 不渲染（error 三元组已有专属行）；
+- in-flight 态 → 不渲染（尚未有返回）。
+渲染层不做二次截断——截断是宿主提取层单一职责（数据面/渲染面分离）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |
