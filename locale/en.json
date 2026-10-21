@@ -92,7 +92,8 @@
     "resultPreview": " ⇒ {preview}",
     "resultPreviewLabel": "returned",
     "turnDensity": " · {rate} calls/min",
-    "turnCompletedAt": " · completed at {at}"
+    "turnCompletedAt": " · completed at {at}",
+    "elapsed": "elapsed {sec}s"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",

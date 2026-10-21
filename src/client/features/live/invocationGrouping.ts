@@ -139,3 +139,33 @@ export function turnCompletedAt(items: InvocationJson[]): string | null {
   const ss = String(d.getSeconds()).padStart(2, '0');
   return t('live.turnCompletedAt', { at: `${hh}:${mm}:${ss}` });
 }
+
+/**
+ * cycle-64（T-6401 in-flight 时序脉动量化）：运行中调用的**已进行时长**。
+ *
+ * in-flight 行此前只有脉冲动画点与「进行中」文案——「这调用跑了多久」
+ * 不可见；done/error 行有 durationMs，运行中行没有任何时长语义。用户
+ * 目标「运行状态白盒透明化**量化**」在 in-flight 态缺一元。
+ *
+ * 时钟基准裁决：elapsed = generatedAt（feed 快照时刻）− startedAt，**不用
+ * 客户端 Date.now()**——generatedAt 与 startedAt 同为宿主进程时钟（同源
+ * 无偏斜）；客户端时钟与宿主时钟可能跨机偏移，用它算 elapsed 会把偏移
+ * 伪装成耗时。脉动语义：每轮 2s 轮询的响应携带新鲜 generatedAt →
+ * elapsed 随真实时间自然前进（调用跑 10s 面板会看到 2→4→6→8→10s）。
+ *
+ * 诚实门槛：
+ * - 非 in-flight（done/error）→ null（durationMs 已有终态时长语义）；
+ * - startedAt 非法（≤0/非有限）→ null（与 turnTimeRange 门槛同构）；
+ * - generatedAtMs 非有限（旧宿主缺字段/不可解析形状）→ null；
+ * - elapsed < 0（时钟异常：快照时刻早于开始时刻）→ null（不显示负数
+ *   时长——宁可跳过不解释异常）。
+ * 精度：整秒向下取整（0.6s 显示「已进行 0s」是保守诚实——不进位成 1s）。
+ */
+export function inFlightElapsedMs(inv: InvocationJson, generatedAtMs: number): number | null {
+  if (inv.status !== 'in-flight') return null;
+  if (typeof inv.startedAt !== 'number' || !Number.isFinite(inv.startedAt) || inv.startedAt <= 0) return null;
+  if (!Number.isFinite(generatedAtMs)) return null;
+  const elapsed = generatedAtMs - inv.startedAt;
+  if (elapsed < 0) return null;
+  return elapsed;
+}

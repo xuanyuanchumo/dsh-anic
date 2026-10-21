@@ -186,6 +186,21 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 真机证据：测试宿主真实模型（GLM-5.3）两次调用 anic_status 后 Turn 5/Turn 6 组 summary「Turn 5（1 次调用） · 03:13:40–03:13:40 · 跨度 0s · 完成于 03:13:40」「Turn 6（1 次调用） · 03:16:43–03:16:43 · 跨度 0s · 完成于 03:16:43」实锤——完成时刻渲染+单条组密度不渲染（除零纪律）双语义真机符合（cycle-63 测试报告 §5）。
 
+## 2.11b live 域：in-flight 已进行时长（cycle-64 T-6401 落地，cycle-60 三候选收官）
+
+**背景**：in-flight 行此前只有脉冲动画点与「进行中」文案——「这调用跑了多久」不可见；done/error 行有 durationMs，运行中行没有任何时长语义。用户目标「运行状态白盒透明化**量化**」在 in-flight 态缺一元。
+
+| 决策点 | 选择 | 理由 |
+|---|---|---|
+| 时钟基准 | elapsed = 快照时刻（generatedAt）− startedAt | 同为宿主进程时钟（同源无偏斜）；客户端 Date.now() 与宿主时钟可能跨机偏移——偏移会伪装成耗时 |
+| 脉动机制 | 每轮 2s 轮询响应携带新鲜 generatedAt | elapsed 随真实时间自然前进（调用跑 10s 面板看到 2→4→6→8→10s）——无需任何客户端计时器 |
+| 取整 | 整秒向下 | 0.6s 显示「已进行 0s」是保守诚实——不进位成 1s |
+| done/error 行不渲染 | durationMs 接管终态语义 | 两态不重复；终态时长是精确值（宿主记录），运行中是快照估算 |
+| 时钟异常（elapsed<0） | 跳过不渲染 | 不显示负数时长——宁可跳过不解释异常 |
+| 落位 | invocationGrouping.ts inFlightElapsedMs 纯函数（141→171 行） | T3 拆分延续零 React 依赖；renderInvocations.ts 217 行安全 |
+
+真机证据：测试宿主真实模型（GLM-5.3）调用 anic_evaluate（27.98s 长耗时调用）——in-flight 行「anic_evaluate 执行中 已进行 21s t8/s1 {"dimensions": "E1"}」→ 23s → 26s 随轮询自然脉动前进；done 后 elapsedNode 消失+「完成 27982ms」接管；Turn 8 组「完成于 03:41:33」（03:41:05 开始+27.98s 落定——时间自洽可验算）（cycle-64 测试报告 §5）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |

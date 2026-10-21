@@ -434,3 +434,74 @@ describe('renderInvocations —— cycle-63 T-6301/T-6302 组密度与组完成�
     expect(html).toContain('完成于');
   });
 });
+
+describe('renderInvocations —— cycle-64 T-6401 in-flight 已进行时长（时序脉动量化）', () => {
+  /** 快照时刻与 startedAt 同源时钟的自洽夹具：genAt = startedAt + elapsed。 */
+  function snapAt(invocations: InvocationJson[], genMs: number): InvocationsJson {
+    return { invocations, total: invocations.length, generatedAt: new Date(genMs).toISOString() };
+  }
+
+  it('in-flight 行渲染已进行时长：elapsed = 快照时刻 − startedAt（宿主同源时钟）', () => {
+    const start = Date.now() - 8_000;
+    const gen = Date.now(); // 快照时刻 ≈ startedAt + 8s
+    const html = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'fly', turn: 4, step: 1, startedAt: start, status: 'in-flight' }),
+    ], gen), null));
+    expect(html).toContain('data-anic-invocation-elapsed');
+    expect(html).toMatch(/已进行 [78]s/); // 8s ± 取整边界（Date.now 双取的毫秒差）
+  });
+
+  it('脉动语义：同一 in-flight 调用随快照时刻前进（2s 轮询 → 数字自然增长）', () => {
+    const start = Date.now() - 5_000;
+    const row1 = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'fly', turn: 4, startedAt: start, status: 'in-flight' }),
+    ], start + 5_000), null));
+    const row2 = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'fly', turn: 4, startedAt: start, status: 'in-flight' }),
+    ], start + 9_400), null));
+    expect(row1).toContain('已进行 5s');
+    expect(row2).toContain('已进行 9s'); // 9.4s 向下取整 9s
+  });
+
+  it('向下取整：0.6s 显示已进行 0s（保守诚实——不进位成 1s）', () => {
+    const start = Date.now() - 600;
+    const html = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'just', turn: 2, startedAt: start, status: 'in-flight' }),
+    ], start + 600), null));
+    expect(html).toContain('已进行 0s');
+  });
+
+  it('done/error 行不渲染已进行时长（durationMs 已有终态时长语义）', () => {
+    const base = Date.now() - 10_000;
+    const html = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'ok', turn: 3, startedAt: base, endedAt: base + 100, status: 'done', durationMs: 100 }),
+    ], Date.now()), null));
+    expect(html).not.toContain('data-anic-invocation-elapsed');
+    expect(html).not.toContain('已进行');
+  });
+
+  it('快照时刻早于 startedAt（时钟异常）：不渲染（不显示负数时长——宁可跳过）', () => {
+    const start = Date.now();
+    const html = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'weird', turn: 3, startedAt: start, status: 'in-flight' }),
+    ], start - 5_000), null));
+    expect(html).not.toContain('data-anic-invocation-elapsed');
+    expect(html).not.toContain('已进行');
+  });
+
+  it('startedAt 非法（≤0 占位）：不渲染（与 turnTimeRange 门槛同构——零伪造）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snapAt([
+      inv({ callId: 'legacy', turn: 1, startedAt: 0, status: 'in-flight' }),
+    ], Date.now()), null));
+    expect(html).not.toContain('data-anic-invocation-elapsed');
+  });
+
+  it('generatedAt 不可解析形状（旧宿主）：不渲染（genMs NaN 门槛自然跳过）', () => {
+    const legacy = { ...snapAt([
+      inv({ callId: 'fly', turn: 1, startedAt: Date.now() - 3_000, status: 'in-flight' }),
+    ], Date.now()), generatedAt: 'not-a-date' } as InvocationsJson;
+    const html = renderToStaticMarkup(renderInvocations(legacy, null));
+    expect(html).not.toContain('data-anic-invocation-elapsed');
+    expect(html).not.toContain('已进行');
+  });
+});

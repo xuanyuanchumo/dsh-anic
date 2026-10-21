@@ -28,7 +28,7 @@ const GROUP_RENDER_CAP = 40;
 // cycle-60 T3 拆分：分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/
 // turnTimeRange/turnDensity/turnCompletedAt）迁至 invocationGrouping.ts——
 // 「算什么」与「怎么渲」分离。
-import { groupByTurn, mostRecentCompletedKey, turnTimeRange, turnDensity, turnCompletedAt } from './invocationGrouping.ts';
+import { groupByTurn, mostRecentCompletedKey, turnTimeRange, turnDensity, turnCompletedAt, inFlightElapsedMs } from './invocationGrouping.ts';
 
 /**
  * in-flight 状态点的脉冲动画：样式本体迁移至 components/statusDot.ts（B4 合并
@@ -51,8 +51,14 @@ function statusText(inv: InvocationJson): string {
   return t('live.statusDone');
 }
 
-/** 单条调用行（分组/平铺共用；既有 data-anic-* 标记是测试与消费方契约，不改名）。 */
-function invocationRow(inv: InvocationJson): ReactElement {
+/** 单条调用行（分组/平铺共用；既有 data-anic-* 标记是测试与消费方契约，不改名）。
+ *  genMs：本轮 feed 快照时刻（epoch ms，由 renderInvocations 从 data.generatedAt
+ *  解析一次传入）——in-flight 已进行时长的基准（T-6401）。 */
+function invocationRow(inv: InvocationJson, genMs?: number): ReactElement {
+  // T-6401：in-flight 已进行时长（时序脉动量化）——基准用快照时刻而非
+  // 客户端时钟（跨机偏移会伪装成耗时，见 invocationGrouping.inFlightElapsedMs
+  // 的时钟基准裁决）。整秒向下取整；非法形状静默跳过。
+  const elapsedMs = inv.status === 'in-flight' && genMs !== undefined ? inFlightElapsedMs(inv, genMs) : null;
   return createElement(
     'div',
     {
@@ -70,6 +76,10 @@ function invocationRow(inv: InvocationJson): ReactElement {
     createElement('span', { style: { color: token('anic-text-strong') } }, inv.name),
     createElement('span', null, statusText(inv)),
     typeof inv.durationMs === 'number' ? createElement('span', { style: { color: token('anic-text-dim') } }, `${String(inv.durationMs)}ms`) : null,
+    elapsedMs !== null
+      ? createElement('span', { 'data-anic-invocation-elapsed': 'true', style: { color: token('anic-status-active') } },
+          t('live.elapsed', { sec: String(Math.floor(elapsedMs / 1000)) }))
+      : null,
     typeof inv.turn === 'number' && typeof inv.step === 'number' ? createElement('span', { style: { color: token('anic-text-faint') } }, `t${String(inv.turn)}/s${String(inv.step)}`) : null,
     createElement('span', { style: { color: token('anic-text-faint'), overflowWrap: 'anywhere' } },
       inv.error ? `${inv.error.name}(${inv.error.code})${inv.error.reason ? `: ${inv.error.reason.slice(0, 120)}` : ''}` : inv.argumentsPreview),
@@ -116,6 +126,10 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
   // cycle-41：概览量化（运行中/失败计数进标题行——「共有多少」一眼可读）。
   const running = data === null ? 0 : data.invocations.filter((i) => i.status === 'in-flight').length;
   const errors = data === null ? 0 : data.invocations.filter((i) => i.status === 'error').length;
+  // T-6401：feed 快照时刻（与 startedAt 同为宿主进程时钟）——in-flight
+  // 已进行时长基准。解析一次全行共用；不可解析（旧宿主/异常形状）→ NaN，
+  // inFlightElapsedMs 门槛自然跳过（零伪造）。
+  const genMs = data === null ? undefined : Date.parse(data.generatedAt);
   return createElement(
     'div',
     { 'data-anic-invocations': 'section', style: { borderTop: `1px solid ${token('anic-border')}` } },
@@ -158,7 +172,7 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
               : createElement('div', { 'data-anic-invocations-autorefresh-off': 'true', style: { fontSize: 10, color: token('anic-warn-text'), paddingBottom: 2 } }, t('live.pollOff')),
             groups === null
               // 平铺模式（零 turn 元数据）：与分组改造前逐字节同构——既有断言面。
-              ? data.invocations.map((inv) => invocationRow(inv))
+              ? data.invocations.map((inv) => invocationRow(inv, genMs))
               // 分组模式：details 折叠。cycle-41（用户目标 A）默认展开语义：
               //   组默认展开 ⇔ 组内含**运行中**调用（实时透明）或组内含**最近
               //   一次已完成**的调用；其余历史组默认折叠收纳。
@@ -191,7 +205,7 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
                       turnCompletedAt(g.items),
                       gRunning ? createElement('span', { style: { color: token('anic-status-active'), marginLeft: 6 } }, t('live.groupRunningSuffix', { count: String(g.items.filter((i) => i.status === 'in-flight').length) })) : null),
                     // Top5 截限：渲染前 GROUP_RENDER_CAP 条，其余以计数行收纳。
-                    ...g.items.slice(0, GROUP_RENDER_CAP).map((inv) => invocationRow(inv)),
+                    ...g.items.slice(0, GROUP_RENDER_CAP).map((inv) => invocationRow(inv, genMs)),
                     g.items.length > GROUP_RENDER_CAP
                       ? createElement('div', { 'data-anic-invocation-truncated': 'true', style: { fontSize: 10, color: token('anic-text-faint'), padding: '2px 0' } },
                           t('live.groupTruncated', { hidden: String(g.items.length - GROUP_RENDER_CAP), total: String(g.items.length) }))

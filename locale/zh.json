@@ -92,7 +92,8 @@
     "resultPreview": " ⇒ {preview}",
     "resultPreviewLabel": "返回",
     "turnDensity": " · {rate} 次/分钟",
-    "turnCompletedAt": " · 完成于 {at}"
+    "turnCompletedAt": " · 完成于 {at}",
+    "elapsed": "已进行 {sec}s"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",
