@@ -21,7 +21,7 @@ import { createElement, useCallback, useRef, useState, type ReactElement } from 
 import { createPanelStore } from './components/panelStore.ts';
 import { bindPanelActions } from './components/panelActions.ts';
 import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
-import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
+import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
@@ -33,6 +33,7 @@ import { isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleL
 import { governanceTargets } from './governanceTargets.ts';
 import { isBudget, BUDGET_URL, type BudgetJson } from './features/budget/renderBudget.ts';
 import { isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
+import { isTechDebtListing, TECH_DEBT_URL, type TechDebtListingJson } from './features/techdebt/renderTechDebt.ts';
 import { isFlowStatus, isObjectLike } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
@@ -129,6 +130,8 @@ export function WorkflowGraphPanel(): ReactElement {
     ...governanceTargets(actions, ledgerLimit),
     // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
     { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { actions.setSkillHealth(v as SkillHealthJson); } },
+    // cycle-54（T-5401）：tech-debt 队列并进 4s 档（技能健康的改进建议语义簇）。
+    { url: TECH_DEBT_URL, guard: isTechDebtListing, apply: (v) => { actions.setTechDebt(v as TechDebtListingJson); } },
     { url: BUDGET_URL, guard: isBudget, apply: (v) => { actions.setBudget(v as BudgetJson); } },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
@@ -213,6 +216,9 @@ export function WorkflowGraphPanel(): ReactElement {
     // cycle-20（P3）：技能健康面板——FlowTracker 调用历史的健康分析面，
     // 旅程排序在 org 全景后、流程状态机前（「组织状态」→「技能健康」→「流程白盒」）。
     createElement(SkillHealthSection, { store }),
+    // cycle-54（T-5401）：技术债务队列——「技能健康」之后呈现「欠了什么债」
+    //（提案工作队列 + 已消费计数 + 非 TechDebtEntry 形态如实跳过说明）。
+    createElement(TechDebtSection, { store }),
     // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
     // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
     createElement(FlowsSection, { store, enabled: flowsViewOn }),

@@ -29,6 +29,7 @@ import { renderDiagnostics } from '../features/diagnostics/renderDiagnostics.ts'
 import { renderOrgStatus } from '../features/org/renderOrgStatus.ts';
 import { renderAutonomyGauge } from '../features/autonomy/renderAutonomyGauge.ts';
 import { renderSkillHealth } from '../features/skillhealth/renderSkillHealth.ts';
+import { renderTechDebt } from '../features/techdebt/renderTechDebt.ts';
 import { renderFlows } from '../features/flows/renderFlows.ts';
 import { renderCyclesTimeline } from '../features/cycles/renderCyclesTimeline.ts';
 import { renderLedger } from '../features/ledger/renderLedger.ts';
@@ -52,6 +53,7 @@ const selLedgerVerify = (s: PanelState) => s.ledgerVerify;
 const selHitlAudit = (s: PanelState) => s.hitlAudit;
 const selBudget = (s: PanelState) => s.budget;
 const selSkillHealth = (s: PanelState) => s.skillHealth;
+const selTechDebt = (s: PanelState) => s.techDebt;
 const selInvocations = (s: PanelState) => s.invocations;
 const selInvocationsError = (s: PanelState) => s.invocationsError;
 const selInvocationsAnnounce = (s: PanelState) => s.invocationsAnnounce;
@@ -139,6 +141,15 @@ function SkillHealthSectionImpl({ store }: SectionProps): ReactElement {
   return renderFoldableSection({ id: 'skillHealth', title: t('fold.skillHealth'), children: renderSkillHealth(skillHealth) });
 }
 export const SkillHealthSection = memo(SkillHealthSectionImpl);
+
+// ── 技术债务队列（cycle-54 T-5401 · 4s 档）─────────────────────────────
+// 旅程排序在技能健康后（「技能健康」→「技能欠的债」相邻呈现）；提案是评估
+// 失败维度的产物，与技能健康同属「改进建议」语义簇。
+function TechDebtSectionImpl({ store }: SectionProps): ReactElement {
+  const techDebt = usePanelSlice(store, selTechDebt);
+  return renderFoldableSection({ id: 'techDebt', title: t('fold.techdebt'), children: renderTechDebt(techDebt) });
+}
+export const TechDebtSection = memo(TechDebtSectionImpl);
 
 function FlowsSectionImpl({ store, enabled }: GatedSectionProps): ReactElement {
   const flowsStatus = usePanelSlice(store, selFlowsStatus);

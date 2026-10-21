@@ -274,6 +274,15 @@
     "flows": "Flow state machines",
     "ledger": "Gate ledger events",
     "hitl": "HITL audit queue",
-    "budget": "Governance budget"
+    "budget": "Governance budget",
+    "techdebt": "Tech debt"
+  },
+  "techdebt": {
+    "title": "Tech-debt queue: ",
+    "summary": "open {open} · resolved {resolved} · skipped {skipped}",
+    "empty": "Zero debt — no unconsumed proposals (only failed eval dimensions produce them).",
+    "more": "…{count} more not shown (cap)",
+    "resolvedCount": "{count} consumed (with audit fields)",
+    "skipped": "{count} non-proposal file(s) (hover title for reason)"
   }
 }

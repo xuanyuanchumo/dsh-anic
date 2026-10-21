@@ -21,6 +21,7 @@ import type { LedgerListJson, LedgerVerifyJson } from './features/ledger/renderL
 import type { HitlAuditJson } from './features/hitl/renderHitl.ts';
 import type { BudgetJson } from './features/budget/renderBudget.ts';
 import type { SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
+import type { TechDebtListingJson } from './features/techdebt/renderTechDebt.ts';
 import type { InvocationsJson } from './features/live/renderInvocations.ts';
 import type { PanelStore } from './components/panelStore.ts';
 
@@ -54,6 +55,8 @@ export interface PanelState {
   hitlAudit: HitlAuditJson | null;
   budget: BudgetJson | null;
   skillHealth: SkillHealthJson | null;
+  /** tech-debt 队列（cycle-54 T-5401——4s 档治理证据簇扩展）。 */
+  techDebt: TechDebtListingJson | null;
   invocations: InvocationsJson | null;
   invocationsError: string | null;
   invocationsAnnounce: string;
@@ -85,6 +88,7 @@ export function createInitialPanelState(): PanelState {
     hitlAudit: null,
     budget: null,
     skillHealth: null,
+    techDebt: null,
     invocations: null,
     invocationsError: null,
     invocationsAnnounce: '',

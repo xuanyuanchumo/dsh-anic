@@ -274,6 +274,15 @@
     "flows": "流程状态机",
     "ledger": "门禁账本事件流",
     "hitl": "HITL 审计队列",
-    "budget": "治理预算"
+    "budget": "治理预算",
+    "techdebt": "技术债务"
+  },
+  "techdebt": {
+    "title": "技术债务队列：",
+    "summary": "待处理 {open} · 已消费 {resolved} · 跳过 {skipped}",
+    "empty": "零欠债——无未消费提案（评估失败维度才会产提案）。",
+    "more": "…还有 {count} 条未展示（截限）",
+    "resolvedCount": "已消费 {count} 条（带审计字段）",
+    "skipped": "非提案形态 {count} 个文件（title 悬停见原因）"
   }
 }
