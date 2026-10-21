@@ -53,6 +53,13 @@ export function registerSkillHealthRoute(
       // totalInvocations: 0（不伪造、不 500——「没有调用历史」是合法事实）。
       const state = loadFlowTracker(join(root, '.cycles'));
       const report = analyzeSkillHealth(state);
+      // cycle-57 T-5702 协议区分：JSON 序列化丢弃 undefined，宿主对「近 7 天无
+      // 网关调用」的 recentSuccessRate=undefined 显式转 null——协议上可辨
+      // 「新宿主无近期数据」(null) 与「旧宿主无此概念」(字段缺省)。
+      const reportJson = {
+        ...report,
+        scripts: report.scripts.map((s) => ({ ...s, recentSuccessRate: s.recentSuccessRate === undefined ? null : s.recentSuccessRate })),
+      };
       // cycle-55（T-5501）：健康建议落 tech-debt 提案（写面合流——改进建议
       // 从「看完即散」变工作队列承载）。同日幂等：重复轮询不堆重复提案；
       // 落盘失败不阻塞读面（面板照常拿 report——债务落盘是旁路增强，读面
@@ -66,7 +73,7 @@ export function registerSkillHealthRoute(
         log.debug(`health→debt persist failed (non-blocking): ${e instanceof Error ? e.message : String(e)}`, requestId);
       }
       log.debug(`skill health: ${String(report.totalInvocations)} invocations, ${String(report.scripts.length)} scripts`, requestId);
-      deps.send(res, 200, report, requestId);
+      deps.send(res, 200, reportJson, requestId);
     },
   });
   if (typeof d === 'function') disposers.push(d);

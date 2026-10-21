@@ -25,6 +25,15 @@ const MIN_SAMPLE = 3;
 const WS_DISPLAY_MAX = 60;
 /** 近期窗口大小：健康分级只看最近 N 条（cycle-53 T-5301——修复应被健康面承认）。 */
 const RECENT_WINDOW = 8;
+/**
+ * 近期窗口时间上限（cycle-57 T-5702）：窗口条目还须 startedAt 距 now ≤ 7 天。
+ * 动机（本仓实证）：flow-tracker 只记网关工具调用，脚本直跑不进账——若某脚本
+ * 修复后不再经工具调用，计数窗口（last 8）里的旧失败**永远出不了窗**，面板
+ * 永久 degraded。「近期」必须同时是时间上的近；时间窗空 = 近 7 天无调用 =
+ * 无法判定当前状态（insufficient），而非拿全史冒充近期。7 天取「近期=一周」
+ * 的朴素语义（非按当日面板表现调参——今日 3-5 天前的失败仍在窗内，属诚实）。
+ */
+const RECENT_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 
 // ── 类型定义 ──
 
@@ -43,8 +52,8 @@ export interface ScriptHealth {
   timeoutRate: number;
   /** 平均耗时（ms）。 */
   avgDurationMs: number;
-  /** 近期窗口成功率（0-1，最近 RECENT_WINDOW 条——cycle-53）。 */
-  recentSuccessRate: number;
+  /** 近期窗口成功率（0-1；最近 RECENT_WINDOW 条且距 now ≤ 7 天——cycle-53/57。undefined=近 7 天无调用，当前状态不可判定）。 */
+  recentSuccessRate?: number;
   /** 最近一次调用时间。 */
   lastInvoked?: string;
 }
@@ -79,8 +88,8 @@ export interface SkillHealthReport {
 
 // ── 纯函数实现 ──
 
-/** 计算单个脚本的健康指标。 */
-function computeScriptHealth(script: string, flows: FlowRecord[]): ScriptHealth {
+/** 计算单个脚本的健康指标（nowMs 供测试注入时钟；缺省由调用方取 Date.now()）。 */
+function computeScriptHealth(script: string, flows: FlowRecord[], nowMs: number): ScriptHealth {
   const total = flows.length;
   const done = flows.filter((f) => f.status === 'DONE').length;
   const timeout = flows.filter((f) => f.status === 'TIMEOUT').length;
@@ -91,14 +100,29 @@ function computeScriptHealth(script: string, flows: FlowRecord[]): ScriptHealth 
   const successRate = total > 0 ? done / total : 0;
   const timeoutRate = total > 0 ? timeout / total : 0;
 
-  // cycle-53 T-5301：近期窗口——只取最近 RECENT_WINDOW 条计算 recentSuccessRate。
-  // 全窗口 successRate 把历史失败永久计入：缺陷修复前的失败调用在修复后仍把
-  // 健康度拉低（本仓实证：workflow-state 全部 3 条失败都是 2026-10-18 的旧 bug
-  // 形态 args 双目录，T-3805 已修，但面板仍标 critical 0%——修复从未被健康面承认）。
-  // recentSuccessRate 展示「当前状态」；successRate 保留「全史统计」——两个量纲并存。
-  const recentFlows = flows.length > RECENT_WINDOW ? flows.slice(-RECENT_WINDOW) : flows;
+  // cycle-53 T-5301 + cycle-57 T-5702：近期窗口——最近 RECENT_WINDOW 条**且**
+  // startedAt 距 now ≤ 7 天（RECENT_MAX_AGE_MS）。计数窗与时间窗取交集：
+  // - 计数窗防陈年调用在低频脚本里独占「近期」语义（cycle-53 根因）；
+  // - 时间窗防「修复后不再经工具调用→旧失败永不出窗→面板永久 degraded」
+  //   （cycle-57 根因，本仓 gate-check/quick-validate/init-cycle 三脚本实证：
+  //   最后失败 10-18/10-20，修复后 1-2 天内成功后即再无网关调用，计数窗里
+  //   3-5 天前的失败持续压顶 degraded/critical）。
+  // 时间窗空 = 近 7 天无调用 = 当前状态不可判定 → recentSuccessRate:
+  // undefined + level 'insufficient'（不拿全史冒充近期，不伪造恢复）。
+  const inAge = flows.filter((f) => {
+    const t = f.startedAt ? Date.parse(f.startedAt) : NaN;
+    return Number.isFinite(t) && nowMs - t <= RECENT_MAX_AGE_MS && nowMs - t >= 0;
+  });
+  // cycle-57：按时间升序排序再取尾部——FlowRecord 追加序不保证时间序（跨天多轮
+  // 交错写入时追加序≠时间序；slice(-N) 在乱序数组上会取到「最晚追加」而非
+  // 「最近发生」——用例实证 3F(10-18)+8D(10-14..21) 追加序尾 8 条含 1 条 F）。
+  const timed = inAge
+    .map((f) => ({ f, t: f.startedAt ? Date.parse(f.startedAt) : 0 }))
+    .sort((a, b) => a.t - b.t)
+    .map((x) => x.f);
+  const recentFlows = timed.slice(-RECENT_WINDOW);
   const recentDone = recentFlows.filter((f) => f.status === 'DONE').length;
-  const recentSuccessRate = recentFlows.length > 0 ? recentDone / recentFlows.length : 0;
+  const recentSuccessRate = recentFlows.length > 0 ? recentDone / recentFlows.length : undefined;
   const lastInvoked = flows[flows.length - 1]?.startedAt;
 
   let level: HealthLevel;
@@ -106,11 +130,20 @@ function computeScriptHealth(script: string, flows: FlowRecord[]): ScriptHealth 
   else if (timeoutRate > SLOW_TIMEOUT_RATE) level = 'slow';
   // cycle-53 T-5301：分级看近期窗口（recentSuccessRate）——修复后的连续成功
   // 应恢复 healthy，而非被历史失败永久钉死在 degraded/critical。
+  // cycle-57 T-5702：时间窗空 → insufficient（当前状态不可判定）。
+  else if (recentSuccessRate === undefined) level = 'insufficient';
   else if (recentSuccessRate < DEGRADED_SUCCESS_RATE) level = 'degraded';
   else if (avgDurationMs > EXPENSIVE_DURATION_MS) level = 'expensive';
   else level = 'healthy';
 
   return { script, level, total, successRate, timeoutRate, avgDurationMs, lastInvoked, recentSuccessRate };
+}
+
+/** suggestFromHealth 的「近期成功率展示串」：undefined=近 7 天无调用。 */
+function recentView(h: ScriptHealth): string {
+  return h.recentSuccessRate === undefined
+    ? '近 7 天无调用'
+    : `${(h.recentSuccessRate * 100).toFixed(0)}%（全史 ${(h.successRate * 100).toFixed(0)}%，${h.total} 次调用）`;
 }
 
 /** 根据健康指标生成改进建议。 */
@@ -122,9 +155,10 @@ function suggestFromHealth(h: ScriptHealth): ImprovementSuggestion | null {
       id: `fix-${h.script}`,
       // cycle-53：critical 也看近期窗口——历史失败率 0% 但近期已恢复的脚本
       // 不该再打 critical（建议仍可生成，严重度按近期实际定）。
-      severity: h.recentSuccessRate < 0.5 ? 'critical' : 'warn',
+      // cycle-57：recentSuccessRate 已收窄非 undefined（degraded 分支保证）。
+      severity: (h.recentSuccessRate ?? 0) < 0.5 ? 'critical' : 'warn',
       script: h.script,
-      description: `${h.script} 近期成功率 ${(h.recentSuccessRate * 100).toFixed(0)}%（全史 ${(h.successRate * 100).toFixed(0)}%，${h.total} 次调用）`,
+      description: `${h.script} 近期成功率 ${recentView(h)}`,
       action: '检查 stderr 日志，定位失败原因，修复后重跑 eval',
     };
   }
@@ -159,12 +193,12 @@ function truncateWs(ws: string): string {
  *
  * 纯函数：无副作用，无 IO。输入状态，输出报告。
  */
-export function analyzeSkillHealth(state: FlowTrackerState): SkillHealthReport {
+export function analyzeSkillHealth(state: FlowTrackerState, nowMs: number = Date.now()): SkillHealthReport {
   const flows = state.flows;
   const scriptNames = [...new Set(flows.map((f) => f.script))];
 
   const scripts = scriptNames
-    .map((name) => computeScriptHealth(name, flows.filter((f) => f.script === name)))
+    .map((name) => computeScriptHealth(name, flows.filter((f) => f.script === name), nowMs))
     .sort((a, b) => b.total - a.total);
 
   const suggestions = scripts
@@ -193,9 +227,13 @@ export function formatHealthSummary(report: SkillHealthReport): string {
   for (const s of report.scripts) {
     const icon = s.level === 'healthy' ? '✅' : s.level === 'insufficient' ? '⚪' : '⚠️';
     // cycle-53：近史/全史分离展示——两量纲并存（近期=当前状态，全史=累计统计）。
-    const recentPct = (s.recentSuccessRate * 100).toFixed(0);
+    // cycle-57：recentSuccessRate 可 undefined（近 7 天无调用）——显示「无近期数据」。
+    const recentPct = s.recentSuccessRate === undefined ? '无近期数据' : `${(s.recentSuccessRate * 100).toFixed(0)}%`;
     const overallPct = (s.successRate * 100).toFixed(0);
-    const rateView = recentPct === overallPct ? `${overallPct}%` : `近期 ${recentPct}%/全史 ${overallPct}%`;
+    // cycle-57 修：数值相等判定（旧代码拿 '100%' 与 '100' 做字符串比较——恒不等，
+    // 单值形态永不出现，m-b「近期=全史」也打双量纲）。undefined 时恒双形态。
+    const sameRate = s.recentSuccessRate !== undefined && (s.recentSuccessRate * 100).toFixed(0) === overallPct;
+    const rateView = sameRate ? `${overallPct}%` : `近期 ${recentPct}/全史 ${overallPct}%`;
     lines.push(`${icon} ${s.script}: ${s.level}（${s.total} 次，${rateView}）`);
   }
   if (report.suggestions.length > 0) {

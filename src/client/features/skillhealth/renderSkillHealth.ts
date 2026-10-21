@@ -23,8 +23,12 @@ export interface ScriptHealthJson {
   successRate: number;
   timeoutRate: number;
   avgDurationMs: number;
-  /** 近期窗口成功率（cycle-53 T-5301——与全史双量纲并存；旧宿主缺省回落全史）。 */
-  recentSuccessRate?: number;
+  /**
+   * 近期窗口成功率（cycle-53 T-5301——与全史双量纲并存）。
+   * cycle-57 T-5702 协议形态：number=近期值；null=新宿主「近 7 天无网关调用」
+   * （当前状态不可判定——渲染陈旧徽标）；缺省 undefined=旧宿主无此概念（回落全史）。
+   */
+  recentSuccessRate?: number | null;
   lastInvoked?: string;
 }
 
@@ -53,8 +57,25 @@ function levelColor(level: ScriptHealthJson['level']): string {
 }
 
 /** cycle-53 T-5301：近期窗口成功率（旧宿主无字段时回落全史——零回归面）。 */
-function recentRate(s: ScriptHealthJson): number {
-  return typeof s.recentSuccessRate === 'number' ? s.recentSuccessRate : s.successRate;
+/** 近期成功率（cycle-57：null=新宿主近 7 天无调用——回落全史会拿累计统计冒充当前状态）。 */
+function recentRate(s: ScriptHealthJson): number | undefined {
+  return typeof s.recentSuccessRate === 'number' ? s.recentSuccessRate : undefined;
+}
+/**
+ * cycle-57 协议区分：显式 null = 新宿主「近 7 天无网关调用」（陈旧徽标可见）；
+ * 字段缺省 = 旧宿主无此概念（回落全史，零回归面）。JSON 序列化丢弃 undefined，
+ * 故宿主路由对 undefined 显式转 null，两种形态在协议上可辨。
+ */
+function isStale(s: ScriptHealthJson): boolean {
+  return s.recentSuccessRate === null;
+}
+/** 主数值：近期优先；无近期数据回落全史并标注（title 悬停可辨）。 */
+function primaryRate(s: ScriptHealthJson): number {
+  return recentRate(s) ?? s.successRate;
+}
+/** title 的近期文本：陈旧→无数据说明；旧宿主→回落全史数值。 */
+function recentTitleText(s: ScriptHealthJson): string {
+  return isStale(s) ? t('health.noRecentData') : pct(recentRate(s) ?? s.successRate);
 }
 
 /** 等级 → 字形（色盲第二通道；与色同源单一映射表）。 */
@@ -110,9 +131,13 @@ export function renderSkillHealth(data: SkillHealthJson | null): ReactElement | 
             createElement('span', { style: { color: token('anic-text-strong'), minWidth: 90, overflowWrap: 'anywhere' } }, s.script),
             // cycle-53 T-5301：微条形/主数值看近期窗口（分级已切近期——展示同一量纲）；
             // 全史数值挂 title 提示（悬停可见累计真相），两量纲并存不丢史。
-            createElement('span', { 'data-anic-skill-health-bar': pct(recentRate(s)), title: t('health.recentVsOverall', { recent: pct(recentRate(s)), overall: pct(s.successRate) }), style: { width: 56, height: 6, background: token('anic-border'), flexShrink: 0, display: 'inline-block' } },
-              createElement('span', { style: { display: 'block', width: pct(recentRate(s)), height: '100%', background: levelColor(s.level) } })),
-            createElement('span', { title: t('health.recentVsOverall', { recent: pct(recentRate(s)), overall: pct(s.successRate) }), 'data-anic-skill-health-rate': pct(recentRate(s)), style: { color: token('anic-text-dim') } }, pct(recentRate(s))),
+            // cycle-57 T-5702：recentSuccessRate 可 null（新宿主近 7 天无调用）——
+            // 主数值回落全史但 title 标注「无近期数据」（不拿累计冒充当前状态）；
+            // 旧宿主字段缺省（undefined）→ recentTitleText 回落全史数值（零回归面）。
+            createElement('span', { 'data-anic-skill-health-bar': pct(primaryRate(s)), title: t('health.recentVsOverall', { recent: recentTitleText(s), overall: pct(s.successRate) }), style: { width: 56, height: 6, background: token('anic-border'), flexShrink: 0, display: 'inline-block' } },
+              createElement('span', { style: { display: 'block', width: pct(primaryRate(s)), height: '100%', background: levelColor(s.level) } })),
+            createElement('span', { title: t('health.recentVsOverall', { recent: recentTitleText(s), overall: pct(s.successRate) }), 'data-anic-skill-health-rate': pct(primaryRate(s)), style: { color: token('anic-text-dim') } }, pct(primaryRate(s))),
+            isStale(s) ? createElement('span', { 'data-anic-skill-health-stale': 'true', title: t('health.noRecentData'), style: { color: token('anic-text-faint'), fontSize: 10 } }, '◦7d') : null,
             s.timeoutRate > 0 ? createElement('span', { title: t('health.timeoutRate'), style: { color: token('anic-warn-text') } }, `⏱${pct(s.timeoutRate)}`) : null,
             createElement('span', { title: t('health.avgDuration'), style: { color: token('anic-text-faint') } }, `${String(s.avgDurationMs)}ms`),
             createElement('span', { style: { color: token('anic-text-faint') } }, levelLabel(s.level)),

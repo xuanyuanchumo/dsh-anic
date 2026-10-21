@@ -254,7 +254,8 @@
     "levelExpensive": "Expensive",
     "levelInsufficient": "Insufficient samples",
     "levelUnused": "Unused",
-    "recentVsOverall": "Recent success {recent} · overall {overall}"
+    "recentVsOverall": "Recent success {recent} · overall {overall}",
+    "noRecentData": "No gateway calls in the last 7 days; current state undetermined (showing all-time value)"
   },
   "budget": {
     "title": "Governance budget (.cycles/ workspace)",

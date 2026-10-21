@@ -132,3 +132,40 @@ describe('cycle-53 T-5301 面板近期窗口展示（双量纲不丢史）', () 
     expect(html).toContain('title="近期成功率 40% · 全史 40%"');
   });
 });
+
+describe('cycle-57 T-5702 面板陈旧态（近 7 天无网关调用）', () => {
+  const base = {
+    suggestions: [], overallSuccessRate: 0.5, totalInvocations: 3,
+    generatedAt: '2026-10-21T00:00:00.000Z',
+  };
+
+  it('recentSuccessRate=null（新宿主无近期数据）→ 陈旧徽标 + title 无近期数据说明', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [{
+        script: 'workflow-state', level: 'insufficient', total: 3,
+        successRate: 0, timeoutRate: 0, avgDurationMs: 100,
+        recentSuccessRate: null,
+      }],
+    }));
+    // 陈旧徽标可见（undefined 态可视化——「近 7 天无调用」不是 0% 也不是全史）
+    expect(html).toContain('data-anic-skill-health-stale="true"');
+    expect(html).toContain('◦7d');
+    // title 明确说「当前状态不可判定」而非冒充
+    expect(html).toContain('近 7 天无网关调用，当前状态不可判定（展示全史值）');
+    // 主数值回落全史（0%）——但 title 与徽标共同标注这是全史值
+    expect(html).toContain('data-anic-skill-health-rate="0%"');
+  });
+
+  it('旧宿主字段缺省（undefined 形态）→ 无陈旧徽标 + 回落全史 title（零回归面）', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [{
+        script: 'gate-check', level: 'degraded', total: 5,
+        successRate: 0.4, timeoutRate: 0, avgDurationMs: 200,
+      }],
+    }));
+    expect(html).not.toContain('data-anic-skill-health-stale');
+    expect(html).toContain('title="近期成功率 40% · 全史 40%"');
+  });
+});

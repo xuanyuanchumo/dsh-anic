@@ -126,6 +126,24 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 **留账收口（cycle-55）**：health 建议→tech-debt 提案落盘通道已落地——healthDebtBridge（src/host/evolution/healthDebtBridge.ts）在 skillHealthRoute 读面旁路落盘 .cycles/tech-debt/health-<date>.json（同日幂等/跨日恶化新提案可追踪/损坏重建/落盘失败不阻塞读面）；severity 映射 critical→critical/warn→medium/info→low；dimension=skill:<script>。真机：面板 summary「待处理 0→4」（workflow-state critical+三脚本 medium），8s 复验幂等。
 
+## 2.9 skillhealth 域：时间窗健康（cycle-57 T-5702 落地）
+
+**背景**：cycle-53 加了计数窗（last-8）没加时间窗——脚本修复落地后若再无网关调用（脚本直跑/CI 不进 flow-tracker），计数窗里的旧失败**永不出窗**，面板永久 degraded/critical 标红。「修复从未被健康面承认」的结构性根因。
+
+| 维度 | 决策 | 落点 |
+|---|---|---|
+| 时间窗 | RECENT_MAX_AGE_MS=7 天（一周朴素语义——非按当日面板表现调参；3-5 天前的失败仍在窗内属诚实） | continuousLearning.ts |
+| 窗口交集 | 时间窗 filter（含未来时间戳排除 nowMs-t≥0）→ **按 startedAt 时间升序排序** → slice(-8)（追加序≠时间序——FlowTracker 跨天多轮交错写入） | computeScriptHealth |
+| recentSuccessRate | 可 undefined：number=近期值 / **null=新宿主「近 7 天无网关调用」**（路由显式转 null——JSON 序列化丢弃 undefined，协议三态可辨）/ 字段缺省=旧宿主（回落全史零回归面） | ScriptHealth + skillHealthRoute 序列化 |
+| 分级 | 时间窗空 → level='insufficient'（当前状态不可判定——不拿全史冒充近期）；suggestFromHealth insufficient 不生成建议（无近期数据≠当前故障，历史欠账归 tech-debt 队列管） | 分级链 |
+| 面板陈旧态 | ◦7d 徽标（data-anic-skill-health-stale，title=health.noRecentData）——undefined 态可视化 | renderSkillHealth.ts |
+| 双量纲 | formatHealthSummary「近期 X%/全史 Y%」，数值相等时单值形态（cycle-57 修：旧代码拿 '100%' 与 '100' 字符串比较恒不等——单值形态从不出现） | formatHealthSummary |
+| 测试 | 时间窗 5 钉（insufficient/窗内失败/未来时间戳/乱序排序回归钉/建议不催修）+ 面板陈旧态 2 钉 | continuousLearning.test.ts 22/22 + skillHealthPanel.test.ts 12/12 |
+
+**真机证据（API 直查）**：eval-runner/gate-ledger/org-status 三脚本转 **insufficient**（窗内样本量不足——诚实降级替代「全史统计钉死」）；gate-check 0.625（尾 8=5D3F，3 条 10-18 失败距今 3 天仍在窗内）；quick-validate 0.5（含 10-20 真实失败不洗白）。7 天后无新调用的脚本将自然转 insufficient。
+
+**两缺陷同轮修复**（夹具驱动发现——「夹具暴露实现缺陷时修实现非改夹具迁就」教训）：①formatHealthSummary 单值形态字符串比较 bug；②乱序数组 slice(-8) 取「最晚追加」而非「最近发生」。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |
