@@ -24,12 +24,12 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-// 迁移（cycle-99）：dsh-anic 与 dsh-codegraph-visualizer 是同级兄弟目录。
-// @playwright/test 仍借用验证场地的 node_modules（本仓库不引入 playwright 依赖），
-// 解析顺序：本仓库 node_modules → 同级 dsh-codegraph-visualizer → DSH_ANIC_TEST_WORKSPACE。
+// 自洽化（cycle-43）：测试宿主工作区默认=本仓库自身（数据面与本仓 .cycles 绑定，
+// 与验证场地零默认绑定）。@playwright/test 仍借用工具链（本仓库不引入 playwright
+// 依赖，TD-A1 式过渡态）——解析顺序：本仓库 node_modules → DSH_ANIC_TEST_WORKSPACE。
+// （旧顺序含同级 dsh-codegraph-visualizer 工具链兜底，自洽化后移除默认场地引用。）
 const TOOLCHAIN_ROOTS = [
   PLUGIN_ROOT,
-  join(PLUGIN_ROOT, '..', 'dsh-codegraph-visualizer'),
   ...(process.env.DSH_ANIC_TEST_WORKSPACE ? [resolve(process.env.DSH_ANIC_TEST_WORKSPACE)] : []),
 ];
 const CDP_URL = 'http://127.0.0.1:9222';

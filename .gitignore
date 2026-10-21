@@ -5,3 +5,4 @@ artifacts/
 .cycles/
 test-results/
 .dsh/
+.codegraph-visualizer/

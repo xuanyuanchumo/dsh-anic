@@ -14,14 +14,15 @@ import { fileURLToPath } from 'node:url';
 import { buildWorkflowSnapshot } from '../src/shared/snapshotCore.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// 迁移（cycle-99）：本仓库（PLUGIN_ROOT）独立于验证场地。产出物始终写在本仓库内；
-// 数据源 .cycles/ 默认取同级验证场地 dsh-codegraph-visualizer，可用 --workspace 或
-// 环境变量 DSH_ANIC_TEST_WORKSPACE 覆盖（与 start-dsh-test.mjs 同一解析规则）。
+// 自洽化（cycle-43）：本仓库（PLUGIN_ROOT）独立于验证场地。产出物始终写在本仓库内；
+// 数据源 .cycles/ 默认取**本仓库自身**（自举语义：插件可视化自己的迭代历程，与验证
+// 场地零绑定——用户红线「实际不应与 dsh-codegraph-visualizer 项目绑定关系」）。
+// 可用 --workspace 或环境变量 DSH_ANIC_TEST_WORKSPACE 指向任意实际项目覆盖。
 const PLUGIN_ROOT = join(here, '..');
 const WORKSPACE = resolve(
   (process.argv.indexOf('--workspace') !== -1 && process.argv[process.argv.indexOf('--workspace') + 1])
     || process.env.DSH_ANIC_TEST_WORKSPACE
-    || join(PLUGIN_ROOT, '..', 'dsh-codegraph-visualizer'),
+    || PLUGIN_ROOT,
 );
 const CYCLES = join(WORKSPACE, '.cycles');
 
@@ -43,6 +44,10 @@ export interface WorkflowNode {
   x: number;
   y: number;
   result?: string;
+  // cycle-38 W-3 快档：gate-event 节点携带账本 detail 自由文本（snapshotCore
+  // 同步契约——嵌入快照与路由快照共用唯一构建器，两处类型必须一致）。
+  detail?: string;
+  testReport?: { report: string; passed: number; failures: number; errors: number; layers: string[] };
 }
 
 export interface WorkflowEdge {

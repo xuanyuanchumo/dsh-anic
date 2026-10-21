@@ -1,5 +1,18 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.5.0 — init-cycle ↔ workflow-state 联动（cycle-43 T-4302）
+
+### 行为变更（minor）
+
+- **init-cycle 建目录后同步推进状态机**：此前 init-cycle.mjs 只 scaffold 目录+拷模板，
+  不写 `.cycles/workflow-state.json`；而 workflow-state.mjs 的 initState 仅在状态文件
+  不存在时才重建。两脚本各管半边 → `currentCycle` 漂移（本仓实际受害：cycle-27..41
+  期间状态机停在 cycle-26）。修复：scaffoldCycle 尾部调用 syncWorkflowState——
+  loadState（损坏 JSON 走重建）→ currentCycle 仅当新号 > 旧号才前移（数值序兜底
+  防旧号回拉）→ atomicWriteFileSync 原子写。同号幂等（状态文件字节不动）。
+- **新增联动契约测试**：tests/unit/initCycleStateSync.test.ts 7 用例（前移/幂等/
+  防回拉/损坏重建/全新形状/标准键集/写盘存在性），对安装副本黑盒驱动。
+
 ## 2.4.0 — eval-runner 大输出判定器根修（cycle-40 场地实验 #1）
 
 ### 行为变更（minor）

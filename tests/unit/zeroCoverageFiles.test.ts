@@ -189,7 +189,9 @@ describe('workflowGraphData（嵌入快照契约）', () => {
   it('counts 与实际数组长度自洽（nodes/edges/autonomy 字段在场）', () => {
     expect(WORKFLOW_SNAPSHOT.counts.nodes).toBe(WORKFLOW_SNAPSHOT.nodes.length);
     expect(WORKFLOW_SNAPSHOT.counts.edges).toBe(WORKFLOW_SNAPSHOT.edges.length);
-    expect(WORKFLOW_SNAPSHOT.autonomy).toBe('L4');
+    // cycle-43 场地自洽化：嵌入快照默认源=本仓自身 .cycles/（autonomy 由真实
+    // config 判定，当前 L2）——不再钉死场地数据面的 L4。断言收紧为「合法自主级」。
+    expect(['L1', 'L2', 'L3', 'L4']).toContain(WORKFLOW_SNAPSHOT.autonomy);
     expect(WORKFLOW_SNAPSHOT.edges.every((e) => typeof e.from === 'string' && typeof e.to === 'string')).toBe(true);
   });
 });

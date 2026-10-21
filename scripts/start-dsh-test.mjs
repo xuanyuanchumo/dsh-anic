@@ -37,22 +37,24 @@ import { homedir, tmpdir } from 'node:os';
 // ---------- 路径与常量 ----------
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = join(__dirname, '..');           // dsh-anic/
-// 迁移（cycle-99）：dsh-anic 已独立于 dsh-codegraph-visualizer 仓库，两者是同级兄弟目录。
-// DSH 宿主的 cwd 决定「工作区 .cycles/」的解析目标——默认指向同级 dsh-codegraph-visualizer
-// （本插件的验证与测试场地）。可用 --workspace <path> 或环境变量 DSH_ANIC_TEST_WORKSPACE 覆盖。
+// 自洽化（cycle-43）：dsh-anic 独立工程，测试宿主工作区默认取**本仓库自身**
+// （自举语义：DSH 宿主 cwd = dsh-anic，ANIC 面板数据面 = 本仓 .cycles/——插件
+// 可视化自己的迭代历程，与 dsh-codegraph-visualizer 验证场地零默认绑定，
+// 用户红线「实际不应绑定、基于实际的项目进行展示配置管理」）。
+// 可用 --workspace <path> 或环境变量 DSH_ANIC_TEST_WORKSPACE 指向任意实际项目。
 const WORKSPACE = resolveWorkspace();
 const PID_FILE = join(tmpdir(), 'dsh-anic-dsh.pid');
 const CHROME_PID_FILE = join(tmpdir(), 'dsh-anic-chrome.pid');
 const DSH_LOG = join(tmpdir(), 'dsh-anic-dsh.log');
 const CHROME_LOG = join(tmpdir(), 'dsh-anic-chrome.log');
 
-/** 解析 DSH 宿主的工作区（cwd）：--workspace 参数 > 环境变量 > 同级 dsh-codegraph-visualizer。 */
+/** 解析 DSH 宿主的工作区（cwd）：--workspace 参数 > 环境变量 > 本仓库自身（自洽默认）。 */
 function resolveWorkspace() {
   const argv = process.argv.slice(2);
   const flagAt = argv.indexOf('--workspace');
   if (flagAt !== -1 && argv[flagAt + 1]) return resolve(argv[flagAt + 1]);
   if (process.env.DSH_ANIC_TEST_WORKSPACE) return resolve(process.env.DSH_ANIC_TEST_WORKSPACE);
-  return join(PLUGIN_ROOT, '..', 'dsh-codegraph-visualizer');
+  return PLUGIN_ROOT;
 }
 
 const DSH_HOSTS = ['127.0.0.1', 'localhost'];

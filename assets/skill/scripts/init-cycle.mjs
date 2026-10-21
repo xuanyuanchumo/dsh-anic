@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 // init-cycle.mjs — 初始化循环工作区 cycle-{N}/
 // 用法: node scripts/init-cycle.mjs <project-dir> [--cycle N]
+//
+// cycle-43 根因修复：此前本脚本只建目录、不联动 .cycles/workflow-state.json，
+// 而 workflow-state.mjs 的 initState 仅在状态文件不存在时才重建——两脚本各管半边
+// 导致 currentCycle 漂移（cycle-27..41 停在 cycle-26 的实际成因）。现在建目录后
+// 同步把状态机推到新循环（loadState→不存在/损坏则重建→currentCycle 前移+留痕）。
 
 import { mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -18,6 +23,40 @@ function getNextCycleNum(projectDir) {
   if (entries.length === 0) return 1;
   const nums = entries.map(e => parseInt(e.replace('cycle-', ''), 10));
   return Math.max(...nums) + 1;
+}
+
+/**
+ * cycle-43：状态机联动（与 workflow-state.mjs 的 initState 同一形状，数值序取最新）。
+ * 三条防御线：损坏 JSON 走重建；仅当新号 > 旧号才前移（防旧号回拉）；同号幂等。
+ */
+function syncWorkflowState(projectDir, cycleNum) {
+  const cyclesDir = join(projectDir, '.cycles');
+  const statePath = join(cyclesDir, 'workflow-state.json');
+  const now = new Date().toISOString();
+  let state = null;
+  if (existsSync(statePath)) {
+    try {
+      state = JSON.parse(readFileSync(statePath, 'utf-8'));
+    } catch {
+      state = null; // 半写/损坏：走重建（原子写守护在 fs-safe.mjs）
+    }
+  }
+  const cycleName = `cycle-${cycleNum}`;
+  if (!state) {
+    state = { currentPhase: 'plan', currentCycle: cycleName, phaseHistory: [], nodeStatus: {}, createdAt: now, updatedAt: now };
+  } else if (state.currentCycle !== cycleName) {
+    // 数值序兜底：只允许前移（新号 > 旧号），防旧号重建把状态机拉回过去。
+    const prevNum = typeof state.currentCycle === 'string' ? parseInt(state.currentCycle.replace('cycle-', ''), 10) : NaN;
+    if (!Number.isFinite(prevNum) || cycleNum > prevNum) {
+      state = { ...state, currentCycle: cycleName, updatedAt: now };
+    } else {
+      return; // 旧号或不可比：不动状态机（init-cycle 幂等语义）
+    }
+  } else {
+    return; // 已指向本循环：幂等
+  }
+  if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
+  atomicWriteFileSync(statePath, JSON.stringify(state, null, 2));
 }
 
 function scaffoldCycle(projectDir, cycleNum) {
@@ -49,6 +88,9 @@ function scaffoldCycle(projectDir, cycleNum) {
       atomicWriteFileSync(dst, content);
     }
   }
+
+  // cycle-43：目录就绪后同步状态机（防 currentCycle 漂移根因复发）。
+  syncWorkflowState(projectDir, cycleNum);
 
   console.log(`Initialized cycle-${cycleNum} workspace in ${cycleDir}`);
 }
