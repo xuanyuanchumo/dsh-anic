@@ -253,7 +253,8 @@
     "levelSlow": "Slow",
     "levelExpensive": "Expensive",
     "levelInsufficient": "Insufficient samples",
-    "levelUnused": "Unused"
+    "levelUnused": "Unused",
+    "recentVsOverall": "Recent success {recent} · overall {overall}"
   },
   "budget": {
     "title": "Governance budget (.cycles/ workspace)",

@@ -253,7 +253,8 @@
     "levelSlow": "缓慢",
     "levelExpensive": "高耗时",
     "levelInsufficient": "样本不足",
-    "levelUnused": "未使用"
+    "levelUnused": "未使用",
+    "recentVsOverall": "近期成功率 {recent} · 全史 {overall}"
   },
   "budget": {
     "title": "治理预算（.cycles/ 工作区）",

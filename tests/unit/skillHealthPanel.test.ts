@@ -100,3 +100,35 @@ describe('renderSkillHealth（技能健康面板）', () => {
     expect(isSkillHealth({ scripts: [], totalInvocations: 0, overallSuccessRate: 0 })).toBe(true); // 空历史合法
   });
 });
+
+describe('cycle-53 T-5301 面板近期窗口展示（双量纲不丢史）', () => {
+  const base = {
+    suggestions: [], overallSuccessRate: 0.5, totalInvocations: 8,
+    generatedAt: '2026-10-21T00:00:00.000Z',
+  };
+
+  it('recentSuccessRate 存在 → 主数值/条形看近期，title 带双量纲', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [{
+        script: 'workflow-state', level: 'healthy', total: 8,
+        successRate: 0.625, recentSuccessRate: 1, timeoutRate: 0, avgDurationMs: 120,
+      }],
+    }));
+    // 主数值 100%（近期）+ title 双量纲（近期 100%/全史 63%）。
+    expect(html).toContain('data-anic-skill-health-rate="100%"');
+    expect(html).toContain('title="近期成功率 100% · 全史 63%"');
+  });
+
+  it('旧宿主无 recentSuccessRate → 回落全史（零回归面）', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [{
+        script: 'gate-check', level: 'degraded', total: 5,
+        successRate: 0.4, timeoutRate: 0, avgDurationMs: 200,
+      }],
+    }));
+    expect(html).toContain('data-anic-skill-health-rate="40%"');
+    expect(html).toContain('title="近期成功率 40% · 全史 40%"');
+  });
+});

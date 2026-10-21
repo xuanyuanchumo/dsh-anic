@@ -23,6 +23,8 @@ const EXPENSIVE_DURATION_MS = 30000;
 const MIN_SAMPLE = 3;
 /** workspace 显示截断长度。 */
 const WS_DISPLAY_MAX = 60;
+/** 近期窗口大小：健康分级只看最近 N 条（cycle-53 T-5301——修复应被健康面承认）。 */
+const RECENT_WINDOW = 8;
 
 // ── 类型定义 ──
 
@@ -41,6 +43,8 @@ export interface ScriptHealth {
   timeoutRate: number;
   /** 平均耗时（ms）。 */
   avgDurationMs: number;
+  /** 近期窗口成功率（0-1，最近 RECENT_WINDOW 条——cycle-53）。 */
+  recentSuccessRate: number;
   /** 最近一次调用时间。 */
   lastInvoked?: string;
 }
@@ -86,16 +90,27 @@ function computeScriptHealth(script: string, flows: FlowRecord[]): ScriptHealth 
     : 0;
   const successRate = total > 0 ? done / total : 0;
   const timeoutRate = total > 0 ? timeout / total : 0;
+
+  // cycle-53 T-5301：近期窗口——只取最近 RECENT_WINDOW 条计算 recentSuccessRate。
+  // 全窗口 successRate 把历史失败永久计入：缺陷修复前的失败调用在修复后仍把
+  // 健康度拉低（本仓实证：workflow-state 全部 3 条失败都是 2026-10-18 的旧 bug
+  // 形态 args 双目录，T-3805 已修，但面板仍标 critical 0%——修复从未被健康面承认）。
+  // recentSuccessRate 展示「当前状态」；successRate 保留「全史统计」——两个量纲并存。
+  const recentFlows = flows.length > RECENT_WINDOW ? flows.slice(-RECENT_WINDOW) : flows;
+  const recentDone = recentFlows.filter((f) => f.status === 'DONE').length;
+  const recentSuccessRate = recentFlows.length > 0 ? recentDone / recentFlows.length : 0;
   const lastInvoked = flows[flows.length - 1]?.startedAt;
 
   let level: HealthLevel;
   if (total < MIN_SAMPLE) level = 'insufficient';
   else if (timeoutRate > SLOW_TIMEOUT_RATE) level = 'slow';
-  else if (successRate < DEGRADED_SUCCESS_RATE) level = 'degraded';
+  // cycle-53 T-5301：分级看近期窗口（recentSuccessRate）——修复后的连续成功
+  // 应恢复 healthy，而非被历史失败永久钉死在 degraded/critical。
+  else if (recentSuccessRate < DEGRADED_SUCCESS_RATE) level = 'degraded';
   else if (avgDurationMs > EXPENSIVE_DURATION_MS) level = 'expensive';
   else level = 'healthy';
 
-  return { script, level, total, successRate, timeoutRate, avgDurationMs, lastInvoked };
+  return { script, level, total, successRate, timeoutRate, avgDurationMs, lastInvoked, recentSuccessRate };
 }
 
 /** 根据健康指标生成改进建议。 */
@@ -105,9 +120,11 @@ function suggestFromHealth(h: ScriptHealth): ImprovementSuggestion | null {
   if (h.level === 'degraded') {
     return {
       id: `fix-${h.script}`,
-      severity: h.successRate < 0.5 ? 'critical' : 'warn',
+      // cycle-53：critical 也看近期窗口——历史失败率 0% 但近期已恢复的脚本
+      // 不该再打 critical（建议仍可生成，严重度按近期实际定）。
+      severity: h.recentSuccessRate < 0.5 ? 'critical' : 'warn',
       script: h.script,
-      description: `${h.script} 成功率 ${(h.successRate * 100).toFixed(0)}%（${h.total} 次调用）`,
+      description: `${h.script} 近期成功率 ${(h.recentSuccessRate * 100).toFixed(0)}%（全史 ${(h.successRate * 100).toFixed(0)}%，${h.total} 次调用）`,
       action: '检查 stderr 日志，定位失败原因，修复后重跑 eval',
     };
   }
@@ -175,7 +192,11 @@ export function formatHealthSummary(report: SkillHealthReport): string {
   lines.push('');
   for (const s of report.scripts) {
     const icon = s.level === 'healthy' ? '✅' : s.level === 'insufficient' ? '⚪' : '⚠️';
-    lines.push(`${icon} ${s.script}: ${s.level}（${s.total} 次，成功率 ${(s.successRate * 100).toFixed(0)}%）`);
+    // cycle-53：近史/全史分离展示——两量纲并存（近期=当前状态，全史=累计统计）。
+    const recentPct = (s.recentSuccessRate * 100).toFixed(0);
+    const overallPct = (s.successRate * 100).toFixed(0);
+    const rateView = recentPct === overallPct ? `${overallPct}%` : `近期 ${recentPct}%/全史 ${overallPct}%`;
+    lines.push(`${icon} ${s.script}: ${s.level}（${s.total} 次，${rateView}）`);
   }
   if (report.suggestions.length > 0) {
     lines.push('');

@@ -23,6 +23,8 @@ export interface ScriptHealthJson {
   successRate: number;
   timeoutRate: number;
   avgDurationMs: number;
+  /** 近期窗口成功率（cycle-53 T-5301——与全史双量纲并存；旧宿主缺省回落全史）。 */
+  recentSuccessRate?: number;
   lastInvoked?: string;
 }
 
@@ -48,6 +50,11 @@ function levelColor(level: ScriptHealthJson['level']): string {
   if (level === 'degraded') return token('anic-fail');
   if (level === 'slow' || level === 'expensive') return token('anic-warn-text');
   return token('anic-text-faint');
+}
+
+/** cycle-53 T-5301：近期窗口成功率（旧宿主无字段时回落全史——零回归面）。 */
+function recentRate(s: ScriptHealthJson): number {
+  return typeof s.recentSuccessRate === 'number' ? s.recentSuccessRate : s.successRate;
 }
 
 /** 等级 → 字形（色盲第二通道；与色同源单一映射表）。 */
@@ -101,10 +108,11 @@ export function renderSkillHealth(data: SkillHealthJson | null): ReactElement | 
             // 等级徽标：字形+色双通道。
             createElement('span', { style: { color: levelColor(s.level), flexShrink: 0, width: 12, textAlign: 'center' } }, levelGlyph(s.level)),
             createElement('span', { style: { color: token('anic-text-strong'), minWidth: 90, overflowWrap: 'anywhere' } }, s.script),
-            // 成功率微条形：连续量不只在文本里（宽 56px 轨道 + 填充）。
-            createElement('span', { 'data-anic-skill-health-bar': pct(s.successRate), style: { width: 56, height: 6, background: token('anic-border'), flexShrink: 0, display: 'inline-block' } },
-              createElement('span', { style: { display: 'block', width: pct(s.successRate), height: '100%', background: levelColor(s.level) } })),
-            createElement('span', { title: t('health.successRate'), style: { color: token('anic-text-dim') } }, pct(s.successRate)),
+            // cycle-53 T-5301：微条形/主数值看近期窗口（分级已切近期——展示同一量纲）；
+            // 全史数值挂 title 提示（悬停可见累计真相），两量纲并存不丢史。
+            createElement('span', { 'data-anic-skill-health-bar': pct(recentRate(s)), title: t('health.recentVsOverall', { recent: pct(recentRate(s)), overall: pct(s.successRate) }), style: { width: 56, height: 6, background: token('anic-border'), flexShrink: 0, display: 'inline-block' } },
+              createElement('span', { style: { display: 'block', width: pct(recentRate(s)), height: '100%', background: levelColor(s.level) } })),
+            createElement('span', { title: t('health.recentVsOverall', { recent: pct(recentRate(s)), overall: pct(s.successRate) }), 'data-anic-skill-health-rate': pct(recentRate(s)), style: { color: token('anic-text-dim') } }, pct(recentRate(s))),
             s.timeoutRate > 0 ? createElement('span', { title: t('health.timeoutRate'), style: { color: token('anic-warn-text') } }, `⏱${pct(s.timeoutRate)}`) : null,
             createElement('span', { title: t('health.avgDuration'), style: { color: token('anic-text-faint') } }, `${String(s.avgDurationMs)}ms`),
             createElement('span', { style: { color: token('anic-text-faint') } }, levelLabel(s.level)),
