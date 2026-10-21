@@ -150,6 +150,8 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 
 **动态白盒数据面**（cycle-97 建立；cycle-47..48 扩展诊断与结果预览）：返回 `InvocationFeed` 实时调用环回缓冲（drop-oldest，limit 50）的只读快照，供调试「调用没显示」类问题。
 
+> **同步触发器**（cycle-67）：本节三张字段表与源码接口（宿主 `invocationFeed.ts` ⇄ 客户端 `renderInvocationsTypes.ts`）由 `tests/contract/apiDocShapeContract.test.ts` 三腿钉死——加字段不同步本表即测试红（cycle-66 手工补录欠账的结构性根治）。
+
 ### 响应体形状
 
 | 字段 | 类型 | 说明 |
@@ -198,8 +200,6 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 | --- | --- | --- |
 | 200 | feed 可用 | 环回缓冲快照 |
 | 500 | `feed` 为 null（插件装配未传入） | 诚实失败，不伪造空列表 |
-
-**本端点无工作区依赖**（实时缓冲在内存，不读磁盘工件）。与 flow-tracker（`.cycles/flow-tracker.json`，持久化调用史）互补：invocations/live 是**当下**的环回窗口，flow-tracker 是**持久**的审计记录。接线细节见 [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md)。
 
 ## 相关文档
 
