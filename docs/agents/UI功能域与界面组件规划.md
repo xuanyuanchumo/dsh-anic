@@ -89,7 +89,8 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 写侧 actions 收口 → ✅ 本轮落地（见 §2.6）。
 
-### 2.7 live 域动态白盒补录（cycle-47..50 三轮连续落地）
+#
+## 2.7 live 域动态白盒补录（cycle-47..50 三轮连续落地）
 
 实时调用分区的白盒能力在四个维度完成闭环（本节为 cycle-48/49 的文档欠账补录）：
 
@@ -105,6 +106,25 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 - error 态 → 不渲染（error 三元组已有专属行）；
 - in-flight 态 → 不渲染（尚未有返回）。
 渲染层不做二次截断——截断是宿主提取层单一职责（数据面/渲染面分离）。
+
+## 2.8 tech-debt 域：债务队列第十分区（cycle-54 落地）
+
+**背景**：宿主 GET /anic/api/tech-debt/list（G-C3 消费侧读面）自 cycle-16 存在，但 src/client 零消费——「纯后端白盒不是白盒」。本轮收口为面板第十分区。
+
+| 维度 | 决策 | 落点 |
+|---|---|---|
+| 数据形状 | TechDebtListingJson 对齐宿主 techDebtQueue.ts（open/resolved/skipped 三段+计数） | features/techdebt/renderTechDebt.ts |
+| 渲染分三段 | open 工作队列（severity 徽标着色与 skillhealth 同源——债务语义面统一视觉）/ resolved 计数行（>0 才渲染）/ skipped 如实报告（title 悬停带文件名+原因——「如实报告不吞」） | renderTechDebt() |
+| 截限纪律 | TECH_DEBT_RENDER_CAP=12（同 GROUP_RENDER_CAP 语义——渲染有界，数据在路由） | 常量 |
+| 空队列语义 | 零欠债是合法状态（评估失败维度才产提案）——渲染零欠债行而非空态引导 | data-anic-techdebt-empty |
+| 旅程排序 | 技能健康之后（「技能健康」→「欠了什么债」相邻——改进建议语义簇） | panelSections TechDebtSection |
+| 轮询档位 | 4s 治理档（技能健康同档——健康与债务同节奏观测） | WorkflowGraphPanel 4s target |
+| i18n | techdebt 域 6 键+fold.techdebt（zh/en parity） | locale/{zh,en}.json |
+| 测试 | 7 用例（null/守卫/空队列/open 契约/截限/resolved·skipped title/零计数） | tests/unit/techDebtPanel.test.ts |
+
+**真机证据**：分区壳「技术债务」默认 open=true（details 9→10）；summary「待处理 0 · 已消费 0 · 跳过 2」；skipped title 带 self-bootstrap 文件名与原因（本仓两个自举轮自由形态提案如实归类）；截图 .cycles/cycles/cycle-54/anic-cycle54-techdebt.png。
+
+**留账**：health critical 建议→tech-debt 提案落盘通道（写面合流，severity 映射 critical→critical/warn→medium/info→low）流转 cycle-55。
 
 ## 3. 缺口与排期
 
