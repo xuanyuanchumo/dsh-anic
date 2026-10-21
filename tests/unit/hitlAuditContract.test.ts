@@ -11,7 +11,7 @@
  * 任何一条被改回旧形态都必须立刻变红。
  */
 import { describe, it, expect } from 'vitest';
-import { evaluateH1, evaluateH2, evaluateH3, evaluateH4 } from '../../src/host/governance/hitlAudit.ts';
+import { evaluateH1, evaluateH2, evaluateH3, evaluateH4, isDestructiveCommandLine } from '../../src/host/governance/hitlAudit.ts';
 import type { LedgerEntry } from '../../src/host/runtime/ledger.ts';
 
 function entry(gate: string, result: string, detail = ''): LedgerEntry {
@@ -217,5 +217,46 @@ describe('H4 门禁裁决仲裁（对齐技能 hitl-audit.mjs:133-155 + 插件�
     const entries = [entry('G1', 'FAIL')];
     const r = evaluateH4(true, entries, { ok: false, brokenAt: 0, reason: 'hash mismatch' });
     expect(r.detail).toContain('FAIL without detail');
+  });
+});
+
+describe('cycle-68 T-6801 破坏性命令词边界（groupTruncated 假熔断回归钉）', () => {
+  // 根因：旧 /TRUNCATE/i 无词边界——cycle-47 真机旅程时工作树 diff 恰含 2 行
+  // groupTruncated locale 新增（zh+en），「Truncated」子串命中 → 「Destructive
+  // commands in diff: 2 line(s)」假熔断 → 审计日志「历史遗留 H2 熔断」复制挂账 20 轮。
+  it('cycle-47 真实 diff 内容（groupTruncated 两行）不再触发 H2——假熔断根因钉', () => {
+    // b330167 diff 的两行原文（+ 前缀已剥，checkH2 提取后形态）
+    const cycle47Lines = [
+      '"groupTruncated": "…{hidden} more hidden ({total} in group)"',
+      '"groupTruncated": "…另有 {hidden} 条已收纳（组内共 {total} 条）"',
+    ];
+    const r = evaluateH2([], true, cycle47Lines.filter(isDestructiveCommandLine));
+    expect(r.passed).toBe(true);
+    expect(r.detail).toBe('No destructive operations detected');
+  });
+
+  it('truncated/Truncates/groupTruncated 等英文变形一律不命中（词边界 E→d / p→T 无边界）', () => {
+    for (const line of ['truncated', 'Truncates', 'TRUNCATED_preview', 'the result is truncated by the host', 'groupTruncated']) {
+      expect(isDestructiveCommandLine(line), `误报: ${line}`).toBe(false);
+    }
+  });
+
+  it('SQL 命令形态与 git 危险命令仍命中（漏报面防回退）', () => {
+    for (const line of ['TRUNCATE TABLE users;', 'truncate users;', 'rm -rf node_modules', 'DROP TABLE users;', 'DELETE FROM t WHERE 1=1;', 'git push --force origin main', 'git reset --hard HEAD~1']) {
+      expect(isDestructiveCommandLine(line), `漏报: ${line}`).toBe(true);
+    }
+  });
+
+  it('前缀/后缀粘连不命中（perm -rf / deleted from / dropdown table）', () => {
+    for (const line of ['perm -rf something', 'deleted from cache', 'dropdown table']) {
+      expect(isDestructiveCommandLine(line), `误报: ${line}`).toBe(false);
+    }
+  });
+
+  it('真 TRUNCATE 命令经 evaluateH2 全链路仍熔断（circuit=true）', () => {
+    const r = evaluateH2([], true, ['TRUNCATE TABLE users;']);
+    expect(r.passed).toBe(false);
+    expect(r.circuit).toBe(true);
+    expect(r.detail).toContain('Destructive commands in diff: 1 line(s)');
   });
 });

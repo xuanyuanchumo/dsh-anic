@@ -37,10 +37,27 @@ import { CONVERGENCE_GATES, latestCycleDir } from '../llm/gateEvidence.ts';
 const SENSITIVE_PATTERNS = ['.env', 'credentials', 'secret', 'password', 'token', 'api_key'];
 const ENV_FILES = ['.env', '.env.local', '.env.production'];
 const DESTRUCTIVE_FILE_PATTERNS = ['.gitignore', 'package.json', 'tsconfig', 'migration', 'schema'];
+/**
+ * 破坏性命令模式（插件增强，技能侧无此扫描）。
+ *
+ * cycle-68 词边界修复：旧 `/TRUNCATE/i` 无词边界——locale 键 `groupTruncated`
+ * 与英文 `truncated`/`truncates` 等变形均被子串命中，cycle-47 真机旅程时工作树
+ * diff 恰含 2 行 groupTruncated locale 新增 → 「Destructive commands in diff:
+ * 2 line(s)」假熔断 → 审计日志「历史遗留 H2 熔断·待人工」复制挂账 20 轮。
+ * 词边界后：SQL 命令形态（TRUNCATE / TRUNCATE TABLE）才命中；truncated 的
+ * E→d 与 groupTruncated 的 p→T 均为字母间无边界，变形一律不命中。
+ * H2 是熔断级检查（触发即挂账待人工），误报代价已实证（20 轮假挂账），
+ * 漏报面本仓≈0（无 SQL 数据库面，.cycles 全是 JSON/MD）——宁窄勿滥。
+ */
 const DESTRUCTIVE_COMMAND_PATTERNS = [
-  /rm\s+-rf/i, /DROP\s+TABLE/i, /DELETE\s+FROM/i, /TRUNCATE/i,
-  /git\s+push\s+--force/i, /git\s+reset\s+--hard/i,
+  /\brm\s+-rf\b/i, /\bDROP\s+TABLE\b/i, /\bDELETE\s+FROM\b/i, /\bTRUNCATE\b/i,
+  /\bgit\s+push\s+--force\b/i, /\bgit\s+reset\s+--hard\b/i,
 ];
+
+/** diff 新增行是否含破坏性命令（cycle-68 从 checkH2 内联提取为可测纯函数）。 */
+export function isDestructiveCommandLine(line: string): boolean {
+  return DESTRUCTIVE_COMMAND_PATTERNS.some((p) => p.test(line));
+}
 
 export interface HitlResult {
   check: 'H1' | 'H2' | 'H3' | 'H4';
@@ -159,7 +176,7 @@ export function checkH2(workspaceRoot: string): HitlResult {
   try {
     const diff = execSync('git diff HEAD~1', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
     destructiveCommandLines = diff.split('\n')
-      .filter((line) => line.startsWith('+') && DESTRUCTIVE_COMMAND_PATTERNS.some((p) => p.test(line)))
+      .filter((line) => line.startsWith('+') && isDestructiveCommandLine(line.slice(1).trim()))
       .map((line) => line.slice(1).trim());
   } catch { /* no git */ }
   return evaluateH2(changedFiles, hasGitHistory, destructiveCommandLines);
