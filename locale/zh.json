@@ -86,7 +86,8 @@
     "summaryRunning": " · 运行中 {count}",
     "summaryErrors": " · 失败 {count}",
     "groupRunningSuffix": "（{count} 执行中）",
-    "groupTruncated": "…另有 {hidden} 条已收纳（组内共 {total} 条）"
+    "groupTruncated": "…另有 {hidden} 条已收纳（组内共 {total} 条）",
+    "diagnostics": "通道计数：事件 {events} · 工具调用 {calls} · 结果 {results} · anic 调用 {anicCalls} · anic 结果 {anicResults}"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",

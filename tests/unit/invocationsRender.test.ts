@@ -19,6 +19,11 @@ function snap(invocations: InvocationJson[]): InvocationsJson {
   return { invocations, total: invocations.length, generatedAt: '2026-10-17T00:00:00.000Z' };
 }
 
+/** T-4702：带通道诊断计数的快照夹具（路由 /invocations/live 真实形状）。 */
+function snapWithDiag(invocations: InvocationJson[], diagnostics: InvocationsJson['diagnostics']): InvocationsJson {
+  return { ...snap(invocations), diagnostics };
+}
+
 describe('renderInvocations（动态白盒分区）', () => {
   it('data 为 null：显示等待首轮轮询（不伪造空态引导）', () => {
     const html = renderToStaticMarkup(renderInvocations(null, null));
@@ -224,5 +229,42 @@ describe('renderInvocations —— cycle-41 展开语义与收纳', () => {
     const clean = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'd', status: 'done', endedAt: 1 })]), null));
     expect(clean).not.toContain('运行中');
     expect(clean).not.toContain('失败 1');
+  });
+});
+
+describe('renderInvocations —— cycle-47 T-4702 通道诊断行', () => {
+  const diag = { sessionEvents: 120, sessionToolCalls: 30, toolsResults: 28, anicCalls: 4, anicResults: 4 };
+
+  it('空流 + 诊断计数 > 0：诊断行渲染（「到了但被过滤」一眼可辨——白盒排障）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snapWithDiag([], diag), null));
+    expect(html).toContain('data-anic-feed-diagnostics');
+    expect(html).toContain('通道计数：事件 120');
+    expect(html).toContain('工具调用 30');
+    expect(html).toContain('anic 调用 4');
+  });
+
+  it('空流 + 诊断计数全 0：诊断行仍渲染（「事件没到」与「被过滤」的区分面）', () => {
+    const zero = { sessionEvents: 0, sessionToolCalls: 0, toolsResults: 0, anicCalls: 0, anicResults: 0 };
+    const html = renderToStaticMarkup(renderInvocations(snapWithDiag([], zero), null));
+    expect(html).toContain('data-anic-feed-diagnostics');
+    expect(html).toContain('事件 0');
+  });
+
+  it('有数据时诊断行也渲染（通道活性持续可见）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snapWithDiag([inv({ callId: 'a' })], diag), null));
+    expect(html).toContain('data-anic-invocation-list');
+    expect(html).toContain('data-anic-feed-diagnostics');
+    expect(html).toContain('anic 结果 4');
+  });
+
+  it('旧宿主无 diagnostics 字段：诊断行不渲染（可选字段零回归面）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'a' })]), null));
+    expect(html).not.toContain('data-anic-feed-diagnostics');
+    expect(html).not.toContain('通道计数');
+  });
+
+  it('null 态（尚未轮询到）不渲染诊断行——没有数据就没有诊断', () => {
+    const html = renderToStaticMarkup(renderInvocations(null, null));
+    expect(html).not.toContain('data-anic-feed-diagnostics');
   });
 });

@@ -114,6 +114,31 @@ function groupByTurn(invocations: InvocationJson[]): Array<{ turn: number | null
   return groups;
 }
 
+/**
+ * T-4702：feed 通道诊断行（视觉弱化、非空时才渲染）。五计数来自宿主
+ * invocationFeed 的 FeedDiagnostics——「事件没到（计数 0）」与「到了但被
+ * 过滤（计数 > 0 而列表空）」在面板上一眼可辨，不再要求排障者去读路由
+ * 原始 JSON。旧宿主无此字段时整行不出现（可选字段，零回归面）。
+ */
+function feedDiagnosticsLine(data: InvocationsJson): ReactElement | null {
+  const d = data.diagnostics;
+  if (!d) return null;
+  return createElement(
+    'div',
+    {
+      'data-anic-feed-diagnostics': 'true',
+      style: { fontSize: 10, color: token('anic-text-faint'), padding: '2px 10px 0', fontFamily: 'ui-monospace, monospace' },
+    },
+    t('live.diagnostics', {
+      events: String(d.sessionEvents),
+      calls: String(d.sessionToolCalls),
+      results: String(d.toolsResults),
+      anicCalls: String(d.anicCalls),
+      anicResults: String(d.anicResults),
+    }),
+  );
+}
+
 /** 渲染实时调用分区。data 为 null 且无错误 = 尚未轮询到（不伪造空态）。 */
 export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true, announce = ''): ReactElement {
   const groups = data === null ? null : groupByTurn(data.invocations);
@@ -148,10 +173,15 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
           t('live.pending'))
       : data.invocations.length === 0
         ? createElement('div', { 'data-anic-invocations-empty': 'true', style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } },
-            t('live.empty'))
+            t('live.empty'),
+            // 空态最需要诊断：区分「事件没到」vs「到了被过滤」。
+            feedDiagnosticsLine(data))
         : createElement(
             'div',
             { 'data-anic-invocation-list': 'true', style: { padding: '4px 10px 6px', display: 'flex', flexDirection: 'column', gap: 4 } },
+            // T-4702：有数据时诊断行也保留（通道活性的持续可见——计数停止
+            // 增长即事件断流，比「列表不动」更早暴露问题）。
+            feedDiagnosticsLine(data),
             // autoRefresh 关闭时在分区顶部如实告知（INV-30 关闭形态可观测），
             // 并指路手动刷新——否则用户看到"永远不动"的列表会误以为没有调用。
             autoRefreshOn

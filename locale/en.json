@@ -86,7 +86,8 @@
     "summaryRunning": " · {count} running",
     "summaryErrors": " · {count} failed",
     "groupRunningSuffix": " ({count} running)",
-    "groupTruncated": "…{hidden} more hidden ({total} in group)"
+    "groupTruncated": "…{hidden} more hidden ({total} in group)",
+    "diagnostics": "channel counts: events {events} · tool calls {calls} · results {results} · anic calls {anicCalls} · anic results {anicResults}"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",
