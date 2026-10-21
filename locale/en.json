@@ -87,6 +87,7 @@
     "summaryErrors": " · {count} failed",
     "groupRunningSuffix": " ({count} running)",
     "groupTruncated": "…{hidden} more hidden ({total} in group)",
+    "turnTimeRange": " · {from}–{to} · span {span}",
     "diagnostics": "channel counts: events {events} · tool calls {calls} · results {results} · anic calls {anicCalls} · anic results {anicResults}",
     "resultPreview": " ⇒ {preview}",
     "resultPreviewLabel": "returned"

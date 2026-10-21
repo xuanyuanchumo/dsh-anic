@@ -157,6 +157,20 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 - 类型 import 无运行时耦合，但 G-FEAT 守卫按文件路径机械判定——类型共享同样需中立落位（panelTypes.ts 只收**跨域消费**类型，YAGNI）；
 - 守卫面：guardRegistry.test.ts G-FEAT 块 3 用例（零跨特性 import 扫描/扫描集非空下限/共享工具落位存在性）。
 
+## 2.11 live 域：turn 组时间范围（cycle-60 T-6001 落地）
+
+**背景**：feed 条目自带 epoch 时间戳（startedAt/endedAt，宿主 InvocationRecord），但面板只显示 t3/s1 步进坐标——「这组调用发生在几点、持续多久」的**绝对时序**不可见（用户目标「数据/流程流向/运行状态白盒量化」的时序维度缺口）。
+
+| 决策点 | 选择 | 理由 |
+|---|---|---|
+| 边界语义 | 组内首末 **startedAt**（非 endedAt） | in-flight 的结束时间未落定——用开始时刻描述组边界是诚实陈述；跨度描述组内节奏而非单条耗时（行内 durationMs 已有单条耗时，不冗余不误导） |
+| 合法性门槛 | startedAt > 0 | epoch 0 = 1970-01-01 非真实调用时刻——旧 feed/夹具 0 值占位渲染 08:00:00 是本地时区巧合的伪造时序，宁可跳过（零伪造；首版 >=0 被 5 新钉 1 失败暴露后收紧） |
+| 时间格式 | HH:MM:SS 两位补零 | 分钟粒度足够、秒保调用密集区分度 |
+| 乱序语义 | min/max 边界 | feed 追加序 ≠ 时间序（cycle-57 同款教训）——数组 slice 会取错边界 |
+| 落位 | invocationGrouping.ts（T3 拆分） | renderInvocations.ts 267 行触 250 纪律先红后拆——分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/turnTimeRange）独立成 83 行零 React 依赖模块，「算什么」与「怎么渲」分离 |
+
+真机证据：测试宿主真实模型调用 anic_status(flowLimit=3) 后 Turn 4 组 summary「Turn 4（1 次调用） · 01:43:35–01:43:35 · 跨度 0s」实锤（cycle-60 测试报告 §5）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |

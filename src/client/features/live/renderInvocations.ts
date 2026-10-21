@@ -25,24 +25,9 @@ export type { InvocationJson, InvocationsJson } from './renderInvocationsTypes.t
  */
 const GROUP_RENDER_CAP = 40;
 
-/**
- * cycle-41（用户目标 A）：最近一次**已完成**调用（done/error，endedAt 落定）
- * 所在的分组键。返回 undefined = 尚无已完成调用；null = 最近完成者未标注
- * turn（归「未分组」组）。
- */
-function mostRecentCompletedKey(invocations: InvocationJson[]): number | null | undefined {
-  let bestAt = -1;
-  let bestKey: number | null | undefined;
-  for (const inv of invocations) {
-    if (inv.status === 'in-flight') continue;
-    const at = inv.endedAt ?? inv.startedAt;
-    if (at > bestAt) {
-      bestAt = at;
-      bestKey = typeof inv.turn === 'number' ? inv.turn : null;
-    }
-  }
-  return bestKey;
-}
+// cycle-60 T3 拆分：分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/
+// turnTimeRange）迁至 invocationGrouping.ts——「算什么」与「怎么渲」分离。
+import { groupByTurn, mostRecentCompletedKey, turnTimeRange } from './invocationGrouping.ts';
 
 /**
  * in-flight 状态点的脉冲动画：样式本体迁移至 components/statusDot.ts（B4 合并
@@ -95,30 +80,6 @@ function invocationRow(inv: InvocationJson): ReactElement {
           t('live.resultPreview', { preview: inv.resultPreview }))
       : null,
   );
-}
-
-/**
- * cycle-20（P2）：turn/step 折叠分组。任一条目带 turn 元数据才启用分组；
- * 全部缺失（旧宿主/旧 feed）→ 返回 null 走原平铺——零回归面。
- *
- * 组间序：turn 降序（feed 最新在前，最新 turn 的组排头并默认展开，其余折叠
- * 收纳历史）；无 turn 标注的条目归「未分组」组殿后（不丢弃任何事实）。
- * 原生 details/summary：无 JS 状态、静态标记可渲染、键盘可达。
- */
-function groupByTurn(invocations: InvocationJson[]): Array<{ turn: number | null; items: InvocationJson[] }> | null {
-  if (!invocations.some((inv) => typeof inv.turn === 'number')) return null;
-  const buckets = new Map<number | null, InvocationJson[]>();
-  for (const inv of invocations) {
-    const key = typeof inv.turn === 'number' ? inv.turn : null;
-    const arr = buckets.get(key);
-    if (arr) arr.push(inv);
-    else buckets.set(key, [inv]);
-  }
-  const turnKeys = [...buckets.keys()].filter((k): k is number => k !== null).sort((a, b) => b - a);
-  const groups = turnKeys.map((k) => ({ turn: k as number | null, items: buckets.get(k) ?? [] }));
-  const ungrouped = buckets.get(null);
-  if (ungrouped) groups.push({ turn: null, items: ungrouped });
-  return groups;
 }
 
 /**
@@ -217,6 +178,9 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
                     },
                     createElement('summary', { style: { fontSize: 10, color: token('anic-text-faint'), cursor: 'pointer', userSelect: 'none' } },
                       g.turn === null ? t('live.ungrouped', { count: String(g.items.length) }) : t('live.turnGroup', { turn: String(g.turn), count: String(g.items.length) }),
+                      // T-6001：组内时间范围（绝对时序白盒）——「这组发生在几点、
+                      // 持续多久」与步进坐标互补；无合法时间戳时静默跳过。
+                      turnTimeRange(g.items),
                       gRunning ? createElement('span', { style: { color: token('anic-status-active'), marginLeft: 6 } }, t('live.groupRunningSuffix', { count: String(g.items.filter((i) => i.status === 'in-flight').length) })) : null),
                     // Top5 截限：渲染前 GROUP_RENDER_CAP 条，其余以计数行收纳。
                     ...g.items.slice(0, GROUP_RENDER_CAP).map((inv) => invocationRow(inv)),

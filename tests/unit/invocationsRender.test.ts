@@ -309,3 +309,65 @@ describe('renderInvocations —— cycle-48 T-4801 结果预览行', () => {
     expect(html).toContain('…'); // 截断标记来自宿主提取层
   });
 });
+
+describe('renderInvocations —— cycle-60 T-6001 turn 组时间范围', () => {
+  /** 构造可分组快照：同 turn 数条、跨 turn 各一条（两个组都有时间范围）。 */
+  function groupedSnap(): InvocationsJson {
+    // 用真实最近时刻（时:分:秒断言与本地时区一致——夹具与渲染同进程同时区，
+    // getHours 端到端自洽，不依赖 UTC 假设）。
+    const base = Date.now() - 60_000; // 1 分钟前起
+    return snap([
+      inv({ callId: 'a', turn: 3, step: 1, startedAt: base, status: 'done', durationMs: 90 }),
+      inv({ callId: 'b', turn: 3, step: 2, startedAt: base + 45_000, status: 'done', durationMs: 80 }),
+      inv({ callId: 'c', turn: 2, step: 1, startedAt: base - 120_000, status: 'done', durationMs: 70 }),
+    ]);
+  }
+
+  it('分组 summary 渲染时间范围：首末 startedAt 时刻 + 组内跨度（绝对时序白盒）', () => {
+    const html = renderToStaticMarkup(renderInvocations(groupedSnap(), null));
+    expect(html).toContain('data-anic-turn-group="t3"');
+    // Turn 3 组：首 1 分钟前、末 15 秒前 → 跨度 45s；Turn 2 组：单条跨度 0s。
+    expect(html).toContain('跨度 45s');
+    expect(html).toContain('跨度 0s');
+    // 时:分:秒格式（两位补零）在两组 summary 中各出现（HH:MM:SS 形态）。
+    expect(html).toMatch(/data-anic-turn-group="t3"[^]*?\d{2}:\d{2}:\d{2}/);
+    expect(html).toMatch(/data-anic-turn-group="t2"[^]*?\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('in-flight 条目在组内：时间范围仍用 startedAt 边界（结束时间未落定不参与）', () => {
+    const base = Date.now() - 30_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'x', turn: 5, step: 1, startedAt: base, status: 'done', durationMs: 10 }),
+      inv({ callId: 'y', turn: 5, step: 2, startedAt: base + 10_000, status: 'in-flight' }),
+    ]), null));
+    expect(html).toContain('跨度 10s'); // in-flight 的 startedAt 参与边界，endedAt 不存在不参与
+  });
+
+  it('组内全部无合法时间戳（旧 feed startedAt 缺省 0/负值）：不渲染时间范围（零伪造）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', turn: 1, startedAt: 0, status: 'done' }),
+      inv({ callId: 'b', turn: 1, startedAt: -5, status: 'done' }),
+    ]), null));
+    expect(html).toContain('data-anic-turn-group="t1"');
+    expect(html).not.toContain('跨度');
+    expect(html).not.toContain('–');
+  });
+
+  it('单条组（from===to）：跨度 0s 如实显示（不因单条而隐藏时序）', () => {
+    const at = Date.now() - 5_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'solo', turn: 7, startedAt: at, status: 'done', durationMs: 5 }),
+    ]), null));
+    expect(html).toContain('跨度 0s');
+  });
+
+  it('乱序到达（startedAt 非追加序）：时间范围仍取真实首末（min/max 语义不受数组序影响）', () => {
+    const base = Date.now() - 90_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'late', turn: 4, startedAt: base + 60_000, status: 'done', durationMs: 1 }),
+      inv({ callId: 'early', turn: 4, startedAt: base, status: 'done', durationMs: 1 }),
+      inv({ callId: 'mid', turn: 4, startedAt: base + 30_000, status: 'done', durationMs: 1 }),
+    ]), null));
+    expect(html).toContain('跨度 60s'); // 追加序 slice 会取错边界——min/max 是正确语义
+  });
+});
