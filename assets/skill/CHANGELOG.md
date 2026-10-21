@@ -1,5 +1,21 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.5.2 — E5 性能基线工件通道（cycle-62 T-6201）
+
+### 修复（feat）
+
+- **E5「性能基线」维自 v1.0 起永远 SKIP**：`eval-runner.mjs` 硬编码
+  `skipped('Performance baseline requires a baseline artifact (manual check, none attached)')`
+  ——iteration-5 修「无证据记 PASS」时把证据路径焊死为「永远没有」，矫枉过正。
+- **升级为工件通道**：项目侧 `.cycles/performance-baseline.md` 在位且含「基线」「阈值」
+  关键词 → E5 PASS（带表行计数详情）；缺失/空占位 → 维持 SKIP。三态纪律不变：
+  无工件 = 无证据（不是 FAIL——没声明基线不是错误）。
+- **判定形状与 checkDeliveryChecklist 同构**（existsSync → 内容关键词），关键词防空文件占位。
+- **E5 不跑性能测量本身**——测量由 test_cmd 全量跑时自然发生，工件承载基线事实
+  （时间戳+命令+阈值+实测值四要素），避免 eval-runner 嵌套跑测试的递归时序问题。
+- 测试：`tests/contract/evalRunnerBaseline.test.ts` 5 用例（工件在位 PASS 带详情/
+  缺失 SKIP 指引路径/空占位 SKIP 防绕过/总结行三态如实两态对照/退出码语义）。
+
 ## 2.5.1 — 旧号重跑语义备注（cycle-49 T-4902）
 
 ### 说明（patch）

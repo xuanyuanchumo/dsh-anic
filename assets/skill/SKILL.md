@@ -325,7 +325,7 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 node scripts/mcp-server.mjs --project-dir <path>
 ```
 
-MCP Tools (v2.5.1)：
+MCP Tools (v2.5.2)：
 - `init_workflow` / `init_cycle` / `gate_check`（含 --quality 质量门禁） / `eval_runner`（含 E1-E8 + Q1-Q8）
 - `band_detector`（含 Western Electric 规则） / `workflow_state`（status/advance/check） / `gate_ledger`（record/verify/list 哈希链）
 - `fact_base_verify` / `plan_sync_check`（含 git diff） / `org_status`（status/agent/review/auto-fallback）

@@ -464,6 +464,28 @@ function checkReviewEvidence(projectDir, cycleDir) {
   return skipped('No review criteria');
 }
 
+// cycle-62（技能 v2.5.2）：E5 性能基线工件通道。
+// 原实现 iteration-5 硬编码 skipped——「性能基线」维永远无证据。判定形状与
+// checkDeliveryChecklist 同构（existsSync → 内容关键词），关键词「基线」「阈值」
+// 防空文件占位。三态纪律不变：无工件 = SKIP（不是 FAIL——项目没声明基线
+// 不是错误，是没证据）。阈值是声明不是判定：越线监督归 control_bands 管道，
+// 本检查只认证据形状。
+function checkPerformanceBaseline(projectDir) {
+  const baselinePath = join(projectDir, '.cycles', 'performance-baseline.md');
+  if (!existsSync(baselinePath)) {
+    return skipped('Performance baseline artifact .cycles/performance-baseline.md not found (create it with 基线 table + 阈值 to enable E5)');
+  }
+  const content = readFileSync(baselinePath, 'utf-8');
+  const hasBaseline = content.includes('基线');
+  const hasThreshold = content.includes('阈值');
+  if (!hasBaseline || !hasThreshold) {
+    return skipped('Performance baseline artifact exists but lacks 基线/阈值 shape (empty or placeholder file)');
+  }
+  const rows = content.split('\n').filter((l) => l.trim().startsWith('|')).length;
+  return { pass: true, detail: `Performance baseline artifact found (${rows} table rows, 基线+阈值 shape OK)` };
+}
+
+
 // 报告里的一格裁决：三态（PASS / FAIL / SKIP）。SKIP 必须显式落盘，
 // 否则读者（与 gate-check --quality）无法区分"评估通过"与"没评估"。
 function statusOf(r) {
@@ -568,8 +590,11 @@ for (const dim of dimsToRun) {
       results[dim] = lintResult;
       break;
     case 'E5':
-      // 修 iteration-5：手工项不得记 PASS（无基线工件 = 没有证据）
-      results[dim] = skipped('Performance baseline requires a baseline artifact (manual check, none attached)');
+      // cycle-62（技能 v2.5.2）：工件通道——项目侧 .cycles/performance-baseline.md
+      // 在位且含「基线」「阈值」关键词 → PASS（形状对即有证据）；缺失 → 维持 SKIP
+      // （iteration-5 三态纪律不变：无工件=无证据，手工项不得凭空记 PASS）。
+      // E5 不跑性能测量本身——测量由 test_cmd 全量跑时自然发生，工件承载基线事实。
+      results[dim] = checkPerformanceBaseline(projectDir);
       break;
     case 'E6':
       results[dim] = checkSecurity(projectDir);
