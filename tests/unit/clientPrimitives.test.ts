@@ -147,13 +147,14 @@ describe('governanceTargets —— 治理证据簇三 target 工厂', () => {
 describe('panelLiveTargets —— 一次性拉取三 target 工厂', () => {
   interface Sink { calls: Array<[string, unknown]>; }
   function makeSetters(sink: Sink) {
+    // cycle-46（T-4601）：setTrace/setCheck 合并为 (v, line) 双参动作（两切片一次写）；
+    // setTraceLine/setCheckLine 独立通道不再存在。sink 键名维持 'trace'/'traceLine'
+    // 语义分桶（第二个参数记为行文案）。
     return {
       setData: (d: unknown) => { sink.calls.push(['data', d]); },
       setFetchLine: (u: (s: { source: string; line: string }) => { source: string; line: string }) => { sink.calls.push(['state', u({ source: 'embedded', line: '' })]); },
-      setTrace: (v: unknown) => { sink.calls.push(['trace', v]); },
-      setTraceLine: (v: string) => { sink.calls.push(['traceLine', v]); },
-      setCheck: (v: unknown) => { sink.calls.push(['check', v]); },
-      setCheckLine: (v: string) => { sink.calls.push(['checkLine', v]); },
+      setTrace: (v: unknown, line: string) => { sink.calls.push(['trace', v]); sink.calls.push(['traceLine', line]); },
+      setCheck: (v: unknown, line: string) => { sink.calls.push(['check', v]); sink.calls.push(['checkLine', line]); },
       learnWorkspace: (r: string) => { sink.calls.push(['learn', r]); },
       workspaceKnown: () => null,
     };

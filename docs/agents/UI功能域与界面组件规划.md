@@ -74,7 +74,20 @@
 1. **T-4502a 函数式补丁 + fetchState 扁平化**：`setState(patch | ((s) => patch))`（updater 先解引用，读-改-写显式原子）；原唯一嵌套切片 `fetchState:{source,line}` 拆为顶层 `fetchSource`/`fetchLine` 两切片——写侧曾每次新建整个对象令「全等补丁不通知」对它恒失效（靠 uSES 字符串 selector 兜底）。现在 source 单独变化零通知 line 订阅者；announce 回读（useInvocations）与 malformed 保 source（panelLiveTargets）均改函数式补丁。接线点：`WorkflowGraphPanel.ts:96` setFetchLine 桥接、`panelSections.ts` selFetchLine。
 2. **T-4502b usePanelSlice dev 双调自检**：DEV 构建对同一快照双调 selector，Object.is 不等 → WeakSet 去重的一次性 console.warn（浏览器面诊断，非 host 日志域；dshConformance console 守卫按文件豁免并注释域理由）。**生产零开销实证**：tsdown 把 `import.meta.env?.DEV` 编译为 falsy 并死代码消除整段（dist/client.js 无 devWarn 残留）。类型形状补 `src/client/importMetaEnv.d.ts`（本仓不经 Vite，最小声明）。
 
-**留账（下轮候选，按 ROI）**：写侧 actions 收口（bindPanelActions 具名动作+announce 回读进动作层，~20 个 setState 写点散布 4 文件——大重构另开轮次）；panelSections.ts 185 行/12 分区按近期节奏约 3 轮触 250 纪律——新分区应直落 features/<域>/；panelStore.ts:60 通知全监听器扇出无切片级过滤（当前 ~25 监听器成本可忽略，分区翻倍后重估）。
+### 2.6 store 演进第二轮：actions 写侧收口（cycle-46 T-4601）
+
+zustand v5「actions live in the store」的手写等价物——`src/client/components/panelActions.ts`（143 行）把全部写路径收口为具名动作：
+
+- **`classifyFailure(f): string`** 唯一三分类 classifier（http→routeUnavailable / malformed→malformedNotUsed / network→message），原散布 useInvocations 的降级文案规则收拢单源。
+- **`bindPanelActions(store): PanelActions`** 返回 17 具名动作：快照域 setGraph/setFetchLine（复合 updater）；步骤流程/自检域 setTrace(v,line)/setCheck(v,line)（**行文案与数据两切片一次写**——setTraceLine/setCheckLine 独立通道删除）；实时调用域 applyInvocations（announce 回读不变量进动作层）/failInvocations/recoverInvocations；4s 档静默域九个单切片直写（setOrgStatus/setFlowsStatus/setCycleList/setCycleState/setSkillHealth/setBudget/setLedgerList/setLedgerVerify/setHitlAudit）。
+- **接线面收敛**：useInvocations 的 apply/onFail/onRecover 改调动作（钩子只留轮询编排与 lastTotalRef）；panelLiveTargets 的 PanelLiveSetters 从 6 setter 通道收窄为 4 动作引用 + 2 ref 通道（learnWorkspace/workspaceKnown 非 store 写留在接口）；WorkflowGraphPanel 根组件内联 setter 闭包清零（快照组 4 动作引用 + 4s 档 actions 绑定一次）；governanceTargets 的 GovernanceSetters 收窄为 `Pick<PanelActions, 'setLedgerList'|'setLedgerVerify'|'setHitlAudit'>` 类型别名。
+- **契约测试**：`tests/unit/panelActions.test.ts` 10 用例（三分类逐字/announce 回读两态/fail+recover 往返数据保留/复合写 malformed 保 source/同值补丁零通知/双切片一次写/九切片直写往返）。
+
+**留账（按 ROI 重估）**：panelSections.ts 185 行/12 分区约 3 轮触 250 纪律——**新分区必须直落 `features/<域>/`**（本册维护约定，接住 ui-research 风险警告）；panelStore.ts 通知全监听器扇出无切片级过滤（~25 监听器成本可忽略，分区翻倍后重估）。
+
+### 2.5a 原 §2.5 留账状态更新（cycle-46）
+
+写侧 actions 收口 → ✅ 本轮落地（见 §2.6）。
 
 ## 3. 缺口与排期
 

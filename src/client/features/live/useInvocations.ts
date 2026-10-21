@@ -5,10 +5,16 @@
  * cycle-42（Top2）：data/pollError/announce 三态不再走本组件 useState，改写入
  * 面板外部 store（panelState 三切片）——2s tick 的重渲范围从「根组件全树」
  * 收敛到「LiveInvocationsSection 订阅者」。钩子返回 void。
+ *
+ * cycle-46（T-4601 写侧收口）：apply/onFail/onRecover 的写路径全部改走
+ * panelActions 动作层——announce 回读不变量与三分类降级文案从钩子内联逻辑
+ * 收拢为 bindPanelActions 的具名动作（applyInvocations/failInvocations/
+ * recoverInvocations），本钩子只保留轮询编排与 lastTotalRef 增量判断。
  */
 import { useRef } from 'react';
 import { t } from '../../i18n.ts';
 import { usePanelFetch } from '../../components/usePanelFetch.ts';
+import { bindPanelActions } from '../../components/panelActions.ts';
 import { isObjectLike } from './fetchJson.ts';
 import type { InvocationsJson } from './renderInvocations.ts';
 import type { PanelDataStore } from '../../panelState.ts';
@@ -29,11 +35,12 @@ const LIVE_URL = '/anic/api/invocations/live';
  * 已知局限：环形缓冲满载后 total 封顶，驱逐替换不再产生增量（此时组内首条
  * callId 变化是更好信号，留作后续增强——注释钉死防遗忘）。
  *
- * cycle-42：announce 无增量时保留旧值（store.getState().invocationsAnnounce
- * 回读——全等补丁不触发通知，重渲语义与原 setState 相同引用跳过一致）。
+ * cycle-42：announce 无增量时保留旧值（回读语义——全等补丁不触发通知）。
  */
 export function useInvocations(store: PanelDataStore, pollMs = 2000, manualKey = 0, getHeaders?: () => Record<string, string>): void {
   const lastTotalRef = useRef(0);
+  // 动作层实例：绑 store 的具名写路径（applyInvocations 内含 announce 回读）。
+  const actions = bindPanelActions(store);
 
   usePanelFetch(
     [{
@@ -44,22 +51,11 @@ export function useInvocations(store: PanelDataStore, pollMs = 2000, manualKey =
         const delta = nv.total - lastTotalRef.current;
         const hasDelta = lastTotalRef.current > 0 && delta > 0;
         lastTotalRef.current = nv.total;
-        // T-4502a：函数式补丁——announce 无增量时回读原值进补丁，同值零通知
-        //（原两步 getState/setState 的回读语义显式化，机制层保证原子快照）。
-        store.setState((s) => ({
-          invocations: nv,
-          invocationsAnnounce: hasDelta ? t('live.newCalls', { count: String(delta) }) : s.invocationsAnnounce,
-        }));
+        // T-4601：写路径收口进动作层（announce 回读不变量在 applyInvocations 内）。
+        actions.applyInvocations(nv, t('live.newCalls', { count: String(delta) }), hasDelta);
       },
-      onFail: (f) => {
-        const message = f.kind === 'http'
-          ? t('panel.routeUnavailable', { status: String(f.status) })
-          : f.kind === 'malformed'
-            ? t('panel.malformedNotUsed')
-            : f.message;
-        store.setState({ invocationsError: message });
-      },
-      onRecover: () => { store.setState({ invocationsError: null }); },
+      onFail: (f) => { actions.failInvocations(f); },
+      onRecover: () => { actions.recoverInvocations(); },
     }],
     pollMs,
     manualKey,

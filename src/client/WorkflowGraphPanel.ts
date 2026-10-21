@@ -19,6 +19,7 @@
  */
 import { createElement, useCallback, useRef, useState, type ReactElement } from 'react';
 import { createPanelStore } from './components/panelStore.ts';
+import { bindPanelActions } from './components/panelActions.ts';
 import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
 import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
@@ -90,14 +91,14 @@ export function WorkflowGraphPanel(): ReactElement {
 
   // 数据热更新（B4）：一次性拉取的 targets 与降级文案抽至 panelLiveTargets.ts
   //（T3 行数纪律；快照学头副作用经 setters 接口回流 workspaceRef）。
-  // cycle-42：apply 回调直写 store（setState 浅合并按顶层 key 替换引用）。
+  // cycle-46（T-4601 写侧收口）：内联 setter 闭包清零——写路径全部走
+  // bindPanelActions 动作层（setGraph/setFetchLine/setTrace/setCheck），
+  // learnWorkspace/workspaceKnown 两 ref 通道保留在调用点（非 store 写）。
   usePanelFetch(panelLiveTargets({
-    setData: (d) => { store.setState({ graph: d }); },
-    setFetchLine: (updater) => { store.setState((s) => { const r = updater({ source: s.fetchSource, line: s.fetchLine }); return { fetchSource: r.source, fetchLine: r.line }; }); },
-    setTrace: (v) => { store.setState({ trace: v }); },
-    setTraceLine: (v) => { store.setState({ traceLine: v }); },
-    setCheck: (v) => { store.setState({ check: v }); },
-    setCheckLine: (v) => { store.setState({ checkLine: v }); },
+    setData: bindPanelActions(store).setGraph,
+    setFetchLine: bindPanelActions(store).setFetchLine,
+    setTrace: bindPanelActions(store).setTrace,
+    setCheck: bindPanelActions(store).setCheck,
     learnWorkspace: (root) => { workspaceRef.current = root; },
     workspaceKnown: () => workspaceRef.current,
   }), 0, reloadKey, wsHeaders);
@@ -116,20 +117,19 @@ export function WorkflowGraphPanel(): ReactElement {
   // B4：轮询/暂停/降级语义统一至 components/usePanelFetch（静默降级形态——
   // guard 不过/失败 → 不 apply，分区不渲染，不伪造空态）。
   // B1：cycle 时间线两个端点（list/state）并进同一 4s 档（旅程排序：宏观节奏条）。
+  // cycle-46（T-4601）：4s 档八个 apply 直写全部改走动作层引用（bindPanelActions
+  // 一次性绑定，targets 数组渲染期零闭包分配）。
+  const actions = bindPanelActions(store);
   usePanelFetch([
-    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { store.setState({ orgStatus: v as OrgStatusJson }); } },
-    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { store.setState({ flowsStatus: v as FlowStatusJson }); } },
-    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { store.setState({ cycleList: v as CycleListJson }); } },
-    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { store.setState({ cycleState: v as CycleStateJson }); } },
+    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { actions.setOrgStatus(v as OrgStatusJson); } },
+    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { actions.setFlowsStatus(v as FlowStatusJson); } },
+    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { actions.setCycleList(v as CycleListJson); } },
+    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { actions.setCycleState(v as CycleStateJson); } },
     // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
-    ...governanceTargets({
-      setLedgerList: (v) => { store.setState({ ledgerList: v }); },
-      setLedgerVerify: (v) => { store.setState({ ledgerVerify: v }); },
-      setHitlAudit: (v) => { store.setState({ hitlAudit: v }); },
-    }, ledgerLimit),
+    ...governanceTargets(actions, ledgerLimit),
     // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
-    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { store.setState({ skillHealth: v as SkillHealthJson }); } },
-    { url: BUDGET_URL, guard: isBudget, apply: (v) => { store.setState({ budget: v as BudgetJson }); } },
+    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { actions.setSkillHealth(v as SkillHealthJson); } },
+    { url: BUDGET_URL, guard: isBudget, apply: (v) => { actions.setBudget(v as BudgetJson); } },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
