@@ -268,3 +268,44 @@ describe('renderInvocations —— cycle-47 T-4702 通道诊断行', () => {
     expect(html).not.toContain('data-anic-feed-diagnostics');
   });
 });
+
+describe('renderInvocations —— cycle-48 T-4801 结果预览行', () => {
+  it('done + resultPreview：渲染 ⇒ 前缀预览（「返回了什么」与参数成对呈现）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', status: 'done', argumentsPreview: '{"flowLimit":5}', resultPreview: '最近 5 条流程记录全部成功' }),
+    ]), null));
+    expect(html).toContain('data-anic-invocation-result');
+    expect(html).toContain('⇒');
+    expect(html).toContain('最近 5 条流程记录全部成功');
+    expect(html).toContain('{&quot;flowLimit&quot;:5}'); // 参数与结果同在（HTML 转义形态）
+  });
+
+  it('done 但无 resultPreview（空结果/旧 feed）：不渲染预览节点（不伪造空预览）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'a', status: 'done' })]), null));
+    expect(html).not.toContain('data-anic-invocation-result');
+  });
+
+  it('error 态不渲染结果预览（error 三元组已有专属行）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', status: 'error', resultPreview: '不应出现', error: { name: 'X', code: 'Y' } }),
+    ]), null));
+    // 渲染条件钉 status === 'done'：即使夹具硬塞 resultPreview，error 态也不渲染
+    expect(html).not.toContain('data-anic-invocation-result');
+  });
+
+  it('in-flight 态不渲染结果预览（尚未有返回）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', status: 'in-flight', resultPreview: '不应出现' }),
+    ]), null));
+    expect(html).not.toContain('data-anic-invocation-result');
+  });
+
+  it('超长 resultPreview 由宿主截断（渲染层不做二次截断——数据面单一职责）', () => {
+    const long = 'y'.repeat(200) + '…'; // 宿主 previewOf 截断后的形状（200+省略号）
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', status: 'done', resultPreview: long }),
+    ]), null));
+    expect(html).toContain('data-anic-invocation-result');
+    expect(html).toContain('…'); // 截断标记来自宿主提取层
+  });
+});

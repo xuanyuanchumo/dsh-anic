@@ -29,6 +29,8 @@ export interface InvocationJson {
   status: 'in-flight' | 'done' | 'error';
   error?: { name: string; code: string; reason?: string };
   durationMs?: number;
+  /** T-4801：成功调用的结果内容预览（旧宿主/错误态无此字段缺省不渲染）。 */
+  resultPreview?: string;
   possiblyOrphaned?: boolean;
 }
 

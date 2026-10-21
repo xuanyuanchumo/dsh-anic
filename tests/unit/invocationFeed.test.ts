@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  createInvocationFeed, attachInvocationFeed, isAnicInvocation, previewOf,
+  createInvocationFeed, attachInvocationFeed, isAnicInvocation, previewOf, extractResultPreview,
   type InvocationFeed,
 } from '../../src/host/runtime/invocationFeed.ts';
 import { registerInvocationRoute } from '../../src/host/routes/invocationRoute.ts';
@@ -131,6 +131,74 @@ describe('previewOf（参数预览截断）', () => {
     const long = 'b'.repeat(250);
     expect(previewOf(long)).toBe(`b`.repeat(200) + '…');
     expect(previewOf(long).length).toBe(201);
+  });
+});
+
+describe('extractResultPreview（T-4801 结果预览提取）', () => {
+  // 官方形状（宿主 asar 考古 dsh-tools materializeFinalResult）：
+  // { content: ContentBlock[], meta?, isError, error?, concludesTurn?, value }
+  it('官方形状：content text 块拼接（多块换行连接）并截断 200 字符', () => {
+    const result = { content: [
+      { type: 'text', text: '{"ok":true,"cycles":48}' },
+      { type: 'text', text: 'Evaluation report written.' },
+    ], isError: false, value: { ok: true } };
+    expect(extractResultPreview(result)).toBe('{"ok":true,"cycles":48}\nEvaluation report written.');
+  });
+  it('超长文本截断加省略号（对齐 previewOf 契约）', () => {
+    const result = { content: [{ type: 'text', text: 'x'.repeat(300) }], isError: false };
+    const p = extractResultPreview(result);
+    expect(p).toBe('x'.repeat(200) + '…');
+    expect(p?.length).toBe(201);
+  });
+  it('isError 不提取（错误三元组在渲染层已有专属行）', () => {
+    const result = { content: [{ type: 'text', text: 'Error: boom' }], isError: true, error: { name: 'X', code: 'Y' } };
+    expect(extractResultPreview(result)).toBeUndefined();
+  });
+  it('content 空 / 全非 text 块 → undefined（不伪造空预览）', () => {
+    expect(extractResultPreview({ content: [], isError: false })).toBeUndefined();
+    expect(extractResultPreview({ content: [{ type: 'image', data: '...' }], isError: false })).toBeUndefined();
+  });
+  it('宽容形状：value 字符串提取；对象 JSON 化兜底；undefined/非对象输入安全', () => {
+    expect(extractResultPreview({ isError: false, value: 'plain string result' })).toBe('plain string result');
+    expect(extractResultPreview({ isError: false, value: { exitCode: 0 } })).toBe('{"exitCode":0}');
+    expect(extractResultPreview(undefined)).toBeUndefined();
+    expect(extractResultPreview('string')).toBeUndefined();
+    expect(extractResultPreview(null)).toBeUndefined();
+  });
+  it('纯函数只读契约：宿主 deepFreeze 的 result 不被写访问', () => {
+    const frozen = Object.freeze({ content: [Object.freeze({ type: 'text', text: 'ok' })], isError: false });
+    expect(() => extractResultPreview(frozen)).not.toThrow();
+    expect(extractResultPreview(frozen)).toBe('ok');
+  });
+});
+
+describe('T-4801 recordResult 全载荷（feed 侧存储）', () => {
+  it('成功调用存 resultPreview；错误调用不存（error 三元组已足）', () => {
+    const feed = createInvocationFeed();
+    feed.recordCall({ callId: 'ok1', name: 'anic_status', arguments: '{}' });
+    feed.recordCall({ callId: 'err1', name: 'anic_evaluate', arguments: '{}' });
+    feed.recordResult('ok1', { isError: false, resultPreview: '{"cycles":48}' });
+    feed.recordResult('err1', { isError: true, error: { name: 'EvalError', code: 'E3_FAIL' } });
+    const snap = feed.snapshot();
+    expect(snap.invocations.find((i) => i.callId === 'ok1')?.resultPreview).toBe('{"cycles":48}');
+    expect(snap.invocations.find((i) => i.callId === 'err1')?.resultPreview).toBeUndefined();
+  });
+  it('attachInvocationFeed 接线：tools/result 全载荷 → content text 块自动成为 resultPreview', () => {
+    const handlers = new Map<string, Array<(...a: unknown[]) => void>>();
+    const ctx = { on: (name: string, handler: (...a: unknown[]) => void): void => { const list = handlers.get(name) ?? []; list.push(handler); handlers.set(name, list); } };
+    const emit = (name: string, ...args: unknown[]): void => { for (const h of handlers.get(name) ?? []) h(...args); };
+    const feed = createInvocationFeed();
+    attachInvocationFeed(ctx, feed);
+    emit('session/event', {}, toolCallEvent({ callId: 'rp1', name: 'anic_status', arguments: '{"flowLimit":5}' }));
+    // 宿主 materializeFinalResult 形状：content + value 并存
+    emit('tools/result', { callId: 'rp1', name: 'anic_status' }, {
+      content: [{ type: 'text', text: '最近 5 条流程记录全部成功' }],
+      isError: false,
+      value: { flows: [] },
+    });
+    const snap = feed.snapshot();
+    expect(snap.invocations[0]?.status).toBe('done');
+    expect(snap.invocations[0]?.resultPreview).toBe('最近 5 条流程记录全部成功');
   });
 });
 

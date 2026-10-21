@@ -87,6 +87,13 @@ function invocationRow(inv: InvocationJson): ReactElement {
     typeof inv.turn === 'number' && typeof inv.step === 'number' ? createElement('span', { style: { color: token('anic-text-faint') } }, `t${String(inv.turn)}/s${String(inv.step)}`) : null,
     createElement('span', { style: { color: token('anic-text-faint'), overflowWrap: 'anywhere' } },
       inv.error ? `${inv.error.name}(${inv.error.code})${inv.error.reason ? `: ${inv.error.reason.slice(0, 120)}` : ''}` : inv.argumentsPreview),
+    // T-4801：成功调用的结果预览——「调用返回了什么」与「发了什么参数」
+    // 成对呈现（⇒ 前缀 + 弱化色区分方向）。错误态无预览（error 行已足），
+    // in-flight 无预览（尚未有返回），旧宿主无字段——三者都自然跳过。
+    inv.status === 'done' && inv.resultPreview
+      ? createElement('span', { 'data-anic-invocation-result': 'true', style: { color: token('anic-text-dim'), overflowWrap: 'anywhere', flexBasis: '100%' } },
+          t('live.resultPreview', { preview: inv.resultPreview }))
+      : null,
   );
 }
 

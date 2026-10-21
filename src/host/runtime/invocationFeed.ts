@@ -11,7 +11,9 @@
  *   结束：Cordis 事件 `tools/result`（emit）携带
  *         (exec: ToolExecution, result: ToolExecutionResult)
  *         —— exec.callId 与 tool/call 的 callId 同源配对；result 按 isError 判别，
- *            失败态带 error: { name, code, reason? }。
+ *            失败态带 error: { name, code, reason? }；成功态的 content 文本块
+ *            由 extractResultPreview 提取为 resultPreview（T-4801 白盒：成功
+ *            调用返回了什么，面板一眼可见）。
  *
  * 为什么结束不用 session/event 的 tool/result：它的载荷是 message: ToolResultMessage，
  * callId 提取不在我们核验过的文档契约里；tools/result 的 exec.callId 是文档明写的。
@@ -25,8 +27,14 @@
  * 环回缓冲上限 50 条，drop-oldest；进程内存态（重启即清空，如实呈现）。
  * in-flight 超过 15 分钟标记 possiblyOrphaned（tools/result 因进程内异常未到达时，
  * 面板不把"永远转圈"伪装成"还在跑"）。
+ *
+ * T-4801 拆分：extractResultPreview/contentText 纯函数已拆至
+ * ./invocationFeedPreview.ts（本文件触 250 行纪律时的同域拆分）。
  */
 import { createScoped } from '../logger.ts';
+import { extractResultPreview, previewOf } from './invocationFeedPreview.ts';
+
+export { extractResultPreview, previewOf } from './invocationFeedPreview.ts';
 
 const log = createScoped('anic:invocation-feed');
 
@@ -43,6 +51,12 @@ export interface InvocationRecord {
   status: 'in-flight' | 'done' | 'error';
   error?: { name: string; code: string; reason?: string };
   durationMs?: number;
+  /**
+   * cycle-48 T-4801：结果内容预览（截断 200 字符，对齐 argumentsPreview）。
+   * 提取自 tools/result 载荷的 content 文本块（官方 ContentBlock[] 形状，
+   * 见下方 extractResultPreview 契约注）；错误调用无此字段（error 三元组已足）。
+   */
+  resultPreview?: string;
   /** in-flight 超过 15 分钟：结束事件大概率永远不会来，如实标记。 */
   possiblyOrphaned?: boolean;
 }
@@ -90,18 +104,18 @@ export function isAnicInvocation(name: string, rawArguments: string): boolean {
   return false;
 }
 
-/** 截断原始参数串：保留头部 200 字符 + 省略标记。 */
-export function previewOf(raw: string): string {
-  return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-}
-
+/** 截断与提取函数见 ./invocationFeedPreview.ts（T-4801 拆分）。 */
 const ORPHAN_AFTER_MS = 15 * 60 * 1000;
 
 /** 环回缓冲（纯数据结构，便于单测；宿主接线见 attachInvocationFeed）。 */
 export interface InvocationFeed {
   recordCall(input: { callId: string; name: string; arguments: string; turn?: number; step?: number }): void;
-  /** 结束一次调用；返回是否真实结算（命中 in-flight 记录）——诊断计数用。 */
-  recordResult(callId: string, result: { isError: boolean; error?: { name: string; code: string; reason?: string } }): boolean;
+  /**
+   * 结束一次调用；返回是否真实结算（命中 in-flight 记录）——诊断计数用。
+   * cycle-48 T-4801：第二参收 tools/result 全载荷（isError/error/resultPreview
+   * 已由调用方 extractResultPreview 提取；此处只存不解析——feed 保持纯数据结构）。
+   */
+  recordResult(callId: string, result: { isError: boolean; error?: { name: string; code: string; reason?: string }; resultPreview?: string }): boolean;
   snapshot(now?: number): InvocationFeedSnapshot;
   /** 事件通道诊断（由 attachInvocationFeed 注入；未接线时不存在）。 */
   diagnostics?(): FeedDiagnostics;
@@ -145,6 +159,8 @@ export function createInvocationFeed(limit = 50): InvocationFeed {
       rec.durationMs = rec.endedAt - rec.startedAt;
       rec.status = result.isError ? 'error' : 'done';
       if (result.isError && result.error) rec.error = result.error;
+      // T-4801：成功调用的结果内容预览（错误态走 error 三元组，无预览）。
+      if (!result.isError && result.resultPreview) rec.resultPreview = result.resultPreview;
       return true;
     },
     snapshot(now = Date.now()) {
@@ -200,14 +216,20 @@ export function attachInvocationFeed(ctx: unknown, feed: InvocationFeed): Invoca
   }) as (...args: never[]) => void);
 
   // 结束相位：工具运行时冻结结果（exec.callId 配对）。
-  c.on('tools/result', ((exec: { callId?: string; name?: string }, result: { isError?: boolean; error?: { name: string; code: string; reason?: string } }) => {
+  // T-4801：tools/result 载荷是 materializeFinalResult 产物（宿主 asar 考古）：
+  //   { content: ContentBlock[], meta?, isError, error?, concludesTurn?, value }
+  // —— extractResultPreview 从 content text 块提取预览（纯函数，只读——
+  //    宿主已 deepFreeze(result)，任何写访问都会抛）。error 三元组原样透传。
+  c.on('tools/result', ((exec: { callId?: string; name?: string }, result: unknown) => {
     diag.toolsResults++;
     if (!exec || !exec.callId) return;
     // tools/result 覆盖全部工具执行（含嵌套分发）；recordResult 按 callId 命中，
     // 未命中（非本插件调用）自然跳过——不需要在结束相位重复过滤 name。
+    const r = (result ?? {}) as { isError?: boolean; error?: { name: string; code: string; reason?: string } };
     const settled = feed.recordResult(exec.callId, {
-      isError: result?.isError === true,
-      error: result?.isError === true && result.error ? result.error : undefined,
+      isError: r.isError === true,
+      error: r.isError === true && r.error ? r.error : undefined,
+      resultPreview: extractResultPreview(result),
     });
     if (settled) diag.anicResults++;
   }) as (...args: never[]) => void);
