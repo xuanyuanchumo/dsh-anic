@@ -124,7 +124,7 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 **真机证据**：分区壳「技术债务」默认 open=true（details 9→10）；summary「待处理 0 · 已消费 0 · 跳过 2」；skipped title 带 self-bootstrap 文件名与原因（本仓两个自举轮自由形态提案如实归类）；截图 .cycles/cycles/cycle-54/anic-cycle54-techdebt.png。
 
-**留账**：health critical 建议→tech-debt 提案落盘通道（写面合流，severity 映射 critical→critical/warn→medium/info→low）流转 cycle-55。
+**留账收口（cycle-55）**：health 建议→tech-debt 提案落盘通道已落地——healthDebtBridge（src/host/evolution/healthDebtBridge.ts）在 skillHealthRoute 读面旁路落盘 .cycles/tech-debt/health-<date>.json（同日幂等/跨日恶化新提案可追踪/损坏重建/落盘失败不阻塞读面）；severity 映射 critical→critical/warn→medium/info→low；dimension=skill:<script>。真机：面板 summary「待处理 0→4」（workflow-state critical+三脚本 medium），8s 复验幂等。
 
 ## 3. 缺口与排期
 

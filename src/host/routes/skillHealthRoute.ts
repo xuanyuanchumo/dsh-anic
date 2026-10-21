@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
 import { loadFlowTracker } from '../runtime/flowTracker.ts';
 import { analyzeSkillHealth } from '../runtime/continuousLearning.ts';
+import { persistHealthSuggestionsAsDebt } from '../evolution/healthDebtBridge.ts';
 
 const log = createScoped('anic:route:skill-health');
 export const SKILL_HEALTH_ROUTE = '/anic/skill/health';
@@ -52,6 +53,18 @@ export function registerSkillHealthRoute(
       // totalInvocations: 0（不伪造、不 500——「没有调用历史」是合法事实）。
       const state = loadFlowTracker(join(root, '.cycles'));
       const report = analyzeSkillHealth(state);
+      // cycle-55（T-5501）：健康建议落 tech-debt 提案（写面合流——改进建议
+      // 从「看完即散」变工作队列承载）。同日幂等：重复轮询不堆重复提案；
+      // 落盘失败不阻塞读面（面板照常拿 report——债务落盘是旁路增强，读面
+      // 可用性优先），只在 debug 日志留痕。
+      try {
+        const debt = persistHealthSuggestionsAsDebt(join(root, '.cycles'), report.suggestions, new Date().toISOString());
+        if (debt.written > 0) {
+          log.debug(`health→debt: ${String(debt.written)} written, ${String(debt.skipped)} skipped, file ${debt.file ?? 'none'}`, requestId);
+        }
+      } catch (e) {
+        log.debug(`health→debt persist failed (non-blocking): ${e instanceof Error ? e.message : String(e)}`, requestId);
+      }
       log.debug(`skill health: ${String(report.totalInvocations)} invocations, ${String(report.scripts.length)} scripts`, requestId);
       deps.send(res, 200, report, requestId);
     },
