@@ -26,8 +26,9 @@ export type { InvocationJson, InvocationsJson } from './renderInvocationsTypes.t
 const GROUP_RENDER_CAP = 40;
 
 // cycle-60 T3 拆分：分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/
-// turnTimeRange）迁至 invocationGrouping.ts——「算什么」与「怎么渲」分离。
-import { groupByTurn, mostRecentCompletedKey, turnTimeRange } from './invocationGrouping.ts';
+// turnTimeRange/turnDensity/turnCompletedAt）迁至 invocationGrouping.ts——
+// 「算什么」与「怎么渲」分离。
+import { groupByTurn, mostRecentCompletedKey, turnTimeRange, turnDensity, turnCompletedAt } from './invocationGrouping.ts';
 
 /**
  * in-flight 状态点的脉冲动画：样式本体迁移至 components/statusDot.ts（B4 合并
@@ -181,6 +182,13 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
                       // T-6001：组内时间范围（绝对时序白盒）——「这组发生在几点、
                       // 持续多久」与步进坐标互补；无合法时间戳时静默跳过。
                       turnTimeRange(g.items),
+                      // T-6301：组内调用密度（次/分钟）——「这组多快」；跨度 0 或
+                      // 无合法时间戳时静默跳过（除零不是「无穷密」的诚实陈述）。
+                      turnDensity(g.items),
+                      // T-6302：组完成时刻（endedAt 产出落定语义——与时间范围
+                      // 的 startedAt 边界语义互补两键两文案）；组内含 in-flight
+                      // 或 endedAt 缺失时静默跳过（组还没完不伪造完成时刻）。
+                      turnCompletedAt(g.items),
                       gRunning ? createElement('span', { style: { color: token('anic-status-active'), marginLeft: 6 } }, t('live.groupRunningSuffix', { count: String(g.items.filter((i) => i.status === 'in-flight').length) })) : null),
                     // Top5 截限：渲染前 GROUP_RENDER_CAP 条，其余以计数行收纳。
                     ...g.items.slice(0, GROUP_RENDER_CAP).map((inv) => invocationRow(inv)),

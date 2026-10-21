@@ -90,7 +90,9 @@
     "turnTimeRange": " · {from}–{to} · span {span}",
     "diagnostics": "channel counts: events {events} · tool calls {calls} · results {results} · anic calls {anicCalls} · anic results {anicResults}",
     "resultPreview": " ⇒ {preview}",
-    "resultPreviewLabel": "returned"
+    "resultPreviewLabel": "returned",
+    "turnDensity": " · {rate} calls/min",
+    "turnCompletedAt": " · completed at {at}"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",

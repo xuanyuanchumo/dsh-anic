@@ -371,3 +371,66 @@ describe('renderInvocations —— cycle-60 T-6001 turn 组时间范围', () => 
     expect(html).toContain('跨度 60s'); // 追加序 slice 会取错边界——min/max 是正确语义
   });
 });
+
+describe('renderInvocations —— cycle-63 T-6301/T-6302 组密度与组完成时刻', () => {
+  it('组内调用密度渲染：条数/跨度分钟（与时间范围同源 startedAt 边界，互相可验算）', () => {
+    const base = Date.now() - 60_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', turn: 3, step: 1, startedAt: base, status: 'done', durationMs: 90 }),
+      inv({ callId: 'b', turn: 3, step: 2, startedAt: base + 45_000, status: 'done', durationMs: 80 }),
+    ]), null));
+    // 2 条 / 45s = 45s→0.75 分钟 → 2/0.75 = 2.7 次/分钟
+    expect(html).toContain('2.7 次/分钟');
+    expect(html).toContain('跨度 45s'); // 同源可验算：两个数字来自同一对边界
+  });
+
+  it('单条组（跨度 0s）：密度不渲染（除零不是「无穷密」的诚实陈述）', () => {
+    const at = Date.now() - 5_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'solo', turn: 7, startedAt: at, status: 'done', durationMs: 5 }),
+    ]), null));
+    expect(html).toContain('跨度 0s'); // 时间范围如实（0 跨度是事实）
+    expect(html).not.toContain('次/分钟'); // 密度跳过（0 分母不可除）
+  });
+
+  it('组完成时刻渲染：组内全部落定 → max endedAt 的 HH:MM:SS（endedAt 产出语义）', () => {
+    const base = Date.now() - 60_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', turn: 3, step: 1, startedAt: base, endedAt: base + 1_000, status: 'done', durationMs: 1_000 }),
+      inv({ callId: 'b', turn: 3, step: 2, startedAt: base + 45_000, endedAt: base + 46_000, status: 'done', durationMs: 1_000 }),
+    ]), null));
+    expect(html).toContain('完成于');
+    expect(html).toMatch(/完成于 \d{2}:\d{2}:\d{2}/); // 完成时刻是 max endedAt（base+46s 的本地时刻）
+  });
+
+  it('组内含 in-flight：完成时刻不渲染（组还没完，不伪造完成时刻——时间范围仍渲染）', () => {
+    const base = Date.now() - 30_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'x', turn: 5, step: 1, startedAt: base, endedAt: base + 500, status: 'done', durationMs: 500 }),
+      inv({ callId: 'y', turn: 5, step: 2, startedAt: base + 10_000, status: 'in-flight' }),
+    ]), null));
+    expect(html).toContain('跨度 10s'); // 时间范围仍渲染（startedAt 边界不受 in-flight 影响）
+    expect(html).not.toContain('完成于'); // 完成时刻跳过（in-flight 未落定）
+  });
+
+  it('组内部分条目 endedAt 缺失（旧 feed）：完成时刻不渲染（部分完成无组级完成时刻）', () => {
+    const base = Date.now() - 30_000;
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', turn: 6, step: 1, startedAt: base, endedAt: base + 500, status: 'done', durationMs: 500 }),
+      inv({ callId: 'b', turn: 6, step: 2, startedAt: base + 5_000, status: 'done', durationMs: 100 }), // endedAt 缺失
+    ]), null));
+    expect(html).toContain('data-anic-turn-group="t6"');
+    expect(html).not.toContain('完成于'); // 不拿部分 max 冒充全体落定
+  });
+
+  it('组内全部无合法时间戳（旧 feed startedAt 缺省 0/负值）：密度与完成时刻都不渲染（零伪造）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'a', turn: 1, startedAt: 0, endedAt: 100, status: 'done' }),
+      inv({ callId: 'b', turn: 1, startedAt: -5, endedAt: 200, status: 'done' }),
+    ]), null));
+    expect(html).toContain('data-anic-turn-group="t1"');
+    expect(html).not.toContain('次/分钟');
+    // endedAt 形状在本用例合法（>0），完成时刻可渲染——门槛只看 endedAt 自身
+    expect(html).toContain('完成于');
+  });
+});

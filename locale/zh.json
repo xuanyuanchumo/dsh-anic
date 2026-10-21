@@ -90,7 +90,9 @@
     "turnTimeRange": " · {from}–{to} · 跨度 {span}",
     "diagnostics": "通道计数：事件 {events} · 工具调用 {calls} · 结果 {results} · anic 调用 {anicCalls} · anic 结果 {anicResults}",
     "resultPreview": " ⇒ {preview}",
-    "resultPreviewLabel": "返回"
+    "resultPreviewLabel": "返回",
+    "turnDensity": " · {rate} 次/分钟",
+    "turnCompletedAt": " · 完成于 {at}"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",

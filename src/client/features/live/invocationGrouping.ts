@@ -81,3 +81,61 @@ export function turnTimeRange(items: InvocationJson[]): string | null {
   };
   return t('live.turnTimeRange', { from: fmt(min), to: fmt(max), span: `${String(Math.round((max - min) / 1000))}s` });
 }
+
+/**
+ * cycle-63（T-6301 组内调用密度）：组内条数 / 跨度分钟——「这组多快」。
+ *
+ * - 分母用 turnTimeRange 同源的 startedAt 边界（首末开始时刻），与时间范围
+ *   的跨度陈述同源，两个数字互相可验算；
+ * - 跨度 0（单条组或同毫秒组）→ null 不渲染：除零不是「无穷密」的诚实
+ *   陈述，宁可跳过；
+ * - 无合法时间戳（全部 ≤0/非有限）→ null（零伪造，与 turnTimeRange 门槛
+ *   一致）；
+ * - 数值精度：保留 1 位小数（面板场景足够区分度；「12.0 次/分钟」与
+ *   「12.3 次/分钟」的工程差异无观察价值）。
+ */
+export function turnDensity(items: InvocationJson[]): string | null {
+  let min = -1;
+  let max = -1;
+  let count = 0;
+  for (const inv of items) {
+    count += 1;
+    if (typeof inv.startedAt !== 'number' || !Number.isFinite(inv.startedAt) || inv.startedAt <= 0) continue;
+    if (min === -1 || inv.startedAt < min) min = inv.startedAt;
+    if (inv.startedAt > max) max = inv.startedAt;
+  }
+  if (min === -1 || max === -1 || max <= min) return null;
+  const perMinute = count / ((max - min) / 60000);
+  return t('live.turnDensity', { rate: perMinute.toFixed(1) });
+}
+
+/**
+ * cycle-63（T-6302 组完成时刻）：组内**全部**条目非 in-flight 且 endedAt
+ * 落定时，取 max endedAt 渲染「完成于 HH:MM:SS」——产出落定的绝对时刻。
+ *
+ * 与 turnTimeRange 的语义区分（两键两文案，防混淆）：
+ * - 时间范围「 · 」= startedAt 边界（组从何时开始到何时开始——组内节奏）；
+ * - 完成时刻「完成于」= endedAt 语义（组产出全部落定的时刻——产出语义）。
+ *
+ * 诚实门槛：
+ * - 组内含任一 in-flight → null（组还没完，渲染完成时刻是伪造——宁可等
+ *   下一轮轮询它落定后再出现）；
+ * - 部分条目 endedAt 缺失（旧 feed/异常形状）→ null（「部分完成」没有
+ *   组级完成时刻——不拿部分 max 冒充全体落定）；
+ * - 合法性门槛 endedAt > 0（epoch 0 占位非真实时刻——与 startedAt 门槛
+ *   同构）。
+ */
+export function turnCompletedAt(items: InvocationJson[]): string | null {
+  if (items.length === 0) return null;
+  let max = -1;
+  for (const inv of items) {
+    if (inv.status === 'in-flight') return null;
+    if (typeof inv.endedAt !== 'number' || !Number.isFinite(inv.endedAt) || inv.endedAt <= 0) return null;
+    if (inv.endedAt > max) max = inv.endedAt;
+  }
+  const d = new Date(max);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return t('live.turnCompletedAt', { at: `${hh}:${mm}:${ss}` });
+}
