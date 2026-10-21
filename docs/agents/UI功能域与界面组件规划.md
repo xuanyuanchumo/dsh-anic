@@ -180,7 +180,7 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 | V-1 | ETag 条件请求 | 见 §2.1 | ✅ cycle-38 |
 | Top2 | 根组件全树重渲（2s tick 打根） | 见 §2.4——panelStore 外置 + 订阅薄组件，只重渲订阅分区 | ✅ cycle-42 |
 | Top4 | useDeferredValue 陈旧指示 | live 分区可中断渲染 + stale 视觉标记（data-anic-live-deferred） | ✅ cycle-42（static 渲染直通钉；滞后路径真机旅程覆盖） |
-| R-1 | @container 断点表验证 | 响应式基础已有（@media + flex wrap），@container 查询断点表未验证 | 排期 |
+| R-1 | @container 断点表验证 | 断点表契约测试落地：panelBreakpointContract.test.ts 9 用例钉死 640/420 两档+容器查询锚点+reduced-motion/forced-colors 逃逸（三要素逐条钉+反向自检+非空下限）；真机窄面板三态旅程实锤 | ✅ cycle-61 |
 | — | aria-live 状态行的节流 | 刷新按钮的 status 行每次轮询都可能变更文案；高频播报干扰（APG live region 实践：变更要有意义） | 观察项——当前文案仅 source/line 变化时改，实际频率低 |
 | — | 图区缩放/平移 | 76+ cycle 规模下纵向滚动深 | M3 范畴（doc11 已排期） |
 

@@ -126,8 +126,10 @@ const NON_TEXT_ROLES: TokenName[] = [
  * 装饰/背景：不承载信息，不设阈值（残余风险已在文件头登记）。
  *
  * P1-1 交互态面（hover/active）落在这里：它们是 `background`，本身不承载信息，
- * 而**压在其上的文字**仍在阈值内——由 `tests/unit/panelCss.test.ts` 实测
- * （浅色 #eef2f7 上 text 9.21 / text-strong 6.74 / text-faint 4.587）。
+ * 而**压在其上的文字**仍在阈值内——由本文件（contrastContract.test.ts）的
+ * TEXT 组实测（浅色 #eef2f7 上 text 9.21 / text-strong 6.74 / text-faint 4.587）。
+ * cycle-61 T-6101a 修正：原注释引用的 tests/unit/panelCss.test.ts 从未存在
+ * （幽灵引用——grep 全仓+git 历史零踪迹），实测一直由本文件承担。
  */
 const DECORATIVE: TokenName[] = [
   'anic-surface', 'anic-border', 'anic-border-strong', 'anic-row-border', 'anic-detail-surface',
