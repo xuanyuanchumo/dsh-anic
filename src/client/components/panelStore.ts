@@ -30,8 +30,14 @@ export interface PanelStore<T extends object> {
   /**
    * 按顶层 key 替换引用（浅合并）。全等补丁（每个 key 都 Object.is 相同）
    * 不通知——「数据未变」零重渲，与 usePanelFetch 的 ETag 304 跳过同一语义。
+   *
+   * cycle-45（T-4502a，ui-research 主题①）：补丁可以是 Partial 或
+   * `(s) => Partial` 函数式形态——写侧需要「先读后写」的场合（如 announce
+   * 回读、malformed 降级保 source）在 updater 内对原子快照计算，不再
+   * getState/setState 两步走（形态原子，语义与原两步等价：单线程事件循环
+   * 下本无竞态，函数式只是把回读语义显式化进机制层）。
    */
-  setState(patch: Partial<T>): void;
+  setState(patch: Partial<T> | ((state: T) => Partial<T>)): void;
   /** 订阅变更；返回退订函数（uSES 契约）。 */
   subscribe(listener: () => void): () => void;
 }
@@ -46,11 +52,13 @@ export function createPanelStore<T extends object>(initial: T): PanelStore<T> {
   return {
     getState: () => state,
     setState: (patch) => {
+      // T-4502a：函数式补丁先解引用（对当前快照求值一次，读-改-写原子化）。
+      const resolved = typeof patch === 'function' ? patch(state) : patch;
       let changed = false;
       const next: T = { ...state };
-      for (const key of Object.keys(patch) as Array<keyof T>) {
-        if (Object.is(state[key], patch[key])) continue;
-        next[key] = patch[key] as T[keyof T];
+      for (const key of Object.keys(resolved) as Array<keyof T>) {
+        if (Object.is(state[key], resolved[key])) continue;
+        next[key] = resolved[key] as T[keyof T];
         changed = true;
       }
       if (!changed) return;
@@ -69,10 +77,35 @@ export function createPanelStore<T extends object>(initial: T): PanelStore<T> {
 /**
  * 订阅切片（zustand useStore 形态）。selector 必须引用稳定（模块级函数或
  * useCallback），且返回切片原引用——违反任一条会陷入无限重渲（见文件头）。
+ *
+ * cycle-45（T-4502b）：dev 双调自检——两条硬契约此前只活在注释，全部测试走
+ * renderToStaticMarkup 的 getServerSnapshot 分支，结构性测不到「selector 返回
+ * 新引用 → Maximum update depth exceeded」陷阱。DEV 构建下对同一快照双调
+ * selector 并 Object.is 比对，不等 → 一次性 console.warn（client dev 诊断，
+ * 非 host 日志域——不用 scoped logger）。生产零开销（分支不进 bundle 主路径
+ * 行为）。签名不变。
  */
 export function usePanelSlice<T extends object, U>(store: PanelStore<T>, selector: (state: T) => U): U {
   // useCallback 稳定 getSnapshot：subscribe 引用恒定（store 方法），selector
   // 引用由调用方保证——两者不变则 uSES 不重订阅。
-  const getSnapshot = useCallback(() => selector(store.getState()), [store, selector]);
+  const getSnapshot = useCallback(() => {
+    const s = store.getState();
+    const v = selector(s);
+    if (import.meta.env?.DEV) {
+      const again = selector(s);
+      if (!Object.is(v, again)) {
+        devWarnUnstableSlice(store);
+      }
+    }
+    return v;
+  }, [store, selector]);
   return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot);
+}
+
+/** dev 一次性告警（同 store 只 warn 一次——2s 轮询双调失败不该刷屏）。 */
+const devWarnedStores = new WeakSet<object>();
+function devWarnUnstableSlice(store: object): void {
+  if (devWarnedStores.has(store)) return;
+  devWarnedStores.add(store);
+  console.warn('[anic-panel] usePanelSlice selector 返回了新引用（同一 state 快照两次调用 Object.is 不等）——这会触发 uSES 无限重渲。请返回切片原引用（每值独立订阅或 useShallow 语义），参见 panelStore.ts 文件头契约。');
 }

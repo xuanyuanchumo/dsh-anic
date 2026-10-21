@@ -24,13 +24,23 @@ import type { SkillHealthJson } from './features/skillhealth/renderSkillHealth.t
 import type { InvocationsJson } from './features/live/renderInvocations.ts';
 import type { PanelStore } from './components/panelStore.ts';
 
-/** 快照来源行（toolbar 的 `ANIC · ${line}` 文案状态）。 */
-export interface PanelFetchState { source: 'embedded' | 'live'; line: string; }
+/**
+ * 快照来源两切片（cycle-45 T-4502a 扁平化）。
+ *
+ * 曾是唯一嵌套切片 `fetchState: { source, line }`：写侧每次新建整个对象 →
+ * 顶层 Object.is 恒不等，「全等补丁不通知」对它失效（同 line 重置也通知，
+ * 靠 uSES 字符串 selector 兜底才不重渲）。拆为两个顶层切片后：source 不变
+ * 只写 line → line 切片订阅者重渲、source 消费者零打扰；两值都同 → 零通知。
+ */
+export type FetchSource = 'embedded' | 'live';
 
 /** 面板全量数据状态（切片清单与原 useState 一一对应）。 */
 export interface PanelState {
   graph: GraphData;
-  fetchState: PanelFetchState;
+  /** 快照来源（embedded=构建期嵌入兜底 / live=路由拉取成功）。 */
+  fetchSource: FetchSource;
+  /** 快照来源行文案（toolbar 的 `ANIC · ${line}`）。 */
+  fetchLine: string;
   trace: StepTraceJson | null;
   traceLine: string;
   check: SelfCheckJson | null;
@@ -60,7 +70,8 @@ export type PanelDataStore = PanelStore<PanelState>;
 export function createInitialPanelState(): PanelState {
   return {
     graph: { nodes: WORKFLOW_SNAPSHOT.nodes, edges: WORKFLOW_SNAPSHOT.edges },
-    fetchState: { source: 'embedded', line: t('panel.sourceEmbedded') },
+    fetchSource: 'embedded',
+    fetchLine: t('panel.sourceEmbedded'),
     trace: null,
     traceLine: t('panel.notLoaded'),
     check: null,

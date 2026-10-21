@@ -32,7 +32,8 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 （cycle-40 勘误：上方引用块旧版省略上界预发布排除号 `-0`——`package.json:25/:29` 逐字是 `<0.4.0-0`；语义近似（两者都拦 0.4.0 系全部版本），但 `-0` 形态额外显式排除 0.4.0 的预发布。以下判定行同理按 `<0.4.0-0` 口径理解。）
 
-- **生效层**是 peerDependencies（兼容性门只读它）；`optional: true` 只影响 npm 安装期对等解析，不影响宿主门（门只读键值，忽略 meta）。
+- **生效层是 peerDependencies（兼容性门只读它）**；`optional: true` 只影响 npm 安装期对等解析，不影响宿主门（门只读键值，忽略 meta）。
+- **cycle-45（T-4501，KB v0.2.1-alpha.3 plugin-engines-dsh 变更）**：上游已把兼容判定改为 **engines.dsh 优先**——声明了 engines.dsh 时 peerDependencies 被忽略。本仓双声明同范围是正确姿势，但两处范围**必须同步演化**（改一处不改另一处=静默漂移）；且 engines.dsh **不得出现 `workspace:`**（出现即判不兼容）、engines 非对象直接拒绝。守卫提示：dshConformance 契约测试钉的是 peerDependencies 形状——若未来宿主全面切 engines.dsh 判定，需把守卫扩到双锚。
 - **为什么写 `>=0.2.0-rc.2` 而不是 `>=0.2.0`**：semver 的 `includePrerelease` 不会让 `>=0.2.0` 接受 `0.2.0-rc.2`（预发布号被排除在非预发布范围外）。实测（宿主自带 semver）：
   - `0.2.0-rc.2` vs `>=0.2.0` → **false**（会把当前 rc 宿主判为不兼容 → bundle throw → 双端崩）
   - `0.2.0-rc.2` vs `>=0.2.0-rc.2 <0.4.0` → **true**；`0.2.0`/`0.2.1`/`0.3.x` → true；`0.4.0` → false（上界拦住）；`0.1.7-rc.2` → false（下限拦住）
@@ -95,6 +96,25 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 | B6 | transcript 保存值 `normal` 显示 `detailed` | 无（不依赖该缺省） | — |
 
 已知陷阱对照（R1-R20 摘要）：无 default export（unwrapExports 会丢 inject/name）✓；只用 `ctx.get(name,false)` ✓；`output.render` 返回 ContentBlock[] ✓（修复已验证）；`meta` 纯 JSON ✓；子进程超时与退出码分列 ✓。
+
+### 4a. cycle-45（T-4501）KB 全量对照结论（kb 快照 2026-10-21，commit 687f282）
+
+**KB 无任何 v0.3.x/v0.4.x 条目**（全库 grep 零命中；upgrade-guide 最高到 v0.2.1-alpha.4 account-notification-fields）——上游 docs 尚未发布 0.3/0.4 升级指南，本文 D1-D8 能力探测矩阵仍是唯一防线（j0-probe 实测宿主为准）。v0.2.1-alpha 系新增已核对项：
+
+| 变更 | 内容 | dsh-anic 影响 |
+|---|---|---|
+| v0.2.1-alpha.3 plugin-engines-dsh | 兼容判定 engines.dsh 优先；`workspace:` 出现在其中=不兼容；engines 非对象直接拒绝 | §1.1 已补同步演化警示 |
+| v0.2.1-alpha.1 tool-presentation-mode | tools mode 只认 native\|ptc，both 拒绝 | 无（未用 presentAs/mode） |
+| v0.2.1-alpha.1 working-directory | presentationMeta 在嵌套 PTC 调用中也运行，须纯函数，异常致 ToolOutputError | 无（本仓 presentationMeta 仅类型声明未实用；presentCall/presentResult 已是纯函数） |
+| v0.2.1-alpha.4 account-notification-fields | 账号通知字段 | 无（不涉账号通知） |
+
+**工具/技能注册官方契约 vs 本仓实现（P1/P2 研究结论，已等价）**：
+
+- `defineTool`（@deepseek-ai/dsh-tools）是官方推荐的第一方工具形态（DSL 校验+类型收窄）；**raw JSON-Schema ToolDefinition 同被 ctx.tools.register 直接接受**（MCP 路线）——dsh-anic 走 raw 路线，官方认可，**不迁移**（免增运行时依赖，DSL 收益有限）。字段名铁律逐项核对：`parameters` ✓（`src/host/toolsSlot.ts:86-97`）、`execute(args, exec)` 双参 ✓（:105）、`output:{schema,render}` ✓（:107）、render 返回 ContentBlock[] ✓（:59-62）、presentCall/presentResult 纯函数可回放 ✓（:109-111）、timeoutMs 宿主专用不模型可见 ✓（:120）。
+- `ctx.skills.register` 官方形状（SkillRegistration = Omit<SkillDefinition,'invocation'|'provider'>，必填 name/description/source/content）——本仓 `src/host/skillRegistration.ts:113-121` 逐字段吻合（source:'runtime'/resourceBase:{kind:'directory'}）；同层重名 runtime 首胜+warn+no-op disposer 语义已复刻（`src/host/flows/registry.ts:5`）；disposer 经 `c.effect` 承接（`src/index.ts:38`）。
+- presentationMeta 是 output 上的纯投影（args,value)→JsonValue，持久化到 tool/result 供 presentResult 回放——本仓卡片回放走 result.meta→presentResult（`src/host/tools.ts:74` 等），符合官方「UI 状态经持久化 meta 回放」路线，**无需动作**；仅当卡片需要调用期事实（非结果期）再补。
+- dsh-ops（T-Auto）：KB 全库零提及，无吸收点；工具组织/路由/会话以 KB 官方为准（tools.md 宿主+per-scope 分层注册表、skills.md 同形态、api-gateway.md Remote 方法声明）。
+- KB 镜像位置：`C:\Users\86156\.dsh\profiles\desktop\node_modules\dsh-plugin-dev-kb\kb\`（asar 归档内路径不可直接浏览）。
 
 ## 5. 已知限制与未验证项（诚实清单）
 

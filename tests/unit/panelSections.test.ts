@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { createPanelStore } from '../../src/client/components/panelStore.ts';
 import { createInitialPanelState } from '../../src/client/panelState.ts';
-import { LiveInvocationsSection, LedgerSection, StepTraceSection } from '../../src/client/components/panelSections.ts';
+import { LiveInvocationsSection, LedgerSection, StepTraceSection, ToolbarStatusLine } from '../../src/client/components/panelSections.ts';
 import type { LedgerListJson, LedgerEntryJson } from '../../src/client/features/ledger/renderLedger.ts';
 import type { InvocationsJson, InvocationJson } from '../../src/client/features/live/renderInvocations.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
@@ -31,6 +31,33 @@ function inv(over: Partial<InvocationJson>): InvocationJson {
 function snap(invocations: InvocationJson[]): InvocationsJson {
   return { invocations, total: invocations.length, generatedAt: '2026-10-21T00:00:00.000Z' };
 }
+
+describe('ToolbarStatusLine（cycle-45 T-4502a：fetchLine 顶层切片直测——12 分区包装组件中曾无直测者）', () => {
+  it('初始态渲染 `ANIC · 构建期快照` 来源行（fetchLine 订阅接线）', () => {
+    const store: PanelDataStore = createPanelStore(createInitialPanelState());
+    const html = renderToStaticMarkup(createElement(ToolbarStatusLine, { store }));
+    expect(html).toContain('ANIC · ');
+    expect(html).toContain('构建期快照');
+    expect(html).toContain('role="status"');
+  });
+
+  it('fetchLine 写入后状态行跟进（aria-live polite 异步反馈可感知）', () => {
+    const store: PanelDataStore = createPanelStore(createInitialPanelState());
+    store.setState({ fetchSource: 'live', fetchLine: '实时 2026-10-21T12:00:00.000Z · 188 节点 / 292 边' });
+    const html = renderToStaticMarkup(createElement(ToolbarStatusLine, { store }));
+    expect(html).toContain('实时 2026-10-21T12:00:00.000Z · 188 节点 / 292 边');
+    expect(html).toContain('aria-live="polite"');
+  });
+
+  it('fetchSource 单独变化不牵动状态行内容（扁平化隔离语义——行只订 line）', () => {
+    const store: PanelDataStore = createPanelStore(createInitialPanelState());
+    const lineBefore = '实时 T1 · 10 节点 / 20 边';
+    store.setState({ fetchSource: 'live', fetchLine: lineBefore });
+    store.setState({ fetchSource: 'embedded' }); // 只动 source
+    const html = renderToStaticMarkup(createElement(ToolbarStatusLine, { store }));
+    expect(html).toContain(lineBefore); // 行内容不受 source 切片影响
+  });
+});
 
 describe('LiveInvocationsSection（store 订阅 + deferred 指示）', () => {
   it('null 数据：pending 形态（不伪造空态），deferred 标记恒 fresh（static 渲染直通）', () => {

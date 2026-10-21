@@ -149,7 +149,7 @@ describe('panelLiveTargets —— 一次性拉取三 target 工厂', () => {
   function makeSetters(sink: Sink) {
     return {
       setData: (d: unknown) => { sink.calls.push(['data', d]); },
-      setState: (u: (s: { source: string; line: string }) => { source: string; line: string }) => { sink.calls.push(['state', u({ source: 'embedded', line: '' })]); },
+      setFetchLine: (u: (s: { source: string; line: string }) => { source: string; line: string }) => { sink.calls.push(['state', u({ source: 'embedded', line: '' })]); },
       setTrace: (v: unknown) => { sink.calls.push(['trace', v]); },
       setTraceLine: (v: string) => { sink.calls.push(['traceLine', v]); },
       setCheck: (v: unknown) => { sink.calls.push(['check', v]); },

@@ -25,7 +25,7 @@
 | 13 | 节点详情抽屉 | features/graph/gateColors.ts（renderNodeDetail） | 图区点击 | — | — | role=region + Esc 关闭 + 焦点还原 |
 | 14 | 开关抽屉 | features/prefs/prefsDrawer.ts | localStorage | — | — | disclosure aria-expanded/controls |
 
-**组件层**（components/）：`usePanelFetch`（统一轮询钩子——cycle-38 起 ETag+visibility，见 §2）、`panelStore`（cycle-42：外部 store + usePanelSlice 订阅入口，见 §2.4）、`panelSections`（cycle-42：分区订阅薄组件层）、`sectionShell`（分区壳：数据行+降级文案+可折叠 details）、`dataRow`、`statusDot`、`panelTheme`（宿主主题解析）、`sectionIds`（实例唯一 id）。数据切片形状见 `src/client/panelState.ts`（PanelState 19 切片）。
+**组件层**（components/）：`usePanelFetch`（统一轮询钩子——cycle-38 起 ETag+visibility，见 §2）、`panelStore`（cycle-42：外部 store + usePanelSlice 订阅入口，见 §2.4）、`panelSections`（cycle-42：分区订阅薄组件层）、`sectionShell`（分区壳：数据行+降级文案+可折叠 details）、`dataRow`、`statusDot`、`panelTheme`（宿主主题解析）、`sectionIds`（实例唯一 id）。数据切片形状见 `src/client/panelState.ts`（PanelState 19 切片，cycle-45 起 fetchState 嵌套切片拆为 fetchSource+fetchLine 两顶层切片）。
 
 ## 2. 数据面演进（cycle-38 轮询纪律 / cycle-42 store 化）
 
@@ -55,7 +55,7 @@
 **架构（三文件分工）**：
 
 - `panelStore.ts`（78 行）——机制层：`createPanelStore<T>`（getState / setState(Partial<T>) 浅合并按顶层 key 替换 / subscribe）+ `usePanelSlice(store, selector)`（uSES 订阅入口）。**两条硬契约**（违反 → 无限重渲）：selector 引用必须稳定（模块级函数）；selector 必须返回切片**原引用**（禁止组装新对象）。
-- `panelState.ts`（81 行）——状态层：`PanelState` 19 切片与原 useState 一一对应（回归红线：逐字段对齐初始值）；`PanelDataStore` 类型别名。
+- `panelState.ts`（81 行）——状态层：`PanelState` 19 切片与原 useState 一一对应（回归红线：逐字段对齐初始值；cycle-45 T-4502a：fetchState 嵌套 → fetchSource+fetchLine 顶层两切片，扁平化）；`PanelDataStore` 类型别名。
 - `panelSections.ts`（185 行）——订阅层：模块级 selector×18 + memo 薄组件×11（每分区订阅自己的切片，store 更新只重渲订阅组件自身——SyncLane 不波及邻居）。
 
 **语义与收益**：
@@ -65,7 +65,16 @@
 - `useDeferredValue`（LiveInvocationsSection）：重列表可中断渲染；`value !== deferredValue` 驱动陈旧指示（`data-anic-live-deferred` stale/fresh + opacity 0.75）——高频 tick 下用户看到的列表是可中断的滞后版，陈旧态有视觉标记（T-4204）。
 - 零依赖：手写 zustand vanilla 等价物（8 行 useStore 形态），不引第三方包——G-IND 独立性守卫与「运行时依赖为零」纪律不破。
 - 根组件 229 行（重写前 249 行）：UI 态（prefsOpen/flowTick/selectedNode/reloadKey/ledgerLimit）留本地——低频交互态不需要跨分区订阅。
-- 测试钉：`panelStore.test.ts` 8 用例（浅合并引用保持/全等不通知/退订/快照迭代序/uSES static 渲染接线）+ `panelSections.test.ts` 7 用例（三态卡片/pollError 如实呈现/hasMore 自算/门控形态）。
+- 测试钉：`panelStore.test.ts` 11 用例（浅合并引用保持/全等不通知/退订/快照迭代序/uSES static 渲染接线/函数式补丁三态）+ `panelSections.test.ts` 10 用例（三态卡片/pollError 如实呈现/hasMore 自算/门控形态/ToolbarStatusLine 直测三态）。
+
+### 2.5 store 演进第一轮（cycle-45 T-4502，研究驱动）
+
+**研究来源**：panelStore 演进子代理（zustand v5 vanilla 最佳实践对照 + 全写侧审计）。达标项确认：uSES 防撕裂、模块级 selector 返回原引用、每值独立订阅、**per-instance store 是正确选型**（勿改 zustand 式模块单例——i18n 初始文案时机与多面板隔离会回退）。落地两项：
+
+1. **T-4502a 函数式补丁 + fetchState 扁平化**：`setState(patch | ((s) => patch))`（updater 先解引用，读-改-写显式原子）；原唯一嵌套切片 `fetchState:{source,line}` 拆为顶层 `fetchSource`/`fetchLine` 两切片——写侧曾每次新建整个对象令「全等补丁不通知」对它恒失效（靠 uSES 字符串 selector 兜底）。现在 source 单独变化零通知 line 订阅者；announce 回读（useInvocations）与 malformed 保 source（panelLiveTargets）均改函数式补丁。接线点：`WorkflowGraphPanel.ts:96` setFetchLine 桥接、`panelSections.ts` selFetchLine。
+2. **T-4502b usePanelSlice dev 双调自检**：DEV 构建对同一快照双调 selector，Object.is 不等 → WeakSet 去重的一次性 console.warn（浏览器面诊断，非 host 日志域；dshConformance console 守卫按文件豁免并注释域理由）。**生产零开销实证**：tsdown 把 `import.meta.env?.DEV` 编译为 falsy 并死代码消除整段（dist/client.js 无 devWarn 残留）。类型形状补 `src/client/importMetaEnv.d.ts`（本仓不经 Vite，最小声明）。
+
+**留账（下轮候选，按 ROI）**：写侧 actions 收口（bindPanelActions 具名动作+announce 回读进动作层，~20 个 setState 写点散布 4 文件——大重构另开轮次）；panelSections.ts 185 行/12 分区按近期节奏约 3 轮触 250 纪律——新分区应直落 features/<域>/；panelStore.ts:60 通知全监听器扇出无切片级过滤（当前 ~25 监听器成本可忽略，分区翻倍后重估）。
 
 ## 3. 缺口与排期
 

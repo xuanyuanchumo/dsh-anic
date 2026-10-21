@@ -176,10 +176,12 @@ function BudgetSectionImpl({ store }: SectionProps): ReactElement {
 export const BudgetSection = memo(BudgetSectionImpl);
 
 // ── 工具栏状态行（store 订阅薄组件）────────────────────────────────────
-const selFetchStateLine = (s: PanelState) => s.fetchState.line;
+// cycle-45（T-4502a）：原嵌套切片 fetchState.line → 顶层 fetchLine（扁平化，
+// line 单值订阅——source 变化不再牵动本行重渲路径）。
+const selFetchLine = (s: PanelState) => s.fetchLine;
 /** 工具栏 `ANIC · …` 状态行（aria-live polite——异步拉取结果可感知）。 */
 function ToolbarStatusLineImpl({ store }: SectionProps): ReactElement {
-  const line = usePanelSlice(store, selFetchStateLine);
+  const line = usePanelSlice(store, selFetchLine);
   return createElement('span', { role: 'status', 'aria-live': 'polite' }, `ANIC · ${line}`);
 }
 export const ToolbarStatusLine = memo(ToolbarStatusLineImpl);

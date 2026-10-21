@@ -20,10 +20,16 @@ export const SELF_CHECK_URL = '/anic/api/self-check';
 export const ORG_STATUS_URL = '/anic/org-status';
 export const FLOWS_STATUS_URL = '/anic/flows/status';
 
-/** 面板数据 state 的 setter 集（组件 useState 的下传；类型而非实现）。 */
+/** 面板数据 state 的 setter 集（组件 useState 的下传；类型而非实现）。
+ *
+ * cycle-45（T-4502a）：setFetchState 拆成两个顶层切片写通道——line 单值直写、
+ * source 与 line 的复合更新走函数式补丁（panelStore setState updater 语义）。
+ * 全等补丁（同 source+同 line）零通知——原嵌套对象每次新建的恒通知失效点收口。
+ */
 export interface PanelLiveSetters {
   setData: (d: GraphData) => void;
-  setState: (updater: (s: { source: 'embedded' | 'live'; line: string }) => { source: 'embedded' | 'live'; line: string }) => void;
+  /** 复合写：读当前 source/line 原子快照计算新行（malformed 降级保 source 等）。 */
+  setFetchLine: (updater: (s: { source: 'embedded' | 'live'; line: string }) => { source: 'embedded' | 'live'; line: string }) => void;
   setTrace: (v: StepTraceJson | null) => void;
   setTraceLine: (v: string) => void;
   setCheck: (v: SelfCheckJson | null) => void;
@@ -49,12 +55,12 @@ export function panelLiveTargets(s: PanelLiveSetters): PanelFetchTarget[] {
         s.setData({ nodes: json.nodes, edges: json.edges });
         syncTelemetryCounts(json.nodes.length, json.edges.length);
         const c = json.counts;
-        s.setState(() => ({ source: 'live', line: t('panel.sourceLive', { generatedAt: json.generatedAt ?? '', nodes: String(c?.nodes ?? json.nodes.length), edges: String(c?.edges ?? json.edges.length) }) }));
+        s.setFetchLine(() => ({ source: 'live', line: t('panel.sourceLive', { generatedAt: json.generatedAt ?? '', nodes: String(c?.nodes ?? json.nodes.length), edges: String(c?.edges ?? json.edges.length) }) }));
       },
       onFail: (f) => {
-        if (f.kind === 'http') s.setState(() => ({ source: 'embedded', line: t('panel.sourceEmbeddedWithRoute', { status: String(f.status) }) }));
-        else if (f.kind === 'malformed') s.setState((prev) => ({ source: prev.source, line: t('panel.sourceMalformed') }));
-        else s.setState(() => ({ source: 'embedded', line: t('panel.sourceEmbeddedFetchFailed', { error: f.message }) }));
+        if (f.kind === 'http') s.setFetchLine(() => ({ source: 'embedded', line: t('panel.sourceEmbeddedWithRoute', { status: String(f.status) }) }));
+        else if (f.kind === 'malformed') s.setFetchLine((prev) => ({ source: prev.source, line: t('panel.sourceMalformed') }));
+        else s.setFetchLine(() => ({ source: 'embedded', line: t('panel.sourceEmbeddedFetchFailed', { error: f.message }) }));
       },
       onResponse: (res) => {
         // 学得工作区根（encodeURIComponent 形式）：后续请求回带（面板 wsHeaders）。

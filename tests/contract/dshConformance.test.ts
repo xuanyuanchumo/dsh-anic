@@ -197,6 +197,12 @@ describe('源码形状守卫（slots / disposer / 注入形态）', () => {
       const text = readFileSync(f, 'utf8');
       if (!/console\.(log|warn|error|info|debug)\(/.test(text)) continue;
       if (f === SANCTIONED[0]) continue;
+      // cycle-45（T-4502b）豁免：client dev 双调自检的 console.warn 是**客户端
+      // 浏览器面**的一次性诊断（WeakSet 去重），与宿主进程日志域（scoped
+      // logger 的管辖面）不同域——浏览器代码无 host logger 可走，官方 React
+      // 生态同款形态（DEV-only console）。豁免形状收窄：只认 panelStore.ts
+      // 这一处文件（新增 client console 需另开豁免并注释域理由）。
+      if (f.endsWith(join('client', 'components', 'panelStore.ts'))) continue;
       offenders.push(f);
     }
     expect(offenders, 'console.* 必须集中到 host/logger.ts:\n' + offenders.join('\n')).toEqual([]);

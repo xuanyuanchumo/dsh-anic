@@ -48,6 +48,35 @@ describe('createPanelStore（纯机制）', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  // ── cycle-45（T-4502a）：函数式补丁 ─────────────────────────────────
+  it('函数式补丁：updater 收到当前快照，读-改-写原子化（announce 回读语义显式化）', () => {
+    const store = makeStore();
+    store.setState((s) => ({ c: s.c + 10 }));
+    expect(store.getState().c).toBe(10);
+    store.setState((s) => ({ c: s.c + 5 }));
+    expect(store.getState().c).toBe(15);
+  });
+
+  it('函数式补丁同值 → 零通知（「同值 line 字符串补丁不重渲」——T-4502a 扁平化收益钉）', () => {
+    const store = makeStore();
+    const spy = vi.fn();
+    store.subscribe(spy);
+    store.setState((s) => ({ b: s.b }));  // 回读原值写回：不通知
+    expect(spy).not.toHaveBeenCalled();
+    store.setState((s) => ({ b: s.b + '!' }));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('函数式补丁与对象补丁混用语义一致（两种形态走同一合并路径）', () => {
+    const store = makeStore();
+    const aBefore = store.getState().a;
+    store.setState({ c: 1 });
+    store.setState((s) => ({ c: s.c + 1 }));
+    store.setState({ c: 3 });
+    expect(store.getState().c).toBe(3);
+    expect(store.getState().a).toBe(aBefore); // 未触及 key 引用不动（两种形态同一合并路径）
+  });
+
   it('subscribe 返回退订函数；退订后不再收到通知', () => {
     const store = makeStore();
     const spy = vi.fn();
@@ -95,6 +124,22 @@ describe('usePanelSlice（react-dom/server 渲染路径）', () => {
     expect(useSnapshotRef(store, sel)).toBe(obj);
     store.setState({ o: { v: 10 } });
     expect(useSnapshotRef(store, sel)).toEqual({ v: 10 });
+  });
+
+  // ── cycle-45（T-4502b）：dev 双调自检 ────────────────────────────────
+  // 注：vitest 节点环境下 import.meta.env.DEV 缺省 falsy（本仓构建链语义），
+  // 双调分支不激活——这两条用例钉「不激活时零告警」与「激活路径」分开测：
+  // 后者直接驱动 devWarnUnstableSlice 的行为面（ WeakSet 一次性语义）。
+  it('dev 自检不激活（import.meta.env.DEV 缺省）时合法 selector 零 console.warn', () => {
+    const store = createPanelStore<{ n: number }>({ n: 1 });
+    const sel = (s: { n: number }) => s.n;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    renderToStaticMarkup(createElement(() => {
+      const n = usePanelSlice(store, sel);
+      return createElement('span', {}, String(n));
+    }));
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

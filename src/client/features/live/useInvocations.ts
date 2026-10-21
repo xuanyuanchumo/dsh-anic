@@ -42,11 +42,14 @@ export function useInvocations(store: PanelDataStore, pollMs = 2000, manualKey =
       apply: (v) => {
         const nv = v as InvocationsJson;
         const delta = nv.total - lastTotalRef.current;
-        const announce = lastTotalRef.current > 0 && delta > 0
-          ? t('live.newCalls', { count: String(delta) })
-          : store.getState().invocationsAnnounce;
+        const hasDelta = lastTotalRef.current > 0 && delta > 0;
         lastTotalRef.current = nv.total;
-        store.setState({ invocations: nv, invocationsAnnounce: announce });
+        // T-4502a：函数式补丁——announce 无增量时回读原值进补丁，同值零通知
+        //（原两步 getState/setState 的回读语义显式化，机制层保证原子快照）。
+        store.setState((s) => ({
+          invocations: nv,
+          invocationsAnnounce: hasDelta ? t('live.newCalls', { count: String(delta) }) : s.invocationsAnnounce,
+        }));
       },
       onFail: (f) => {
         const message = f.kind === 'http'

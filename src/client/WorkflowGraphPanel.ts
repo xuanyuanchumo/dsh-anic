@@ -93,7 +93,7 @@ export function WorkflowGraphPanel(): ReactElement {
   // cycle-42：apply 回调直写 store（setState 浅合并按顶层 key 替换引用）。
   usePanelFetch(panelLiveTargets({
     setData: (d) => { store.setState({ graph: d }); },
-    setState: (updater) => { store.setState({ fetchState: updater(store.getState().fetchState) }); },
+    setFetchLine: (updater) => { store.setState((s) => { const r = updater({ source: s.fetchSource, line: s.fetchLine }); return { fetchSource: r.source, fetchLine: r.line }; }); },
     setTrace: (v) => { store.setState({ trace: v }); },
     setTraceLine: (v) => { store.setState({ traceLine: v }); },
     setCheck: (v) => { store.setState({ check: v }); },
