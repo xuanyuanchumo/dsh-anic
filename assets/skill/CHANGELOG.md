@@ -1,5 +1,16 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.5.1 — 旧号重跑语义备注（cycle-49 T-4902）
+
+### 说明（patch）
+
+- **重跑旧号（`--cycle N` 低于当前号）的表面行为备注**：防回拉守卫保持状态机不动、
+  已存在文件不覆写（模板拷贝守卫 `existsSync(dst)` 跳过）、git 内容零变更（cycle-47
+  场地实验三重验证：status/diff/log）。文件系统层面目录 mtime 可能刷新——这是
+  mkdirSync(recursive) 在部分 Windows 文件系统实现上的一次性元数据副作用，**不涉及
+  任何内容变更**（cycle-49 重演不复现，归因为实验窗口内未记录的瞬时动作）。使用方
+  以 git 为内容真值源即可，mtime 不构成契约。
+
 ## 2.5.0 — init-cycle ↔ workflow-state 联动（cycle-43 T-4302）
 
 ### 行为变更（minor）

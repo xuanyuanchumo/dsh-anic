@@ -110,7 +110,7 @@ description: >
 4. 写出 `.cycles/intent/intent.md`，提交，请求产品负责人接受
 5. 接受后进入 **Design 阶段**：读取 intent.md + 组织标准 Skills → 产出 `spec.md` → 请求批准
 6. 批准后进入 **Build 阶段**：计划模式 → 产出 `plan.md` → 批准 → 实现 → 循环验证
-7. 每轮循环先运行 `scripts/init-cycle.mjs <project-dir>` 建立循环工作区（`eval-runner`/`gate-check` 都要求 `.cycles/cycles/cycle-{N}/` 存在，v1.8.0 补：快速启动此前漏了这一步，直跑 eval-runner 必报 "No cycle directory"；v2.5.0 补：init-cycle 现在同步把 `.cycles/workflow-state.json` 的 currentCycle 推到新循环——只前移不回拉，同号幂等，此前两脚本各管半边造成 currentCycle 漂移停在旧循环）
+7. 每轮循环先运行 `scripts/init-cycle.mjs <project-dir>` 建立循环工作区（`eval-runner`/`gate-check` 都要求 `.cycles/cycles/cycle-{N}/` 存在，v1.8.0 补：快速启动此前漏了这一步，直跑 eval-runner 必报 "No cycle directory"；v2.5.0 补：init-cycle 现在同步把 `.cycles/workflow-state.json` 的 currentCycle 推到新循环——只前移不回拉，同号幂等，此前两脚本各管半边造成 currentCycle 漂移停在旧循环；v2.5.1 补：重跑旧号内容零变更（git 为真值源），目录 mtime 刷新是文件系统元数据副作用非内容变更）
 8. 每个阶段内部运行微观迭代：评估→规划→拆测→验证→修复→门禁→复盘
 
 如果用户已在某个阶段内（如"评审这个 PR"或"诊断这个事故"），直接从该阶段开始。
@@ -325,7 +325,7 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 node scripts/mcp-server.mjs --project-dir <path>
 ```
 
-MCP Tools (v2.5.0)：
+MCP Tools (v2.5.1)：
 - `init_workflow` / `init_cycle` / `gate_check`（含 --quality 质量门禁） / `eval_runner`（含 E1-E8 + Q1-Q8）
 - `band_detector`（含 Western Electric 规则） / `workflow_state`（status/advance/check） / `gate_ledger`（record/verify/list 哈希链）
 - `fact_base_verify` / `plan_sync_check`（含 git diff） / `org_status`（status/agent/review/auto-fallback）
