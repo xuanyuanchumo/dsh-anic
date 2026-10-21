@@ -66,6 +66,18 @@ describe('M10-d presentation helpers', () => {
       // 空字符串经 `output || undefined` 规范化为 undefined
       expect(view.output).toBeUndefined();
     });
+
+    it('T-4209：signal 字符串如实呈现（信号终止不被吞掉）', () => {
+      const view = terminalResult({ exitCode: null, stdout: '', stderr: '', signal: 'SIGTERM' });
+      expect(view.card).toBe('terminal');
+      expect(view.signal).toBe('SIGTERM');
+      expect(view.exitCode).toBeUndefined();
+    });
+
+    it('T-4209：无 signal 时字段为 undefined（不伪造）', () => {
+      const view = terminalResult({ exitCode: 0, stdout: 'ok' });
+      expect(view.signal).toBeUndefined();
+    });
   });
 
   describe('genericCall / genericResult', () => {

@@ -1,11 +1,11 @@
 # UI 功能域与界面组件规划
 
-> cycle-38 产出（T-3809）。研究方法：context7 MCP（TanStack Query 轮询纪律 + WAI-ARIA APG live region 模式）+ 14 个 feature 模块逐个盘点。
+> cycle-38 产出（T-3809），cycle-42 增补（T-4207：数据面 store 化，见 §2.4）。研究方法：context7 MCP（TanStack Query 轮询纪律 + WAI-ARIA APG live region 模式 + cycle-42 增补 /react/react useSyncExternalStore 与 /pmndrs/zustand v5 selector 纪律）+ 14 个 feature 模块逐个盘点。
 > 本文回答三个问题：现在有什么（§1）、数据面如何演进（§2）、缺口按什么顺序补（§3）。
 
 ## 1. 功能域现状矩阵（14 分区 + 壳层）
 
-面板装配在 `src/client/WorkflowGraphPanel.ts`（233 行，纯编排）；每分区一个 feature 模块（T3 纪律：全部 ≤250 行）。
+面板装配在 `src/client/WorkflowGraphPanel.ts`（229 行，纯编排——cycle-42 起只持 UI 态，数据态全数入 store）；每分区一个 feature 模块（T3 纪律：全部 ≤250 行）。分区经 `panelSections.ts` 订阅薄组件装配（§2.4）。
 
 | # | 分区 | 模块 | 数据源（URL） | 轮询档 | 开关键 | a11y 基线 |
 |---|---|---|---|---|---|---|
@@ -25,9 +25,9 @@
 | 13 | 节点详情抽屉 | features/graph/gateColors.ts（renderNodeDetail） | 图区点击 | — | — | role=region + Esc 关闭 + 焦点还原 |
 | 14 | 开关抽屉 | features/prefs/prefsDrawer.ts | localStorage | — | — | disclosure aria-expanded/controls |
 
-**组件层**（components/）：`usePanelFetch`（统一轮询钩子——cycle-38 起 ETag+visibility，见 §2）、`sectionShell`（分区壳：数据行+降级文案）、`dataRow`、`statusDot`、`panelTheme`（宿主主题解析）、`sectionIds`（实例唯一 id）。
+**组件层**（components/）：`usePanelFetch`（统一轮询钩子——cycle-38 起 ETag+visibility，见 §2）、`panelStore`（cycle-42：外部 store + usePanelSlice 订阅入口，见 §2.4）、`panelSections`（cycle-42：分区订阅薄组件层）、`sectionShell`（分区壳：数据行+降级文案+可折叠 details）、`dataRow`、`statusDot`、`panelTheme`（宿主主题解析）、`sectionIds`（实例唯一 id）。数据切片形状见 `src/client/panelState.ts`（PanelState 19 切片）。
 
-## 2. 数据面演进（cycle-38 已落地）
+## 2. 数据面演进（cycle-38 轮询纪律 / cycle-42 store 化）
 
 **研究来源**：context7 `/tanstack/query`（refetchIntervalInBackground 缺省语义、replaceEqualDeep 结构性共享、focusManager 可见性门）+ W3C ARIA APG（live region 实践：异步更新的可感知性）。
 
@@ -46,6 +46,27 @@
 
 - 暂停：`pollMs<=0`（autoRefresh 关）只首拍；防抖：inFlight 不重入；降级三分类：http/malformed/network；`onResponse` 学 `X-ANIC-Workspace`（桌面多会话纠偏）。
 
+### 2.4 数据面 store 化（cycle-42 已落地，Top2 债务关闭）
+
+**研究来源**：context7 `/react/react`（useSyncExternalStore 并发安全契约：渲染后重调 getSnapshot 与渲染值 Object.is 比较，getSnapshot 必须纯且便宜）+ `/pmndrs/zustand` v5（selector 返回新引用 → Maximum update depth exceeded；官方首推每值独立订阅）。
+
+**根因（Top2 债务）**：根组件曾持 ~15 个数据 useState，2s invocations tick 的 setState 发生在根 → 每 tick 全树重渲（图区 SVG + 九分区全量重建）。ETag 304 只消掉「数据未变」的重渲，「数据变了」仍是全树。
+
+**架构（三文件分工）**：
+
+- `panelStore.ts`（78 行）——机制层：`createPanelStore<T>`（getState / setState(Partial<T>) 浅合并按顶层 key 替换 / subscribe）+ `usePanelSlice(store, selector)`（uSES 订阅入口）。**两条硬契约**（违反 → 无限重渲）：selector 引用必须稳定（模块级函数）；selector 必须返回切片**原引用**（禁止组装新对象）。
+- `panelState.ts`（81 行）——状态层：`PanelState` 19 切片与原 useState 一一对应（回归红线：逐字段对齐初始值）；`PanelDataStore` 类型别名。
+- `panelSections.ts`（185 行）——订阅层：模块级 selector×18 + memo 薄组件×11（每分区订阅自己的切片，store 更新只重渲订阅组件自身——SyncLane 不波及邻居）。
+
+**语义与收益**：
+
+- 全等补丁不通知（setState 每个 key 都 Object.is 相同 → 零监听器回调）——与 ETag 304 跳过 apply 同一「结构性共享」语义，两层叠加。
+- 2s tick 落到 invocations 切片 → 只有 LiveInvocationsSection 重渲；图区/账本等九分区零重渲。
+- `useDeferredValue`（LiveInvocationsSection）：重列表可中断渲染；`value !== deferredValue` 驱动陈旧指示（`data-anic-live-deferred` stale/fresh + opacity 0.75）——高频 tick 下用户看到的列表是可中断的滞后版，陈旧态有视觉标记（T-4204）。
+- 零依赖：手写 zustand vanilla 等价物（8 行 useStore 形态），不引第三方包——G-IND 独立性守卫与「运行时依赖为零」纪律不破。
+- 根组件 229 行（重写前 249 行）：UI 态（prefsOpen/flowTick/selectedNode/reloadKey/ledgerLimit）留本地——低频交互态不需要跨分区订阅。
+- 测试钉：`panelStore.test.ts` 8 用例（浅合并引用保持/全等不通知/退订/快照迭代序/uSES static 渲染接线）+ `panelSections.test.ts` 7 用例（三态卡片/pollError 如实呈现/hasMore 自算/门控形态）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |
@@ -53,6 +74,8 @@
 | W-3 | **「为什么」层（最小版已落地）** | gate-event 节点携带账本 `detail` → 点击节点详情抽屉可见「这一门为什么 PASS/FAIL」 | ✅ cycle-38 快档（snapshotCore 提取 detail + 面板传递 + renderNodeDetail 渲染） |
 | W-3 全档 | test-report 行投影 | 把测试报告的 通过/失败/错误 行解析后投影到 G2 事件节点详情（数字 + 分层结果行，复用 gateArtifacts 语义） | ✅ cycle-39（snapshotCore testReport 提取 + renderNodeDetail 测试报告分区 + 失败/错误计数红显） |
 | V-1 | ETag 条件请求 | 见 §2.1 | ✅ cycle-38 |
+| Top2 | 根组件全树重渲（2s tick 打根） | 见 §2.4——panelStore 外置 + 订阅薄组件，只重渲订阅分区 | ✅ cycle-42 |
+| Top4 | useDeferredValue 陈旧指示 | live 分区可中断渲染 + stale 视觉标记（data-anic-live-deferred） | ✅ cycle-42（static 渲染直通钉；滞后路径真机旅程覆盖） |
 | R-1 | @container 断点表验证 | 响应式基础已有（@media + flex wrap），@container 查询断点表未验证 | 排期 |
 | — | aria-live 状态行的节流 | 刷新按钮的 status 行每次轮询都可能变更文案；高频播报干扰（APG live region 实践：变更要有意义） | 观察项——当前文案仅 source/line 变化时改，实际频率低 |
 | — | 图区缩放/平移 | 76+ cycle 规模下纵向滚动深 | M3 范畴（doc11 已排期） |

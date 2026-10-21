@@ -39,12 +39,14 @@ export interface GenericResultView {
   title?: string;
 }
 
-/** 终端结果视图（completed 状态）——含退出码与输出。 */
+/** 终端结果视图（completed 状态）——含退出码、信号与输出。 */
 export interface TerminalResultView {
   card: 'terminal';
   title?: string;
   output?: string;
   exitCode?: number;
+  /** 进程被信号终止时（宿主 ToolResultView 官方超集的 signal 字段）——与 exitCode 互斥呈现。 */
+  signal?: string;
 }
 
 export type ToolResultView = GenericResultView | TerminalResultView;

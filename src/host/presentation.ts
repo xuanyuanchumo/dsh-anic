@@ -84,8 +84,11 @@ export function terminalResult(
   const stdout = typeof r.stdout === 'string' ? r.stdout : '';
   const stderr = typeof r.stderr === 'string' ? r.stderr : '';
   const exitCode = typeof r.exitCode === 'number' ? r.exitCode : undefined;
+  // T-4209：信号终止时如实呈现（宿主官方 ToolResultView 的 signal 字段）——
+  // invokeSkillScript 的取消路径可带 signal；呈现层不吞掉它。
+  const signal = typeof r.signal === 'string' ? r.signal : undefined;
   const output = stderr ? `${stdout}\n-- stderr --\n${stderr}` : stdout;
-  return { card: 'terminal', title, output: output || undefined, exitCode };
+  return { card: 'terminal', title, output: output || undefined, exitCode, signal };
 }
 
 /**

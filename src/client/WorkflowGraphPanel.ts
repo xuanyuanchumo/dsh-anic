@@ -1,52 +1,45 @@
 /**
  * ANIC 工作流图 SVG 面板（M0-① 图区 + M1 全功能面分区）。
  *
- * 纯渲染已提取至 features/graph/renderGraph.ts（12 §3.1 特性模块制）。
- * 本文件只含 React 组件：状态 + 并行 fetch + 分区编排。
+ * 纯渲染已提取至 features/graph/renderGraph.ts（12 §3.1 特性模块制）；
+ * 分区订阅薄组件在 components/panelSections.ts（cycle-42 Top2 拆分）。
+ * 本文件只剩：外部 store 的创建/接线 + 交互态 + 工具栏/抽屉 + 编排。
+ *
+ * cycle-42（Top2 债务收口）：数据面（原 ~15 个数据 useState）全部搬入
+ * panelState 外部 store；usePanelFetch/useInvocations 的 apply 回调改写 store；
+ * 各分区由薄组件按切片订阅——2s/4s tick 的重渲范围收敛到对应分区，
+ * 根组件不再因数据 tick 重渲（store/回调引用恒定，React.memo 拦截级联）。
  *
  * 数据热更新（三层，全部安全降级）：
  *   1. 嵌入快照（构建期生成，永远可用 —— 多代宿主安全底线）；
  *   2. live 路由 GET /anic/api/workflow-snapshot（宿主注册；挂载时与点「刷新」时拉取）；
  *   3. 路由缺失/404/5xx/无 fetch → 回退嵌入快照，底行如实显示来源。
  *
- * M1 分区（每区独立 feature 模块，开关门控走三层合并的 user 层）：
- * 图区 renderGraph / 步骤流程 renderStepTrace / 诊断 renderDiagnostics /
- * ⚙ 开关抽屉 renderPrefsDrawer / org 全景 renderOrgStatus。
  * 主题 hooks 在 components/panelTheme.ts（cycle-18 T3 拆分）。
  */
 import { createElement, useCallback, useRef, useState, type ReactElement } from 'react';
-import { WORKFLOW_SNAPSHOT } from './workflowGraphData.ts';
-import { renderGraph, buildVerdicts, type GraphData } from './features/graph/renderGraph.ts';
-import { renderStepTrace, type StepTraceJson } from './features/stepTrace/renderStepTrace.ts';
-import { renderDiagnostics, type SelfCheckJson } from './features/diagnostics/renderDiagnostics.ts';
+import { createPanelStore } from './components/panelStore.ts';
+import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
+import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
-import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
-import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
-import { renderInvocations } from './features/live/renderInvocations.ts';
-// cycle-41（T3 拆分）：轮询钩子独立成文件（renderInvocations.ts 超行限制）。
 import { useInvocations } from './features/live/useInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
 import { useTokenCss, useShellTheme } from './components/panelTheme.ts';
 import { panelLiveTargets, ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
-import { renderCyclesTimeline, isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleListJson, type CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
-import { renderLedger, type LedgerListJson, type LedgerVerifyJson } from './features/ledger/renderLedger.ts';
-import { renderHitl, type HitlAuditJson } from './features/hitl/renderHitl.ts';
+import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
+import type { FlowStatusJson } from './features/flows/renderFlows.ts';
+import { isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleListJson, type CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
 import { governanceTargets } from './governanceTargets.ts';
-// cycle-24（P3 治理补完）：预算视图（.cycles/ 磁盘预算白盒）。
-import { renderBudget, isBudget, BUDGET_URL, type BudgetJson } from './features/budget/renderBudget.ts';
-// cycle-20（P2/P3 收口）：自主级仪表带 + 技能健康面板。
-import { renderAutonomyGauge } from './features/autonomy/renderAutonomyGauge.ts';
-import { renderSkillHealth, isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
-import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
+import { isBudget, BUDGET_URL, type BudgetJson } from './features/budget/renderBudget.ts';
+import { isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
+import { isFlowStatus, isObjectLike } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
-import { renderSectionWrap, renderSectionDisabled, renderFoldableSection } from './components/sectionShell.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
 import { THEME_ATTRIBUTE, token } from '../shared/tokens.ts';
+import type { WorkflowNode } from './workflowGraphData.ts';
 import { t } from './i18n.ts';
-
-interface FetchState { source: 'embedded' | 'live'; line: string; }
 
 /**
  * 面板组件：挂载即并行拉 live（snapshot/step-trace/self-check/org-status；各自独立降级）。
@@ -54,46 +47,34 @@ interface FetchState { source: 'embedded' | 'live'; line: string; }
  * → 保持嵌入快照。分区按 user 层开关门控（INV-30：关闭形态在 UI 如实呈现）。
  */
 export function WorkflowGraphPanel(): ReactElement {
-  const [data, setData] = useState<GraphData>({ nodes: WORKFLOW_SNAPSHOT.nodes, edges: WORKFLOW_SNAPSHOT.edges });
-  // 初始行文案经 t()：缺省 zh 与既有中文一致（clientI18n 回归红线）。
-  const [state, setState] = useState<FetchState>({ source: 'embedded', line: t('panel.sourceEmbedded') });
-  const [trace, setTrace] = useState<StepTraceJson | null>(null);
-  const [traceLine, setTraceLine] = useState<string>(t('panel.notLoaded'));
-  const [check, setCheck] = useState<SelfCheckJson | null>(null);
-  const [checkLine, setCheckLine] = useState<string>(t('panel.notLoaded'));
+  // cycle-42（Top2）：store useRef 惰性初始化（createInitialPanelState 只在首渲
+  // 求值一次，语言探测时机与原 useState 一致）。store 引用恒定 → 分区 props
+  // 引用恒定 → memo 拦截根组件 UI 态变化向分区的级联重渲。
+  const storeRef = useRef<PanelDataStore | null>(null);
+  if (storeRef.current === null) storeRef.current = createPanelStore(createInitialPanelState());
+  const store = storeRef.current;
+
+  // UI 态（本地交互，不进 store）：开关抽屉 / 偏好变更 tick / 节点详情 /
+  // 手动刷新信号 / 账本翻页深度。flowTick 值不消费（setFlowTick 只负责
+  // bump 重渲——每次渲染都同步重读 prefs，见 resolveFlows）。
   const [prefsOpen, setPrefsOpen] = useState(false);
-  const [flowTick, setFlowTick] = useState(0);
+  const [, setFlowTick] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
-  const [orgStatus, setOrgStatus] = useState<OrgStatusJson | null>(null);
-  // D10 宿主域接线（cycle-9）：流程状态机面板的数据源（null = 未拉取，不伪造空态）
-  const [flowsStatus, setFlowsStatus] = useState<FlowStatusJson | null>(null);
-  // B1：cycle 时间线数据源（list 拉不到 → 整区不渲染；state 只服务当前格摘要）。
-  const [cycleList, setCycleList] = useState<CycleListJson | null>(null);
-  const [cycleState, setCycleState] = useState<CycleStateJson | null>(null);
-  // B2（cycle-18）：账本事件流 + HITL 审计队列数据源（治理证据簇，4s 档）。
-  const [ledgerList, setLedgerList] = useState<LedgerListJson | null>(null);
-  const [ledgerVerify, setLedgerVerify] = useState<LedgerVerifyJson | null>(null);
-  const [hitlAudit, setHitlAudit] = useState<HitlAuditJson | null>(null);
-  // cycle-24（P3 账本分页）：翻页深度（「显示更多」抬 limit 并触发重拉）。
+  const [reloadKey, setReloadKey] = useState(0);
   const [ledgerLimit, setLedgerLimit] = useState(12);
-  // cycle-24（P3 治理预算）：.cycles/ 磁盘预算数据源（治理证据簇同 4s 档）。
-  const [budget, setBudget] = useState<BudgetJson | null>(null);
-  // cycle-20（P3）：技能健康面板数据源（FlowTracker 调用历史的分析面，4s 档）。
-  const [skillHealth, setSkillHealth] = useState<SkillHealthJson | null>(null);
   // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
   // 机制见 components/sectionIds.ts（模块计数 + useRef 惰性初始化，不用 useId）。
   const prefsPanelId = idOf(PREFS_PANEL_ID_BASE, usePanelInstanceSeq());
-  const [reloadKey, setReloadKey] = useState(0);
   // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
   // 响应头），后续所有请求回带 X-ANIC-Workspace 头，让服务端在多会话宿主上
   // 解析到「本面板的工作区」而不是 sessions.list() 首条。服务端只把它当
   // 选择器（必须命中宿主已知工作区集或含 .cycles 才采信），不是任意路径入口。
   const workspaceRef = useRef<string | null>(null);
-  const wsHeaders = (): Record<string, string> => {
+  const wsHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { Accept: 'application/json' };
     if (workspaceRef.current) h['X-ANIC-Workspace'] = workspaceRef.current;
     return h;
-  };
+  }, []);
 
   // P0-2：自举四态反馈（running 时禁用防双击；失败保留错误信息与重试语义）。
   const { phase: selfInitPhase, note: selfInitNote, onSelfInit } = useSelfInit();
@@ -107,14 +88,16 @@ export function WorkflowGraphPanel(): ReactElement {
     } catch { /* 无 DOM（测试/沙盒）静默 */ }
   }, []);
 
-
   // 数据热更新（B4）：一次性拉取的 targets 与降级文案抽至 panelLiveTargets.ts
   //（T3 行数纪律；快照学头副作用经 setters 接口回流 workspaceRef）。
+  // cycle-42：apply 回调直写 store（setState 浅合并按顶层 key 替换引用）。
   usePanelFetch(panelLiveTargets({
-    setData,
-    setState,
-    setTrace, setTraceLine,
-    setCheck, setCheckLine,
+    setData: (d) => { store.setState({ graph: d }); },
+    setState: (updater) => { store.setState({ fetchState: updater(store.getState().fetchState) }); },
+    setTrace: (v) => { store.setState({ trace: v }); },
+    setTraceLine: (v) => { store.setState({ traceLine: v }); },
+    setCheck: (v) => { store.setState({ check: v }); },
+    setCheckLine: (v) => { store.setState({ checkLine: v }); },
     learnWorkspace: (root) => { workspaceRef.current = root; },
     workspaceKnown: () => workspaceRef.current,
   }), 0, reloadKey, wsHeaders);
@@ -134,23 +117,42 @@ export function WorkflowGraphPanel(): ReactElement {
   // guard 不过/失败 → 不 apply，分区不渲染，不伪造空态）。
   // B1：cycle 时间线两个端点（list/state）并进同一 4s 档（旅程排序：宏观节奏条）。
   usePanelFetch([
-    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => setOrgStatus(v as OrgStatusJson) },
-    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => setFlowsStatus(v as FlowStatusJson) },
-    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => setCycleList(v as CycleListJson) },
-    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => setCycleState(v as CycleStateJson) },
+    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { store.setState({ orgStatus: v as OrgStatusJson }); } },
+    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { store.setState({ flowsStatus: v as FlowStatusJson }); } },
+    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { store.setState({ cycleList: v as CycleListJson }); } },
+    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { store.setState({ cycleState: v as CycleStateJson }); } },
     // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
-    ...governanceTargets({ setLedgerList, setLedgerVerify, setHitlAudit }, ledgerLimit),
+    ...governanceTargets({
+      setLedgerList: (v) => { store.setState({ ledgerList: v }); },
+      setLedgerVerify: (v) => { store.setState({ ledgerVerify: v }); },
+      setHitlAudit: (v) => { store.setState({ hitlAudit: v }); },
+    }, ledgerLimit),
     // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
-    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => setSkillHealth(v as SkillHealthJson) },
-    { url: BUDGET_URL, guard: isBudget, apply: (v) => setBudget(v as BudgetJson) },
+    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { store.setState({ skillHealth: v as SkillHealthJson }); } },
+    { url: BUDGET_URL, guard: isBudget, apply: (v) => { store.setState({ budget: v as BudgetJson }); } },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。
   // 刷新按钮的 reloadKey 同时作为手动刷新信号（autoRefresh 关闭时的唯一更新途径）。
-  // cycle-41：announce（Top4a 聚合播报）随 data 一起从钩子回流。
-  const { data: invocations, pollError: invocationsError, announce: invocationsAnnounce } = useInvocations(autoRefreshOn ? 2000 : 0, reloadKey, wsHeaders);
+  // cycle-42（Top2）：三态写入 store，LiveInvocationsSection 订阅渲染。
+  useInvocations(store, autoRefreshOn ? 2000 : 0, reloadKey, wsHeaders);
 
+  // 图区节点点击 → 详情抽屉（useCallback 引用稳定，GraphSection memo 不破）。
+  const onNodeClick = useCallback((n: WorkflowNode) => {
+    setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result, detail: n.detail, testReport: n.testReport });
+  }, []);
+  // 账本「显示更多」：抬 ledgerLimit 并 bump reloadKey（重拉即新 limit 生效；
+  // 语义 = 带新翻页深度的手动刷新）。
+  const onShowMore = useCallback((): void => {
+    setLedgerLimit((l) => l + 24);
+    setReloadKey((k) => k + 1);
+  }, []);
+
+  // 分区编排（旅程排序与 cycle-41 完全一致）：图区 → 实时调用 → 周期时间线 →
+  // 步骤流程 → 诊断 → org 全景 → 技能健康 → 流程状态机 → 账本+HITL → 预算 →
+  // 节点详情抽屉。门控布尔来自 prefs 同步解析，不随数据 tick 变化；分区
+  // props 全部引用稳定（store 实例 / 布尔 / useCallback 回调）。
   return createElement(
     'div',
     // overflow 必须是 visible、且**不能**给 height:100%：宿主把本面板挂在
@@ -171,7 +173,7 @@ export function WorkflowGraphPanel(): ReactElement {
       { 'data-anic-toolbar': 'true', role: 'toolbar', 'aria-label': t('panel.toolbar'), style: { position: 'sticky', top: 0, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', background: token('anic-surface'), borderBottom: `1px solid ${token('anic-border')}`, fontSize: 12, color: token('anic-text') } },
       // role="status"：拉取结果（成功/失败/降级）是异步反馈，无 live region 时
       // 屏幕阅读器完全感知不到——刷新按钮点了"没反应"。
-      createElement('span', { role: 'status', 'aria-live': 'polite' }, `ANIC · ${state.line}`),
+      createElement(ToolbarStatusLine, { store, key: 'status' }),
       createElement('button', { type: 'button', 'data-anic-refresh': 'true', onClick: () => { setReloadKey((k) => k + 1); }, className: 'anic-btn' }, t('panel.refresh')),
       // 抽屉开关是 disclosure：aria-expanded 报告开合，aria-controls 指向被控容器。
       createElement('button', { type: 'button', 'data-anic-prefs-toggle': 'true', 'aria-expanded': prefsOpen, 'aria-controls': prefsPanelId, onClick: () => { setPrefsOpen((v) => !v); }, className: 'anic-btn' }, t('panel.prefsToggle')),
@@ -191,59 +193,37 @@ export function WorkflowGraphPanel(): ReactElement {
         : null,
     ),
     prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
-    renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result, detail: n.detail, testReport: n.testReport }); }),
+    // 图区：订阅 graph+trace 两切片（verdicts 由 trace 派生）。
+    createElement(GraphSection, { store, onNodeClick }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
     // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
     // cycle-41（用户目标 A）：默认只展开「最近一次已完成调用」与「运行中调用」
     // 所在组——旧轮次默认折叠收纳（组内摘要仍有计数，点开即全文）。
-    renderInvocations(invocations, invocationsError, autoRefreshOn, invocationsAnnounce),
+    // cycle-42（T-4204）：deferred 渲染 + 陈旧指示（panelSections 内部）。
+    createElement(LiveInvocationsSection, { store, autoRefreshOn }),
     // Cycle 时间线（B1 · P0 缺口）：宏观节奏条，旅程排序在实时调用之后、
     // 静态投影之前——「正在发生的调用」与「循环走到哪了」相邻呈现。
     // cycle-41（Top4b）：次级分区套可折叠壳（默认展开；折叠是用户主动收纳）。
-    renderFoldableSection({ id: 'cycles', title: t('fold.cycles'), children: renderCyclesTimeline({ list: cycleList, state: cycleState }) }),
-    renderFoldableSection({ id: 'stepTrace', title: t('fold.stepTrace'), children: stepTraceOn
-      ? renderSectionWrap({
-          anchorKey: 'data-anic-steptrace-wrap',
-          dataLine: t('panel.traceDataLine', { line: traceLine }),
-          body: trace === null ? null : renderStepTrace(trace),
-          unavailableText: t('panel.traceUnavailable'),
-        })
-      : renderSectionDisabled({ anchorKey: 'data-anic-steptrace-disabled', text: t('panel.traceDisabled') }) }),
-    renderFoldableSection({ id: 'diagnostics', title: t('fold.diagnostics'), children: diagnosticsOn
-      ? renderSectionWrap({
-          anchorKey: 'data-anic-diagnostics-wrap',
-          dataLine: t('panel.diagDataLine', { line: checkLine }),
-          body: check === null ? null : renderDiagnostics(check),
-          unavailableText: t('panel.diagUnavailable'),
-        })
-      : renderSectionDisabled({ anchorKey: 'data-anic-diagnostics-disabled', text: t('panel.diagDisabled') }) }),
-    // cycle-20（P2）：自主级仪表带——org 全景的"一眼可读"形态，放 org 文本
-    // 分区前（仪表带是总览，文本行是明细；两区消费同一 orgStatus 数据）。
-    renderFoldableSection({ id: 'org', title: t('fold.org'), children: [
-      orgStatus ? createElement('div', { 'data-anic-gauge-wrap': 'true', key: 'gauge' }, renderAutonomyGauge(orgStatus)) : null,
-      orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', key: 'org' }, renderOrgStatus(orgStatus)) : null,
-    ] }),
+    createElement(CyclesSection, { store }),
+    createElement(StepTraceSection, { store, enabled: stepTraceOn }),
+    createElement(DiagnosticsSection, { store, enabled: diagnosticsOn }),
+    // cycle-20（P2）：自主级仪表带——org 全景的"一眼可读"形态（OrgSection 内
+    // 仪表带是总览、文本行是明细，两区消费同一 orgStatus 切片）。
+    createElement(OrgSection, { store }),
     // cycle-20（P3）：技能健康面板——FlowTracker 调用历史的健康分析面，
     // 旅程排序在 org 全景后、流程状态机前（「组织状态」→「技能健康」→「流程白盒」）。
-    renderFoldableSection({ id: 'skillHealth', title: t('fold.skillHealth'), children: renderSkillHealth(skillHealth) }),
+    createElement(SkillHealthSection, { store }),
     // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
     // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
-    renderFoldableSection({ id: 'flows', title: t('fold.flows'), children: flowsViewOn
-      ? renderFlows(flowsStatus)
-      : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }) }),
+    createElement(FlowsSection, { store, enabled: flowsViewOn }),
     // 账本事件流 + HITL 审计队列（B2 · cycle-18）：治理证据簇，旅程排序紧跟
     // 流程状态机——「状态机走到哪」与「裁决留了什么痕、谁在等人工」相邻呈现。
-    // cycle-24（P3 分页）：还有未展示条目时渲染「显示更多」——抬 ledgerLimit
-    // 并 bump reloadKey（重拉即新 limit 生效；语义=带新翻页深度的手动刷新）。
-    renderFoldableSection({ id: 'ledger', title: t('fold.ledger'), children: renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
-      ? { hasMore: true, onShowMore: () => { setLedgerLimit((l) => l + 24); setReloadKey((k) => k + 1); } }
-      : undefined) }),
-    renderFoldableSection({ id: 'hitl', title: t('fold.hitl'), children: approvalsOn
-      ? renderHitl(hitlAudit)
-      : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }) }),
+    // cycle-24（P3 分页）：「显示更多」的 hasMore 由 LedgerSection 订阅数据自算。
+    createElement(LedgerSection, { store, onShowMore }),
+    createElement(HitlSection, { store, enabled: approvalsOn }),
     // cycle-24（P3 治理预算）：预算余量条 + 大文件榜——治理证据簇收尾
     //（「留了什么痕」之后呈现「这些痕占了多少空间」）。
-    renderFoldableSection({ id: 'budget', title: t('fold.budget'), children: renderBudget(budget) }),
+    createElement(BudgetSection, { store }),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

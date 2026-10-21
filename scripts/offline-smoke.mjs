@@ -39,6 +39,16 @@ function loadBundle({ storageValue = null } = {}) {
     useRef: (v) => ({ current: v }),
     useCallback: (fn) => fn,
     useEffect: () => {},
+    // cycle-42（Top2 store 化）新增三个 API 的桩：
+    //   memo —— 直通（返回原函数）：countType/hasProp 的「函数组件展开」逻辑
+    //           只认 typeof type === 'function'，直通让 memo 包装的分区组件
+    //           在 stub 树里仍可被遍历器调用展开（真实 React 中 memo 是对象）。
+    //   useSyncExternalStore —— 立即返回 getSnapshot()：外部 store 订阅在
+    //           无渲染循环的 stub 里退化为一次性读值（不 subscribe，正好）。
+    //   useDeferredValue —— 直通（返回原值）：无并发渲染，无陈旧态。
+    memo: (fn) => fn,
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+    useDeferredValue: (v) => v,
   };
   const sandboxWindow = {
     localStorage: { getItem: () => storageValue },
