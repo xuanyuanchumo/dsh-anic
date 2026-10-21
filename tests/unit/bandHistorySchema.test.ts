@@ -206,3 +206,38 @@ describe('runBandDetection 写侧收敛（追加保留混合 schema，统计只�
     expect(result.current).toBe('normal');
   });
 });
+
+describe('cycle-50 T-5001 latestCycle 数值序（字典序假象回归钉）', () => {
+  /** 建 cycle 目录夹具（converged 形状：交付清单.md 存在）。 */
+  function makeCycles(nums: number[]): void {
+    for (const n of nums) {
+      mkdirSync(join(TMP, '.cycles', 'cycles', `cycle-${n}`), { recursive: true });
+      writeFileSync(join(TMP, '.cycles', 'cycles', `cycle-${n}`, '交付清单.md'), '# 交付清单\n', 'utf-8');
+    }
+  }
+
+  it('cycle-9 与 cycle-49 并存 → latest=cycle-49（字典序假象：cycle-9 > cycle-49）', () => {
+    makeCycles([9, 49]);
+    const result = runOrgStatus(TMP, {});
+    expect(result.cycles.latest).toBe('cycle-49');
+  });
+
+  it('跨位数混合 cycle-1..cycle-50 → latest=cycle-50（真机 49 轮场景同构）', () => {
+    makeCycles([1, 2, 3, 9, 10, 49]);
+    const result = runOrgStatus(TMP, {});
+    expect(result.cycles.latest).toBe('cycle-49');
+    expect(result.cycles.total).toBe(6);
+  });
+
+  it('同位数 cycle-40..44 → latest=cycle-44（原字典序在此区间恰好正确——非回归）', () => {
+    makeCycles([40, 41, 42, 43, 44]);
+    const result = runOrgStatus(TMP, {});
+    expect(result.cycles.latest).toBe('cycle-44');
+  });
+
+  it('空目录 → latest=null（不伪造）', () => {
+    mkdirSync(join(TMP, '.cycles', 'cycles'), { recursive: true });
+    const result = runOrgStatus(TMP, {});
+    expect(result.cycles.latest).toBeNull();
+  });
+});

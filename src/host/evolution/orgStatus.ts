@@ -39,7 +39,16 @@ export function runOrgStatus(workspaceRoot: string, options: {
   const converged = cycleDirs.filter((d) => existsSync(join(cyclesDir2, d, '交付清单.md'))).length;
   const failed = cycleDirs.filter((d) => existsSync(join(cyclesDir2, d, '审计日志.md')) &&
     readFileSync(join(cyclesDir2, d, '审计日志.md'), 'utf-8').includes('FAIL')).length;
-  const latestCycle = cycleDirs.length > 0 ? (cycleDirs[cycleDirs.length - 1] ?? null) : null;
+  // cycle-50 T-5001：readdirSync 返回字典序——「cycle-9」字典序大于「cycle-49」（逐字符
+  // 比较第 7 位 '9'>'4'），50 轮以上工作区会显示「最新 cycle-9」假象（cycle-49 真机发现）。
+  // 数值序取最新：解析数字比较，解析失败的目录名不参与排序（正则已保证 \d+，双保险）。
+  const latestCycle = cycleDirs.length > 0
+    ? (cycleDirs.reduce<string | null>((best, d) => {
+        const num = parseInt(d.replace(/^cycle-/, ''), 10);
+        const bestNum = best === null ? -1 : parseInt(best.replace(/^cycle-/, ''), 10);
+        return Number.isFinite(num) && num > bestNum ? d : best;
+      }, null))
+    : null;
 
   // Ledger
   let ledgerEntries = 0;
