@@ -201,6 +201,23 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 真机证据：测试宿主真实模型（GLM-5.3）调用 anic_evaluate（27.98s 长耗时调用）——in-flight 行「anic_evaluate 执行中 已进行 21s t8/s1 {"dimensions": "E1"}」→ 23s → 26s 随轮询自然脉动前进；done 后 elapsedNode 消失+「完成 27982ms」接管；Turn 8 组「完成于 03:41:33」（03:41:05 开始+27.98s 落定——时间自洽可验算）（cycle-64 测试报告 §5）。
 
+## 2.12 装配层契约：分区 ↔ 锚点 ↔ locale 键 ↔ 装配序列（cycle-69 T-6901 落地）
+
+**背景**：渲染器测试厚（各域 render* 都有专属测试 21+ 文件），但装配层零守卫——`data-anic-fold` 十分区锚点在全部测试中仅 stepTrace 一处断言；删分区/改错锚点 id/丢 locale fold 键都不会红。与 cycle-67 G-DOC-API（API 册三腿契约）同族方法论：**机械钉装配层四层对齐**。
+
+| 契约腿 | 内容 | 守卫 |
+|---|---|---|
+| 腿 1 分区 id | panelSections.ts renderFoldableSection id 集（10 个） | 扫描集 ≥10 非空下限 |
+| 腿 2 locale 键 | zh.json fold 键集（10 个） | id→键经显式映射双向集合相等 |
+| 腿 3 装配序列 | WorkflowGraphPanel.ts createElement(XxxSection) 序列 | 折叠分区一一对应+Graph/Live 两根柱固定在装配里 |
+| 锚点 DOM | store 驱动 renderToStaticMarkup 直出 | 十分区 data-anic-fold="<id>" 逐个断言 |
+
+**techDebt 映射成文（T-6902）**：分区 id 驼峰 `techDebt` ⇄ locale 键小写 `techdebt`——title 取 t('fold.techdebt') 运行时按键精确匹配；形态差异钉进契约测试显式映射表（ID_TO_LOCALE_KEY），不改运行时 id（改会破坏 DOM 锚点 data-anic-fold="techDebt" 的三处既有引用——真机旅程/测试/文档）。
+
+**非折叠分区**：GraphSection（主图）与 LiveInvocationsSection（实时调用流——turn 分组自带 details 不走 renderFoldableSection）不进腿 2 比对，但「固定在装配序列」单独钉（面板两根柱丢了即主体缺失）。
+
+守卫纪律三条与 guardRegistry 同构：反向自检（corrupted.delete/fabricated.add 判不等）+非空下限+扫描器样例拼接自证。落位 tests/contract/panelAssemblyContract.test.ts（6 用例）。
+
 ## 3. 缺口与排期
 
 | 优先级 | 缺口 | 说明 | 状态 |
