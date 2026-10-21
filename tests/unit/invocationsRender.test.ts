@@ -142,3 +142,87 @@ describe('renderInvocations（动态白盒分区）', () => {
     expect(html).toContain('未标注 turn');
   });
 });
+
+// ── cycle-41：用户目标 A（默认展开语义）+ Top5（截限）+ Top4a（播报区）+ 概览量化 ──
+describe('renderInvocations —— cycle-41 展开语义与收纳', () => {
+  it('目标 A：默认展开 = 含运行中调用的组 + 最近一次已完成所在的组；其余折叠', () => {
+    // t3 全部完成且是最近完成（endedAt 最新）；t2 全部完成（更早）；t1 含运行中。
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 't3-done', turn: 3, status: 'done', endedAt: 300 }),
+      inv({ callId: 't2-done', turn: 2, status: 'done', endedAt: 200 }),
+      inv({ callId: 't1-running', turn: 1, status: 'in-flight' }),
+    ]), null));
+    const g3 = html.indexOf('data-anic-turn-group="t3"');
+    const g2 = html.indexOf('data-anic-turn-group="t2"');
+    const g1 = html.indexOf('data-anic-turn-group="t1"');
+    expect(g3).toBeGreaterThan(-1);
+    expect(g2).toBeGreaterThan(g3); // turn 降序
+    expect(g1).toBeGreaterThan(g2);
+    // t3（最近完成）与 t1（运行中）默认展开；t2（历史）折叠
+    // （断言用「 open 属性」的词边界——marker 属性 open-default="false" 含 open 子串）
+    const seg = (idx: number): string => html.slice(idx, idx + 300);
+    expect(seg(g3)).toContain('open=""');
+    expect(seg(g1)).toContain('open=""');
+    expect(seg(g2)).toContain('open-default="false"');
+    expect(seg(g2)).not.toContain('open=""');
+    // 展开标记（折叠收纳后仍可一眼定位）
+    expect(html).toContain('data-anic-turn-group-open-default="true"');
+    expect(html).toContain('data-anic-turn-group-open-default="false"');
+  });
+
+  it('目标 A：运行中组摘要带「执行中」后缀计数', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'r1', turn: 1, status: 'in-flight' }),
+      inv({ callId: 'd1', turn: 1, status: 'done', endedAt: 100 }),
+    ]), null));
+    expect(html).toContain('（1 执行中）');
+  });
+
+  it('目标 A 兼容：旧断言「最新组展开」在新语义下仍成立（最新组含最近完成者）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'newer', turn: 2, step: 1 }),
+      inv({ callId: 'older-a', turn: 1, step: 3 }),
+      inv({ callId: 'older-b', turn: 1, step: 1 }),
+    ]), null));
+    const firstDetails = html.indexOf('<details');
+    const t2Idx = html.indexOf('data-anic-turn-group="t2"');
+    expect(firstDetails).toBeGreaterThan(-1);
+    expect(html.slice(firstDetails, firstDetails + 200)).toContain('open');
+    expect(t2Idx).toBeGreaterThan(firstDetails);
+    expect(t2Idx).toBeLessThan(firstDetails + 200);
+  });
+
+  it('Top5 截限：单组超 40 条渲染截断 +「另有 N 条」计数行（数据计数如实）', () => {
+    const many: InvocationJson[] = Array.from({ length: 45 }, (_, i) =>
+      inv({ callId: `c${String(i)}`, turn: 1, status: 'done', endedAt: i }));
+    const html = renderToStaticMarkup(renderInvocations(snap(many), null));
+    expect(html).toContain('data-anic-invocation="c39"'); // 前 40 条渲染
+    expect(html).not.toContain('data-anic-invocation="c40"'); // 第 41+ 截断
+    expect(html).toContain('data-anic-invocation-truncated');
+    expect(html).toContain('另有 5 条已收纳');
+    expect(html).toContain('组内共 45 条');
+  });
+
+  it('Top4a 播报区：announce 非空时渲染 sr-only polite 区；空时不渲染', () => {
+    const withA = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'a' })]), null, true, '新增 2 个调用'));
+    expect(withA).toContain('data-anic-invocations-announce');
+    expect(withA).toContain('aria-live="polite"');
+    expect(withA).toContain('anic-sr-only');
+    expect(withA).toContain('新增 2 个调用');
+    const noA = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'a' })]), null, true, ''));
+    expect(noA).not.toContain('data-anic-invocations-announce');
+  });
+
+  it('概览量化：标题行含运行中/失败计数（仅非零时）', () => {
+    const html = renderToStaticMarkup(renderInvocations(snap([
+      inv({ callId: 'r', status: 'in-flight' }),
+      inv({ callId: 'e', status: 'error', error: { name: 'E', code: 'C' } }),
+      inv({ callId: 'd', status: 'done', endedAt: 1 }),
+    ]), null));
+    expect(html).toContain('运行中 1');
+    expect(html).toContain('失败 1');
+    const clean = renderToStaticMarkup(renderInvocations(snap([inv({ callId: 'd', status: 'done', endedAt: 1 })]), null));
+    expect(clean).not.toContain('运行中');
+    expect(clean).not.toContain('失败 1');
+  });
+});

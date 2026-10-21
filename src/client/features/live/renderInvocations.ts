@@ -8,34 +8,41 @@
  * 轮询而非 SSE：宿主 webServer 槽位的 exact 路由没有流式契约，多代兼容下
  * 轮询是唯一全版本可用的通道；2s 间隔对"人眼看模型调用工具"足够实时。
  */
-import { createElement, useState, type ReactElement } from 'react';
+import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
-import { usePanelFetch } from '../../components/usePanelFetch.ts';
-import { isObjectLike } from './fetchJson.ts';
+import type { InvocationsJson, InvocationJson } from './renderInvocationsTypes.ts';
 
-/** 与宿主 InvocationRecord 对齐的最小客户端形状。 */
-export interface InvocationJson {
-  callId: string;
-  name: string;
-  argumentsPreview: string;
-  turn?: number;
-  step?: number;
-  startedAt: number;
-  endedAt?: number;
-  status: 'in-flight' | 'done' | 'error';
-  error?: { name: string; code: string; reason?: string };
-  durationMs?: number;
-  possiblyOrphaned?: boolean;
+export type { InvocationJson, InvocationsJson } from './renderInvocationsTypes.ts';
+
+// useInvocations 轮询钩子已拆至 ./useInvocations.ts（cycle-41 T3 纪律）；
+// 消费方从两处各自 import（WorkflowGraphPanel 用钩子、测试用渲染器）。
+
+/**
+ * cycle-41（UI 研究 Top5）：单组渲染截限——环形缓冲满载（200 条）时单组可能
+ * 数十条，DOM 行数与视口严重失配。数据不裁（total 如实），渲染截断并给
+ * 「+X more」计数行——「显示多少」与「共有多少」分开陈述。
+ */
+const GROUP_RENDER_CAP = 40;
+
+/**
+ * cycle-41（用户目标 A）：最近一次**已完成**调用（done/error，endedAt 落定）
+ * 所在的分组键。返回 undefined = 尚无已完成调用；null = 最近完成者未标注
+ * turn（归「未分组」组）。
+ */
+function mostRecentCompletedKey(invocations: InvocationJson[]): number | null | undefined {
+  let bestAt = -1;
+  let bestKey: number | null | undefined;
+  for (const inv of invocations) {
+    if (inv.status === 'in-flight') continue;
+    const at = inv.endedAt ?? inv.startedAt;
+    if (at > bestAt) {
+      bestAt = at;
+      bestKey = typeof inv.turn === 'number' ? inv.turn : null;
+    }
+  }
+  return bestKey;
 }
-
-export interface InvocationsJson {
-  invocations: InvocationJson[];
-  total: number;
-  generatedAt: string;
-}
-
-const LIVE_URL = '/anic/api/invocations/live';
 
 /**
  * in-flight 状态点的脉冲动画：样式本体迁移至 components/statusDot.ts（B4 合并
@@ -44,42 +51,6 @@ const LIVE_URL = '/anic/api/invocations/live';
  */
 import { LIVE_PULSE_STYLE as LIVE_PULSE_STYLE_SRC } from '../../components/statusDot.ts';
 export const LIVE_PULSE_STYLE = LIVE_PULSE_STYLE_SRC;
-
-/**
- * 轮询钩子：默认 2s 拉一次实时调用流；pollMs<=0 时只拉一轮不排定时器
- * （flow.autoRefresh 关闭时的降级形态——手动刷新经 manualKey 触发重拉）。
- *
- * 失败语义（如实呈现，不静默）：路由 5xx/网络失败 → pollError 置位并**保留
- * 上次数据**（面板同时显示"轮询失败"与陈旧数据的 generatedAt——用户能分辨
- * "没有调用"和"拉不到"）。无 fetch（smoke 沙盒）→ 一次都不拉。
- *
- * B4：轮询/暂停/降级/防抖机制统一至 components/usePanelFetch；本函数只保留
- * 本域特有部分——pollError 文案映射（http/malformed → locale 键，network →
- * 原始 message）与「失败保留旧数据」的应用层语义（setData 不清空）。
- */
-export function useInvocations(pollMs = 2000, manualKey = 0, getHeaders?: () => Record<string, string>): { data: InvocationsJson | null; pollError: string | null } {
-  const [data, setData] = useState<InvocationsJson | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
-
-  usePanelFetch(
-    [{
-      url: LIVE_URL,
-      guard: (v) => isObjectLike(v) && Array.isArray((v as { invocations?: unknown }).invocations),
-      apply: (v) => { setData(v as InvocationsJson); },
-      onFail: (f) => {
-        if (f.kind === 'http') setPollError(t('panel.routeUnavailable', { status: String(f.status) }));
-        else if (f.kind === 'malformed') setPollError(t('panel.malformedNotUsed'));
-        else setPollError(f.message);
-      },
-      onRecover: () => { setPollError(null); },
-    }],
-    pollMs,
-    manualKey,
-    () => ({ Accept: 'application/json', ...(getHeaders?.() ?? {}) }),
-  );
-
-  return { data, pollError };
-}
 
 function statusColor(status: InvocationJson['status']): string {
   // 状态点用图形令牌（≥3:1 双表面），文本用文本令牌（≥4.5:1）。
@@ -144,17 +115,29 @@ function groupByTurn(invocations: InvocationJson[]): Array<{ turn: number | null
 }
 
 /** 渲染实时调用分区。data 为 null 且无错误 = 尚未轮询到（不伪造空态）。 */
-export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true): ReactElement {
+export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true, announce = ''): ReactElement {
   const groups = data === null ? null : groupByTurn(data.invocations);
+  // cycle-41（用户目标 A）：默认展开语义的判定输入。
+  const mrcKey = data === null ? undefined : mostRecentCompletedKey(data.invocations);
+  // cycle-41：概览量化（运行中/失败计数进标题行——「共有多少」一眼可读）。
+  const running = data === null ? 0 : data.invocations.filter((i) => i.status === 'in-flight').length;
+  const errors = data === null ? 0 : data.invocations.filter((i) => i.status === 'error').length;
   return createElement(
     'div',
     { 'data-anic-invocations': 'section', style: { borderTop: `1px solid ${token('anic-border')}` } },
     createElement('style', null, LIVE_PULSE_STYLE),
+    // Top4a 聚合播报区：视觉隐藏（anic-sr-only 类）+ role=status polite。
+    // 文本只在 total 增长时变化——AT 每次变化播报一次，不会被轮询淹没。
+    announce
+      ? createElement('span', { role: 'status', 'aria-live': 'polite', 'data-anic-invocations-announce': announce, className: 'anic-sr-only' }, announce)
+      : null,
     createElement(
       'div',
       { style: { fontSize: 10, color: token('anic-text-faint'), padding: '4px 10px 0' } },
       t('live.title'),
       data ? t('live.summary', { total: String(data.total), generatedAt: data.generatedAt }) : t('live.notFetched'),
+      data && running > 0 ? t('live.summaryRunning', { count: String(running) }) : '',
+      data && errors > 0 ? t('live.summaryErrors', { count: String(errors) }) : '',
       pollError ? t('live.pollFailed', { error: pollError }) : '',
     ),
     // 三态分支：null（尚未轮询到）≠ 空流（确实没有调用）≠ 有数据。
@@ -177,19 +160,35 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
             groups === null
               // 平铺模式（零 turn 元数据）：与分组改造前逐字节同构——既有断言面。
               ? data.invocations.map((inv) => invocationRow(inv))
-              // 分组模式：details 折叠，最新组展开；组内序=feed 序（不重排）。
-              : groups.map((g, gi) => createElement(
-                  'details',
-                  {
-                    'data-anic-turn-group': g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
-                    open: gi === 0,
-                    key: g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
-                    style: { borderTop: `1px dashed ${token('anic-border')}`, paddingTop: 2 },
-                  },
-                  createElement('summary', { style: { fontSize: 10, color: token('anic-text-faint'), cursor: 'pointer', userSelect: 'none' } },
-                    g.turn === null ? t('live.ungrouped', { count: String(g.items.length) }) : t('live.turnGroup', { turn: String(g.turn), count: String(g.items.length) })),
-                  ...g.items.map((inv) => invocationRow(inv)),
-                )),
+              // 分组模式：details 折叠。cycle-41（用户目标 A）默认展开语义：
+              //   组默认展开 ⇔ 组内含**运行中**调用（实时透明）或组内含**最近
+              //   一次已完成**的调用；其余历史组默认折叠收纳。
+              //   （旧语义 gi===0 只开最新 turn——最新组若全 in-flight 而最近
+              //   完成者落在更早组时，最近完成痕迹会被折叠。）
+              : groups.map((g) => {
+                  const gRunning = g.items.some((inv) => inv.status === 'in-flight');
+                  const open = gRunning || g.turn === mrcKey;
+                  return createElement(
+                    'details',
+                    {
+                      'data-anic-turn-group': g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
+                      // 运行中/最近完成的组留标记：折叠收纳后仍可一眼定位。
+                      'data-anic-turn-group-open-default': open ? 'true' : 'false',
+                      open,
+                      key: g.turn === null ? 'ungrouped' : `t${String(g.turn)}`,
+                      style: { borderTop: `1px dashed ${token('anic-border')}`, paddingTop: 2 },
+                    },
+                    createElement('summary', { style: { fontSize: 10, color: token('anic-text-faint'), cursor: 'pointer', userSelect: 'none' } },
+                      g.turn === null ? t('live.ungrouped', { count: String(g.items.length) }) : t('live.turnGroup', { turn: String(g.turn), count: String(g.items.length) }),
+                      gRunning ? createElement('span', { style: { color: token('anic-status-active'), marginLeft: 6 } }, t('live.groupRunningSuffix', { count: String(g.items.filter((i) => i.status === 'in-flight').length) })) : null),
+                    // Top5 截限：渲染前 GROUP_RENDER_CAP 条，其余以计数行收纳。
+                    ...g.items.slice(0, GROUP_RENDER_CAP).map((inv) => invocationRow(inv)),
+                    g.items.length > GROUP_RENDER_CAP
+                      ? createElement('div', { 'data-anic-invocation-truncated': 'true', style: { fontSize: 10, color: token('anic-text-faint'), padding: '2px 0' } },
+                          t('live.groupTruncated', { hidden: String(g.items.length - GROUP_RENDER_CAP), total: String(g.items.length) }))
+                      : null,
+                  );
+                }),
           ),
   );
 }

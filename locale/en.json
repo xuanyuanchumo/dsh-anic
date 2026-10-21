@@ -81,7 +81,12 @@
     "statusErrorMark": "✕",
     "pollOff": "Auto refresh is off (flow.autoRefresh) — use Refresh to fetch manually",
     "turnGroup": "Turn {turn} ({count} calls)",
-    "ungrouped": "Unlabeled turn ({count} calls)"
+    "ungrouped": "Unlabeled turn ({count} calls)",
+    "newCalls": "{count} new call(s)",
+    "summaryRunning": " · {count} running",
+    "summaryErrors": " · {count} failed",
+    "groupRunningSuffix": " ({count} running)",
+    "groupTruncated": "…{hidden} more hidden ({total} in group)"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",
@@ -255,5 +260,16 @@
     "barLabel": "used {used}; warn threshold {warn}, alert threshold {alert}",
     "stats": "{used} used · {files} files · {dirs} dirs",
     "largest": "Largest files top 5 (>1MB)"
+  },
+  "fold": {
+    "cycles": "Cycle timeline (macro rhythm)",
+    "stepTrace": "Step trace projection (white-box)",
+    "diagnostics": "Runtime self-check",
+    "org": "Org panorama & autonomy",
+    "skillHealth": "Skill health",
+    "flows": "Flow state machines",
+    "ledger": "Gate ledger events",
+    "hitl": "HITL audit queue",
+    "budget": "Governance budget"
   }
 }

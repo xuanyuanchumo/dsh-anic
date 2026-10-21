@@ -22,7 +22,9 @@ import { renderDiagnostics, type SelfCheckJson } from './features/diagnostics/re
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { renderOrgStatus, type OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import { renderFlows, type FlowStatusJson } from './features/flows/renderFlows.ts';
-import { useInvocations, renderInvocations } from './features/live/renderInvocations.ts';
+import { renderInvocations } from './features/live/renderInvocations.ts';
+// cycle-41（T3 拆分）：轮询钩子独立成文件（renderInvocations.ts 超行限制）。
+import { useInvocations } from './features/live/useInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
 import { useTokenCss, useShellTheme } from './components/panelTheme.ts';
 import { panelLiveTargets, ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
@@ -37,7 +39,7 @@ import { renderAutonomyGauge } from './features/autonomy/renderAutonomyGauge.ts'
 import { renderSkillHealth, isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
 import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
-import { renderSectionWrap, renderSectionDisabled } from './components/sectionShell.ts';
+import { renderSectionWrap, renderSectionDisabled, renderFoldableSection } from './components/sectionShell.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
@@ -146,7 +148,8 @@ export function WorkflowGraphPanel(): ReactElement {
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。
   // 刷新按钮的 reloadKey 同时作为手动刷新信号（autoRefresh 关闭时的唯一更新途径）。
-  const { data: invocations, pollError: invocationsError } = useInvocations(autoRefreshOn ? 2000 : 0, reloadKey, wsHeaders);
+  // cycle-41：announce（Top4a 聚合播报）随 data 一起从钩子回流。
+  const { data: invocations, pollError: invocationsError, announce: invocationsAnnounce } = useInvocations(autoRefreshOn ? 2000 : 0, reloadKey, wsHeaders);
 
   return createElement(
     'div',
@@ -191,51 +194,56 @@ export function WorkflowGraphPanel(): ReactElement {
     renderGraph(data, buildVerdicts(trace), (n) => { setSelectedNode({ id: n.id, label: n.label, type: n.type, result: n.result, detail: n.detail, testReport: n.testReport }); }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
     // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
-    renderInvocations(invocations, invocationsError, autoRefreshOn),
+    // cycle-41（用户目标 A）：默认只展开「最近一次已完成调用」与「运行中调用」
+    // 所在组——旧轮次默认折叠收纳（组内摘要仍有计数，点开即全文）。
+    renderInvocations(invocations, invocationsError, autoRefreshOn, invocationsAnnounce),
     // Cycle 时间线（B1 · P0 缺口）：宏观节奏条，旅程排序在实时调用之后、
     // 静态投影之前——「正在发生的调用」与「循环走到哪了」相邻呈现。
-    renderCyclesTimeline({ list: cycleList, state: cycleState }),
-    stepTraceOn
+    // cycle-41（Top4b）：次级分区套可折叠壳（默认展开；折叠是用户主动收纳）。
+    renderFoldableSection({ id: 'cycles', title: t('fold.cycles'), children: renderCyclesTimeline({ list: cycleList, state: cycleState }) }),
+    renderFoldableSection({ id: 'stepTrace', title: t('fold.stepTrace'), children: stepTraceOn
       ? renderSectionWrap({
-          key: `trace-${String(flowTick)}`, anchorKey: 'data-anic-steptrace-wrap',
+          anchorKey: 'data-anic-steptrace-wrap',
           dataLine: t('panel.traceDataLine', { line: traceLine }),
           body: trace === null ? null : renderStepTrace(trace),
           unavailableText: t('panel.traceUnavailable'),
         })
-      : renderSectionDisabled({ anchorKey: 'data-anic-steptrace-disabled', text: t('panel.traceDisabled') }),
-    diagnosticsOn
+      : renderSectionDisabled({ anchorKey: 'data-anic-steptrace-disabled', text: t('panel.traceDisabled') }) }),
+    renderFoldableSection({ id: 'diagnostics', title: t('fold.diagnostics'), children: diagnosticsOn
       ? renderSectionWrap({
-          key: `check-${String(flowTick)}`, anchorKey: 'data-anic-diagnostics-wrap',
+          anchorKey: 'data-anic-diagnostics-wrap',
           dataLine: t('panel.diagDataLine', { line: checkLine }),
           body: check === null ? null : renderDiagnostics(check),
           unavailableText: t('panel.diagUnavailable'),
         })
-      : renderSectionDisabled({ anchorKey: 'data-anic-diagnostics-disabled', text: t('panel.diagDisabled') }),
+      : renderSectionDisabled({ anchorKey: 'data-anic-diagnostics-disabled', text: t('panel.diagDisabled') }) }),
     // cycle-20（P2）：自主级仪表带——org 全景的"一眼可读"形态，放 org 文本
     // 分区前（仪表带是总览，文本行是明细；两区消费同一 orgStatus 数据）。
-    orgStatus ? createElement('div', { 'data-anic-gauge-wrap': 'true' }, renderAutonomyGauge(orgStatus)) : null,
-    orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', style: { borderTop: `1px solid ${token('anic-border')}` } }, renderOrgStatus(orgStatus)) : null,
+    renderFoldableSection({ id: 'org', title: t('fold.org'), children: [
+      orgStatus ? createElement('div', { 'data-anic-gauge-wrap': 'true', key: 'gauge' }, renderAutonomyGauge(orgStatus)) : null,
+      orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', key: 'org' }, renderOrgStatus(orgStatus)) : null,
+    ] }),
     // cycle-20（P3）：技能健康面板——FlowTracker 调用历史的健康分析面，
     // 旅程排序在 org 全景后、流程状态机前（「组织状态」→「技能健康」→「流程白盒」）。
-    renderSkillHealth(skillHealth),
+    renderFoldableSection({ id: 'skillHealth', title: t('fold.skillHealth'), children: renderSkillHealth(skillHealth) }),
     // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
     // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
-    flowsViewOn
+    renderFoldableSection({ id: 'flows', title: t('fold.flows'), children: flowsViewOn
       ? renderFlows(flowsStatus)
-      : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }),
+      : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }) }),
     // 账本事件流 + HITL 审计队列（B2 · cycle-18）：治理证据簇，旅程排序紧跟
     // 流程状态机——「状态机走到哪」与「裁决留了什么痕、谁在等人工」相邻呈现。
     // cycle-24（P3 分页）：还有未展示条目时渲染「显示更多」——抬 ledgerLimit
     // 并 bump reloadKey（重拉即新 limit 生效；语义=带新翻页深度的手动刷新）。
-    renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
+    renderFoldableSection({ id: 'ledger', title: t('fold.ledger'), children: renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
       ? { hasMore: true, onShowMore: () => { setLedgerLimit((l) => l + 24); setReloadKey((k) => k + 1); } }
-      : undefined),
-    approvalsOn
+      : undefined) }),
+    renderFoldableSection({ id: 'hitl', title: t('fold.hitl'), children: approvalsOn
       ? renderHitl(hitlAudit)
-      : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }),
+      : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }) }),
     // cycle-24（P3 治理预算）：预算余量条 + 大文件榜——治理证据簇收尾
     //（「留了什么痕」之后呈现「这些痕占了多少空间」）。
-    renderBudget(budget),
+    renderFoldableSection({ id: 'budget', title: t('fold.budget'), children: renderBudget(budget) }),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

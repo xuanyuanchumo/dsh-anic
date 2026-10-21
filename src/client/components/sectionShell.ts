@@ -61,3 +61,38 @@ export function renderSectionDisabled({ anchorKey, text }: SectionDisabledProps)
     text,
   );
 }
+
+/**
+ * cycle-41（UI 研究 Top4b · 用户目标 B 面板丰富度）：可折叠分区壳。
+ *
+ * 原生 details/summary——零 JS 状态、静态可渲染、键盘可达（与 invocations 的
+ * turn 分组同款机制）。默认**全部展开**（不隐藏既有可见数据，折叠是用户主动
+ * 收纳动作）；`open` 只在挂载时写入 DOM，后续重渲染 prop 不变则 React 不触碰
+ * DOM 属性——用户手动折叠在 2-4s 轮询重渲染下**不会**被重置。
+ *
+ * 折叠状态不经 React state（无受控往返）：分区开关门控（INV-30 关闭形态）
+ * 是「分区是否存在」，本壳是「分区是否收纳」——两个正交维度，互不替代。
+ *
+ * @param id 稳定标识（锚点 data-anic-fold 与 React key 同源——条件分区出现/
+ *   消失时按 key 复用 DOM，折叠状态不因兄弟分区增删而丢失）。
+ * @param title 摘要行标题（t() 结果）；@param children 分区主体。
+ */
+export function renderFoldableSection({ id, title, children }: { id: string; title: string; children: ReactElement | ReadonlyArray<ReactElement | null> | null }): ReactElement {
+  return createElement(
+    'details',
+    {
+      'data-anic-fold': id,
+      open: true,
+      key: id,
+      style: { borderTop: `1px solid ${token('anic-border')}` },
+    },
+    createElement(
+      'summary',
+      {
+        style: { cursor: 'pointer', userSelect: 'none', fontSize: 11, fontWeight: 600, color: token('anic-text-strong'), padding: '6px 10px 2px' },
+      },
+      title,
+    ),
+    children,
+  );
+}

@@ -87,6 +87,10 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
         type: 'checkbox',
         'data-anic-flow-toggle': f.id,
         checked: state.enabled,
+        // cycle-41（a11y 收紧）：包裹 label 已提供可达名（既有模式正确）；
+        // 显式 aria-label 让名字不依赖 label 包裹结构的解析——自动化检测器
+        // （不解析 label 关联的那类）与未来 DOM 重构都稳妥。
+        'aria-label': t(f.labelKey),
         onChange: () => {
           const next: Record<string, boolean> = { ...user, [f.id]: !state.enabled } as Record<string, boolean>;
           writeUserPrefs(next);
