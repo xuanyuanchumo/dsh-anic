@@ -258,15 +258,64 @@ async function checkEnvironmentHealth() {
 }
 
 // ---------- DSH / Chrome 定位 ----------
+/**
+ * 显式解析 DSH CLI（cycle-71 P1 收口）。
+ *
+ * **为什么改**：原候选表两个硬编码路径**均不存在**（实测：
+ * `D:\JetBrains\nvm\node_global\dsh.cmd` MISSING、
+ * `~/.dsh/profiles/web/node_modules/.bin/dsh.cmd` MISSING——两套 profile 的
+ * `@deepseek-ai/*` 是 **244 个 dangling symlink**，0 可解析），实际落到 PATH 上
+ * `where dsh.cmd` → 桌面 app 自带 CLI（`resources\runtime\cli\bin\dsh.cmd`）。
+ * 后果：**宿主版本不可知**——而这个版本正是兼容门判定与多代适配的输入。
+ *
+ * 新解析序（每步 log 出处，消除「版本不可知」）：
+ *   ① 环境变量 `DSH_TEST_CLI`（显式覆盖，最高优先——CI/特殊布局用）；
+ *   ② 桌面 app 自带 CLI（Electron asar 内 dsh-desktop-host，版本可由同级
+ *      `runtime/primary-runtime/runtime.json` 的 desktopVersion 读出）；
+ *   ③ PATH `where dsh.cmd`（兜底）。
+ * 解析成功的候选附 `describeDshCliVersion()` 输出——启动日志里能看到宿主版本。
+ */
 function findDshCmd() {
+  const envOverride = process.env.DSH_TEST_CLI;
   const candidates = [
+    envOverride,
+    // ② 桌面 app 自带 CLI（Electron resources 布局；版本可从 runtime.json 读）
+    join('D:\\DSH\\DeepSeek Harness', 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'),
+    // 遗留候选（保留：某些机器可能真有 node_global 安装）
     'D:\\JetBrains\\nvm\\node_global\\dsh.cmd',
     join(homedir(), '.dsh', 'profiles', 'web', 'node_modules', '.bin', 'dsh.cmd'),
-  ];
-  for (const p of candidates) { if (existsSync(p)) return p; }
+  ].filter((p) => typeof p === 'string' && p !== '');
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      log(`DSH CLI 解析：${p}${p === envOverride ? '（DSH_TEST_CLI 覆盖）' : ''}`);
+      return p;
+    }
+  }
   try {
     const out = execSync('where dsh.cmd', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }).trim().split('\n')[0];
-    if (out && existsSync(out)) return out;
+    if (out && existsSync(out)) {
+      log(`DSH CLI 解析：${out}（PATH 兜底——显式候选均不存在）`);
+      return out;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * 读出 DSH 宿主版本（cycle-71：把「版本不可知」变成可审计）。
+ *
+ * 一手来源（独立复核过）：桌面 app 的 `resources/runtime/primary-runtime/runtime.json`
+ * 的 `desktopVersion` 字段（本机 = 0.2.1-rc.2）。这是兼容门判定
+ * （asar app-boot `getDshRuntimeVersion` 读 app-boot 包 version）的同一代际。
+ * 读不到返回 null——**如实缺省，不猜**。
+ */
+function describeDshCliVersion(dshCmd) {
+  try {
+    const runtimeJson = join(dirname(dshCmd), '..', '..', 'primary-runtime', 'runtime.json');
+    if (existsSync(runtimeJson)) {
+      const j = JSON.parse(readFileSync(runtimeJson, 'utf8'));
+      if (typeof j.desktopVersion === 'string' && j.desktopVersion !== '') return j.desktopVersion;
+    }
   } catch { /* ignore */ }
   return null;
 }
@@ -447,6 +496,11 @@ function statusEnvironment() {
   const chromeName = chromePid ? (getProcessName(chromePid) || '?') : '-';
   console.log(`DSH (${DSH_PORT}):     ${dshPid ? `运行中 (PID: ${dshPid}, ${dshName})` : '未运行'}`);
   console.log(`Chrome (${CHROME_DEBUG_PORT}): ${chromePid ? `运行中 (PID: ${chromePid}, ${chromeName})` : '未运行'}`);
+  // cycle-71：把 CLI 出处与宿主版本打进 status——消除「用哪个 dsh、哪一代」的不可知。
+  const dshCmd = findDshCmd();
+  const dshVersion = dshCmd ? describeDshCliVersion(dshCmd) : null;
+  console.log(`DSH CLI:       ${dshCmd ?? '未找到（可设 DSH_TEST_CLI 显式指定）'}`);
+  console.log(`宿主版本:      ${dshVersion ?? '未知（runtime.json 不可读）'}`);
   console.log('');
   console.log(`注意：与父工程 scripts/start-dsh-test.mjs 共用端口 ${DSH_PORT} —— 同时只跑一个测试宿主。`);
   console.log(`DSH PID 文件:    ${PID_FILE}`);
@@ -459,8 +513,9 @@ function statusEnvironment() {
 // ---------- 启动 DSH ----------
 async function startDsh() {
   const dshCmd = findDshCmd();
-  if (!dshCmd) throw new Error('找不到 dsh.cmd');
-  log(`使用 DSH: ${dshCmd}`);
+  if (!dshCmd) throw new Error('找不到 dsh.cmd（可设 DSH_TEST_CLI 显式指定）');
+  const dshVersion = describeDshCliVersion(dshCmd);
+  log(`使用 DSH: ${dshCmd}${dshVersion ? `（宿主版本 ${dshVersion}）` : '（宿主版本未知）'}`);
   try { unlinkSync(DSH_LOG); } catch { /* ignore */ }
   log(`启动 DSH Web 服务（超时 ${timeoutSeconds}s，cwd=${WORKSPACE}）...`);
   const dshEntry = resolveDshEntry(dshCmd);
