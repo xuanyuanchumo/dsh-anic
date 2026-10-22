@@ -35,7 +35,30 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 65 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
 
 
-## 当前形态（M1..M11 + R3 流程状态机；cycle-38 时点 v0.37.0，cycle-39 进行中）
+## 当前形态（M1..M11 + R3 流程状态机；**cycle-71 时点 v0.40.0**）
+
+- **阻断级 P0 修复 + 用户核心 UI 要求 + 三路研究（v0.40.0 系列 / cycle-71）**：
+  ① **H2 扫描死循环 P0 闭环**——`classifyDestructiveLine` 对**非全局**正则调 `exec()` 循环：
+  非全局 `exec` 忽略 `lastIndex`、每次返回同一命中且 `lastIndex` 恒 0，零宽保护永不触发 →
+  **死循环**；后果实测两处：`pnpm run test` 跑完 121/122 文件后**永不收敛**（挂死 >25min），
+  **`checkH2` 同路径可挂住宿主进程**。修复 = 模块级全局副本 + `matchAll`（克隆迭代、天然有界）。
+  **补全第二缺陷**：设计定义引用上下文含「注释/文档块」而首版只做引号 → 本体 JSDoc 说明行
+  自触发熔断；补四类（散文行/字符串/`//` 注释/行内代码）+ URL scheme 漏报面防线 + 自免疫钉。
+  ② **mcp-server 命令注入（安全 P0）**——`execSync` 模板串拼接 `projectDir`，**独立复核确认
+  真实可利用**（恶意路径下写出哨兵）；修复 = `spawnSync` argv 形态 + 形状校验 + 反向自检。
+  ③ **自举「缺前置被折叠成 0 分」（L4 收敛不可能的结构根因）**——专用前置码 + HTTP 412；
+  伴生取证面缺位（self 端点零 FlowTracker）修复并**真机复核新增记录**。
+  ④ **用户核心 UI 要求**——面板默认只展开最近一次已完成调用（10 分区收为 **8 闭/2 开**）+
+  「最近完成全貌卡」（七段，⑤⑥ 按 INV-27 刻意留空）+ 折叠记忆（真机跨 2 轮 tick 不弹回）。
+  ⑤ **DSH 规范校正**——宿主实测基线 **0.2.1-rc.2**（非长期所写 0.2.0-rc.2）+ B9 作废
+  （engines.dsh 优先且单独决定）+ 桌面端实为 `dsh-app://` 同源代理（非 `file://`）+ B12-B18 新变更类。
+  ⑥ **文档册 19→21**：新增《工具面参考》（19 工具零覆盖 + 册⇄源码双向契约）与
+  《自举与健康取证》（取证面/时间窗根因/「能力就位≠真机收敛」）。
+  ⑦ 测试塔 **129 文件 / 1632 用例**（本轮 +8 文件 +117 用例）；新增 5 条契约守卫（双锚/同源/版本锚/
+  三集合/文档⇄源码）。G0-G3 全过；真机 Chrome DevTools MCP 验证 PASS。
+  **诚实边界**：未宣称自举已收敛（本轮修根因）；白盒四元组「流程流向/运行产物」两元仍缺
+  （调用与 cycle/phase/门禁零 join key）；j0-probe 因 `@playwright/test` 不可达未跑（改 MCP 等价验证）。
+- **研究驱动深挖轮（v0.39.0 / cycle-40）**：迁移合法性矩阵 **5/5 收口**（`validateRecordShape` 记录类型白名单 + `cycleRunner.advanceCycle` 哈希链 fail-closed 校验）；文档审计 P0×2/P1×8/P2×5/P3×6 全修（G-IND 颠倒 / inject 四元 / 62 端点闭合 / flows 域补录）；KB 吸收 `toolsSlot`（`timeoutMs`/`isConcurrencySafe`）；UI 研究 Top1/Top3（`usePanelFetch` 退避 + abort + 稳定 key）；iterate 超时参数化 + Post-Verify 环；技能 v2.3.0→2.4.0。
 - **研究驱动优化轮（v0.38.0 / cycle-39）**：P0-DAG-PARSE——stateMachine 解析器只认纯文本边+大写 Gate，真实 workflow-graph.yaml（本仓/技能模板/测试场地三处同形状）是流式边+小写 gate → cycle 状态机全链空转（advance 前驱检查恒过、gate 批准检查恒不触发）；修复双边形态+类型归一+迁移合法性矩阵 3/5 条（门匹配/done 拒绝/前驱边），新契约 `tests/contract/stateMachineGraphShape.test.ts` 13 用例。quick-validate 网关相对路径自动解析（flow #29 实证修复）；journey_coverage 门禁双侧实现（gate-check.mjs + gateEngine，差分钉死）+ chaos_coverage 装饰性声明删除；W-3 全档测试报告行投影进节点详情；19/19 工具 presentCall 完备 + TerminalCallView 官方字段名（summary→description，DSH 规范审计 P1）；skillRoute 4 路由行为测试补齐（唯一零行为测试路由文件）；技能 v2.2.0→2.3.0；文档数字契约钉死（readmeNumbers.test.ts：README 数字==glob 计数）。
 - **技能目录可见性 + 生态对照 + L4 架构决策（v0.36.0 / cycle-37）**：DSH 规范审计发现 SKILL.md description 折叠后 800 字符 > 官方 `catalogDescriptionMaxLength`（500，skills.md:233）——模型可见目录里触发词整段被截（真机实证）；重写为 455 字符触发词前置 + 新契约守卫 `tests/contract/skillCatalogDescription.test.ts`（4 用例钉死：≤500/Triggers 前置/双语触发面/whenToUse 完整）。生态研究（anthropics/skills + superpowers + ECC）吸收三件：SKILL.md 补「会话恢复协议」小节（planning-with-files 模式）、auto-cycle.md 补「任务级派遣编排」（superpowers 子代理编排：2-5 分钟任务粒度 + fresh context + 两段评审）、task-list 模板补派遣记录表（G1 判定免疫——首列状态约定不变）。L4 自主性原生化决策书落 `docs/anic/18-L4自主性原生化评估与生态对照研究.md`（结论：维持「插件承载状态机与引擎 + 技能脚本正典双实现 + 差分契约防漂移」路线，不全面原生化——双真相源守卫是差异化资产）。docs/anic 15 号文档过时表刷新 + 18 号新增；README 数字校准（19 工具/62 路由/106 测试文件——cycle-39 复核修正）。
 - **布局根解析统一 + 自举链双缺陷根除（v0.17.0 / cycle-15，P0-DIR-ROOT/D-1415）**：真机验证暴露 truthAuditRoute 的 `resolve(file,'../../../')` 在 dist 单文件布局下审计了**仓库父目录**（T1-T4 全 MISSING、version vunknown——且源码布局下也错，两种布局从未正确工作过；旧测试只断言路由注册故恒绿），dualBootstrap 同病。新建 `src/host/pluginRoot.ts` 标记驱动向上查找（package.json name=dsh-anic），四处调用点（truthAudit/dualBootstrap/agents/skill）统一，根未解析双路由显式 500；pluginRoot 9 用例双布局钉死 + truthAuditRouteBehavior 行为级回归钉（T2 version=真实版本、15 cards——修复前必红）。真机复验 truth-audit **T1-T4 全 100**、dual-evaluate 双向真实数据。收口期再抓两枚同型漏网：band-detector.mjs:141 越界变量 `v`（ReferenceError——规则 2 首真触发即崩，历史快照统计量漂移使其「时好时坏」）+ eval-runner checkComplexity `|| true` fail-open（D-1404 漏网同型）→ execFileSync 直跑非零取 stdout。E1/E2 自举诚实化（intent 模板桩 → 真实三件套）。自举评估 **15 PASS + 1 结构性 SKIP**（历史最佳）。
