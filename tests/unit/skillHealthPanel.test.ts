@@ -133,7 +133,7 @@ describe('cycle-53 T-5301 面板近期窗口展示（双量纲不丢史）', () 
   });
 });
 
-describe('cycle-104 lastInvoked（此前宿主返回而客户端丢弃的字段）', () => {
+describe('cycle-71 T-7131 lastInvoked（此前宿主返回而客户端丢弃的字段）', () => {
   const base = {
     suggestions: [], overallSuccessRate: 1, totalInvocations: 3,
     generatedAt: '2026-10-22T00:00:00.000Z',

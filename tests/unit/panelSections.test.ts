@@ -34,7 +34,7 @@ function snap(invocations: InvocationJson[]): InvocationsJson {
   return { invocations, total: invocations.length, generatedAt: '2026-10-21T00:00:00.000Z' };
 }
 
-describe('cycle-104 折叠默认策略（用户要求核心：默认只展开 live）', () => {
+describe('cycle-71 T-7131 折叠默认策略（用户要求核心：默认只展开 live）', () => {
   /** 十个静态分区装配渲染（与 panelAssemblyContract 同款顺序）。 */
   function renderAllSections(): string {
     const store: PanelDataStore = createPanelStore(createInitialPanelState());

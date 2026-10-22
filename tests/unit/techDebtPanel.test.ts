@@ -31,7 +31,7 @@ function listing(overrides: Partial<TechDebtListingJson> = {}): TechDebtListingJ
   };
 }
 
-describe('cycle-104 proposedAction 与债务年龄（此前字段在数据面而未消费）', () => {
+describe('cycle-71 T-7131 proposedAction 与债务年龄（此前字段在数据面而未消费）', () => {
   const NOW = Date.parse('2026-10-22T12:00:00.000Z');
 
   it('proposedAction 渲染（「问题」接到「行动」——只读队列里的行动指针）', () => {

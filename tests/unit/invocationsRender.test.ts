@@ -106,7 +106,7 @@ describe('renderInvocations（动态白盒分区）', () => {
   });
 
   it('有 turn 元数据 → 按组折叠：turn 降序、静态组默认折叠、组内行序=feed 序', () => {
-    // cycle-104：默认展开条件收窄为「组内含运行中调用」——本夹具全为 done，
+    // cycle-71 T-7131：默认展开条件收窄为「组内含运行中调用」——本夹具全为 done，
     // 故两组都折叠（「最近一次已完成调用」已上移为独立全貌卡，见 liveCard.test.ts；
     // 同一调用不再在 turn 组里重复展开）。
     const html = renderToStaticMarkup(renderInvocations(snap([
@@ -154,8 +154,8 @@ describe('renderInvocations（动态白盒分区）', () => {
 });
 
 // ── cycle-41：用户目标 A（默认展开语义）+ Top5（截限）+ Top4a（播报区）+ 概览量化 ──
-describe('renderInvocations —— cycle-41（展开语义）+ cycle-104（收窄为运行中）', () => {
-  it('cycle-104 用户要求核心：最近完成的组**不再**默认展开（痕迹上移到全貌卡）', () => {
+describe('renderInvocations —— cycle-41（展开语义）+ cycle-71 T-7131（收窄为运行中）', () => {
+  it('cycle-71 T-7131 用户要求核心：最近完成的组**不再**默认展开（痕迹上移到全貌卡）', () => {
     // t3 全部完成且是最近完成（endedAt 最新）；t2 更早完成；t1 含运行中。
     const html = renderToStaticMarkup(renderInvocations(snap([
       inv({ callId: 't3-done', turn: 3, status: 'done', endedAt: 300 }),
@@ -189,7 +189,7 @@ describe('renderInvocations —— cycle-41（展开语义）+ cycle-104（收�
     expect(html).toContain('（1 执行中）');
   });
 
-  it('cycle-104：全为已完成调用时无任何组默认展开（运行中判定为唯一条件）', () => {
+  it('cycle-71 T-7131：全为已完成调用时无任何组默认展开（运行中判定为唯一条件）', () => {
     const html = renderToStaticMarkup(renderInvocations(snap([
       inv({ callId: 'newer', turn: 2, step: 1, endedAt: 900 }),
       inv({ callId: 'older', turn: 1, step: 1, endedAt: 100 }),
