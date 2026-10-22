@@ -27,37 +27,35 @@
  *
  * 结构纪律：evaluateH1-H4 是纯函数核心（可单测），checkH1-H4 是 IO 包装
  * （git/fs 采集），与 presentCall/deriveEvidenceResult 同范式。
+ *
+ * cycle-71 T3 拆分：破坏性命令「扫什么」（词形词边界 + 引用上下文分类）搬入
+ * governance/destructiveScan.ts——母文件曾 290 行触 250 模块纪律（truthAudit
+ * T3 红），且「扫什么」与「怎么裁决」变更原因不同。下方 re-export 保持原有
+ * import 面不变（契约测试仍从本模块取 isDestructiveCommandLine）。
  */
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { verifyLedger, loadLedger, type LedgerEntry } from '../runtime/ledger.ts';
 import { CONVERGENCE_GATES, latestCycleDir } from '../llm/gateEvidence.ts';
+import {
+  classifyDestructiveLine,
+  isDestructiveCommandLine,
+  type DestructiveLineClass,
+} from './destructiveScan.ts';
+
+// 扫描域公共 API 的稳定出口（唯一实现在 destructiveScan.ts）。
+export { classifyDestructiveLine, isDestructiveCommandLine };
+export type { DestructiveLineClass };
 
 const SENSITIVE_PATTERNS = ['.env', 'credentials', 'secret', 'password', 'token', 'api_key'];
 const ENV_FILES = ['.env', '.env.local', '.env.production'];
-const DESTRUCTIVE_FILE_PATTERNS = ['.gitignore', 'package.json', 'tsconfig', 'migration', 'schema'];
-/**
- * 破坏性命令模式（插件增强，技能侧无此扫描）。
- *
- * cycle-68 词边界修复：旧 `/TRUNCATE/i` 无词边界——locale 键 `groupTruncated`
- * 与英文 `truncated`/`truncates` 等变形均被子串命中，cycle-47 真机旅程时工作树
- * diff 恰含 2 行 groupTruncated locale 新增 → 「Destructive commands in diff:
- * 2 line(s)」假熔断 → 审计日志「历史遗留 H2 熔断·待人工」复制挂账 20 轮。
- * 词边界后：SQL 命令形态（TRUNCATE / TRUNCATE TABLE）才命中；truncated 的
- * E→d 与 groupTruncated 的 p→T 均为字母间无边界，变形一律不命中。
- * H2 是熔断级检查（触发即挂账待人工），误报代价已实证（20 轮假挂账），
- * 漏报面本仓≈0（无 SQL 数据库面，.cycles 全是 JSON/MD）——宁窄勿滥。
- */
-const DESTRUCTIVE_COMMAND_PATTERNS = [
-  /\brm\s+-rf\b/i, /\bDROP\s+TABLE\b/i, /\bDELETE\s+FROM\b/i, /\bTRUNCATE\b/i,
-  /\bgit\s+push\s+--force\b/i, /\bgit\s+reset\s+--hard\b/i,
-];
 
-/** diff 新增行是否含破坏性命令（cycle-68 从 checkH2 内联提取为可测纯函数）。 */
-export function isDestructiveCommandLine(line: string): boolean {
-  return DESTRUCTIVE_COMMAND_PATTERNS.some((p) => p.test(line));
-}
+/**
+ * 破坏性文件模式（H2 影响面面）：这些文件的变更携带结构性风险，
+ * 需以「影响面大小 + 回滚可用性」两条判据把关。
+ */
+const DESTRUCTIVE_FILE_PATTERNS = ['.gitignore', 'package.json', 'tsconfig', 'migration', 'schema'];
 
 export interface HitlResult {
   check: 'H1' | 'H2' | 'H3' | 'H4';
@@ -87,11 +85,27 @@ export function evaluateH1(changedFiles: string[], gitignoreContent: string, env
   return { check: 'H1', passed: true, circuit: false, detail: 'No security-sensitive operations detected' };
 }
 
-/** H2：破坏性文件影响面 + 回滚可用性（+ 插件增强的破坏性命令扫描）。 */
+/**
+ * H2：破坏性文件影响面 + 回滚可用性（+ 插件增强的破坏性命令扫描）。
+ *
+ * cycle-71 引用降敏三态：真命令行（词形裸命中）→ 熔断（不变）；全引用行
+ * （词形在字符串字面量内）→ PASS 但 detail 标注引用计数+findings 保留
+ * （白盒不减）；混合行 → 按真命令处理（保守——同行裸词形无法排除执行意图）。
+ * 漏报面裁决：威胁模型是「AI 误写破坏性命令」非「恶意绕过」（绕过的防线是
+ * 人工 review 与最小权限）；误写场景真命令几乎不以字符串字面量形态出现。
+ */
 export function evaluateH2(changedFiles: string[], hasGitHistory: boolean, destructiveCommandLines: string[]): HitlResult {
-  // 插件增强：diff 新增行含破坏性命令 → 直接 fail（技能侧无此扫描）
-  if (destructiveCommandLines.length > 0) {
-    return { check: 'H2', passed: false, circuit: true, detail: `Destructive commands in diff: ${destructiveCommandLines.length} line(s)`, findings: destructiveCommandLines.slice(0, 10) };
+  // 引用降敏分类（cycle-71）：全引用行不熔断但保留 findings 白盒
+  const bare = destructiveCommandLines.filter((l) => {
+    const c = classifyDestructiveLine(l);
+    return c.hit && !c.quoted;
+  });
+  const quotedRefs = destructiveCommandLines.filter((l) => {
+    const c = classifyDestructiveLine(l);
+    return c.hit && c.quoted;
+  });
+  if (bare.length > 0) {
+    return { check: 'H2', passed: false, circuit: true, detail: `Destructive commands in diff: ${bare.length} line(s)`, findings: bare.slice(0, 10) };
   }
   const destructiveFiles = changedFiles.filter((f) => DESTRUCTIVE_FILE_PATTERNS.some((p) => f.toLowerCase().includes(p)));
   if (destructiveFiles.length > 0) {
@@ -102,6 +116,10 @@ export function evaluateH2(changedFiles: string[], hasGitHistory: boolean, destr
       return { check: 'H2', passed: false, circuit: true, detail: 'No git history for rollback' };
     }
     return { check: 'H2', passed: true, circuit: false, detail: `Destructive ops detected (${destructiveFiles.length} files), rollback available via git` };
+  }
+  // 全引用降敏态：PASS + 引用计数标注 + findings 白盒保留（cycle-71）
+  if (quotedRefs.length > 0) {
+    return { check: 'H2', passed: true, circuit: false, detail: `${quotedRefs.length} quoted reference(s) in diff (not executed)`, findings: quotedRefs.slice(0, 10) };
   }
   return { check: 'H2', passed: true, circuit: false, detail: 'No destructive operations detected' };
 }

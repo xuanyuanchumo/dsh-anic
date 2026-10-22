@@ -11,8 +11,13 @@
  * 任何一条被改回旧形态都必须立刻变红。
  */
 import { describe, it, expect } from 'vitest';
-import { evaluateH1, evaluateH2, evaluateH3, evaluateH4, isDestructiveCommandLine } from '../../src/host/governance/hitlAudit.ts';
+import { readFileSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { evaluateH1, evaluateH2, evaluateH3, evaluateH4, isDestructiveCommandLine, classifyDestructiveLine } from '../../src/host/governance/hitlAudit.ts';
 import type { LedgerEntry } from '../../src/host/runtime/ledger.ts';
+
+const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function entry(gate: string, result: string, detail = ''): LedgerEntry {
   return { gate, gateName: gate, result, detail, timestamp: '2026-01-01T00:00:00Z', previousHash: '', hash: '' };
@@ -258,5 +263,78 @@ describe('cycle-68 T-6801 破坏性命令词边界（groupTruncated 假熔断回
     expect(r.passed).toBe(false);
     expect(r.circuit).toBe(true);
     expect(r.detail).toContain('Destructive commands in diff: 1 line(s)');
+  });
+});
+
+describe('cycle-71 T-7102 引用上下文降敏（三态：引用标注 / 真命令熔断 / 混合保守）', () => {
+  it('字符串字面量内的词形 → quoted=true（测试样例/文档示例形态）', () => {
+    expect(classifyDestructiveLine(`expect(isDestructiveCommandLine('TRUNCATE TABLE users;')).toBe(true)`))
+      .toEqual({ hit: true, quoted: true });
+  });
+
+  it('源码行注释 // 后的词形 → quoted=true（本族缺陷：首版仅覆盖引号，注释仍熔断）', () => {
+    expect(classifyDestructiveLine('// TRUNCATE TABLE 是破坏性命令'))
+      .toEqual({ hit: true, quoted: true });
+  });
+
+  it('JSDoc 续行 * 与 YAML/Shell 注释 # / markdown 标题 → quoted=true（文档块形态）', () => {
+    expect(classifyDestructiveLine(' * 词边界后：SQL 命令形态（TRUNCATE / TRUNCATE TABLE）才命中'))
+      .toEqual({ hit: true, quoted: true });
+    expect(classifyDestructiveLine('# TRUNCATE TABLE 示例'))
+      .toEqual({ hit: true, quoted: true });
+    expect(classifyDestructiveLine('## TRUNCATE 语义'))
+      .toEqual({ hit: true, quoted: true });
+  });
+
+  it('反引号行内代码内的词形 → quoted=true（markdown 行内代码）', () => {
+    expect(classifyDestructiveLine('见 `TRUNCATE TABLE x` 说明'))
+      .toEqual({ hit: true, quoted: true });
+  });
+
+  it('裸命令行 → quoted=false（真命令防回退）', () => {
+    expect(classifyDestructiveLine('TRUNCATE TABLE users;')).toEqual({ hit: true, quoted: false });
+  });
+
+  it('正则字面量 /…/ 无引号包裹 → hit=false（cycle-68 词边界：\\bTRUNCATE\\b 的 T 前是 b 非边界）', () => {
+    expect(classifyDestructiveLine('const re = /\\bTRUNCATE\\b/i;')).toEqual({ hit: false, quoted: false });
+    // 无词边界的正则原文则裸命中——它是「正则形态」不是引用上下文，必须 quoted=false
+    expect(classifyDestructiveLine('const re = /TRUNCATE TABLE/i;')).toEqual({ hit: true, quoted: false });
+  });
+
+  it('URL scheme 的 // 不是注释——其后真命令仍熔断（漏报面防线）', () => {
+    expect(classifyDestructiveLine('curl http://x && rm -rf /var')).toEqual({ hit: true, quoted: false });
+  });
+
+  it('混合行（同行引用+裸命令）→ 保守按真命令熔断', () => {
+    const mixed = `说明见 'TRUNCATE TABLE' 文档；执行命令: TRUNCATE TABLE users;`;
+    expect(classifyDestructiveLine(mixed).quoted).toBe(false);
+    expect(evaluateH2([], true, [mixed]).circuit).toBe(true);
+  });
+
+  it('evaluateH2 全引用降敏 → PASS + 标注 + findings 白盒保留（不减信息）', () => {
+    const r = evaluateH2([], true, [`expect(isDestructiveCommandLine('TRUNCATE TABLE users;')).toBe(true)`]);
+    expect(r.passed).toBe(true);
+    expect(r.circuit).toBe(false);
+    expect(r.detail).toContain('quoted reference');
+    expect(r.findings).toBeDefined();
+  });
+
+  it('evaluateH2 裸命令仍熔断（防回退）', () => {
+    const r = evaluateH2([], true, ['TRUNCATE TABLE users;']);
+    expect(r.passed).toBe(false);
+    expect(r.circuit).toBe(true);
+  });
+
+  it('自免疫钉：本仓破坏性扫描域自身源码的词形行全部降敏（cycle-71 要消灭的形态）', () => {
+    const src = readFileSync(join(PLUGIN_ROOT, 'src/host/governance/destructiveScan.ts'), 'utf-8');
+    const hits = src.split('\n').filter(isDestructiveCommandLine);
+    // 扫描域源码必然含模式词形（正则原文与说明文字）——非空才证明本钉有意义
+    expect(hits.length).toBeGreaterThan(0);
+    for (const line of hits) {
+      expect(classifyDestructiveLine(line.trim()).quoted, `未降敏: ${line.slice(0, 70)}`).toBe(true);
+    }
+    const r = evaluateH2([], true, hits.map((l) => l.trim()));
+    expect(r.passed).toBe(true);
+    expect(r.circuit).toBe(false);
   });
 });
