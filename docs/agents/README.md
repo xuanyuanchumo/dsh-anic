@@ -16,6 +16,7 @@
 | [API参考-周期面.md](API参考-周期面.md) | cycle 域 13 端点：cycle / ledger / stack-probe / seg-ledger | 调用或修改周期状态机、账本、技术栈探测时 |
 | [API参考-评审进化与治理.md](API参考-评审进化与治理.md) | review + evolution + governance + native + flows（流程状态机），28 端点 | 调用或修改评审、自治、治理、原生脚本、流程状态机端点时 |
 | [API参考-自举与技能.md](API参考-自举与技能.md) | self（自举 / skill / install）+ dual + truth-audit，16 端点 | 调用或修改自举、技能网关、安装、双自举时 |
+| [工具面参考.md](工具面参考.md) | **19 个 `anic_*` 工具的完整参考**：9 模块分布、逐工具参数/写盘语义、工具定义形状（官方契约 vs 本仓 raw 路线）、**工具面 vs HTTP 面的取证面差异**、清单守卫、新增工具清单 | 想知道「模型能调用什么」「某工具写不写盘」「工具和面板路由什么关系」时 |
 | [测试指南.md](测试指南.md) | 四层金字塔的实际配置、每层能看/看不到什么、守卫测试三条纪律、变更探针纪律 | 新增测试、判断缺陷该由哪层拦、写守卫测试时 |
 | [设计令牌与主题.md](设计令牌与主题.md) | `src/shared/tokens.ts` 的 PALETTE→SEMANTIC 两层模型、`token()`、`tokenCssBlock()`、注入点、守卫与**当前落地程度** | 新增颜色、新增内联样式、暗色适配时 |
 | [DSH多代兼容与双端适配.md](DSH多代兼容与双端适配.md) | 兼容性门真实现（peerDependencies 白名单 + semver）、多代能力探测矩阵 D1-D8、网页端/桌面端差异实测、B1-B6 破坏性变更、已知限制 | 改 package.json 版本范围、适配新宿主版本、排查桌面端差异时 |

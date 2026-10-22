@@ -129,3 +129,48 @@ describe('契约：角色卡 toolsAllowlist 存在性', () => {
     expect(r.errors.join(' ')).toContain('must be an array of tool ids matching');
   });
 });
+
+/**
+ * 契约：工具面参考册 ⇄ 注册代码（cycle-71 T-7104）。
+ *
+ * **为什么加这条**：19 个工具有 `toolIds.ts` 清单守卫（源码 ⇄ 清单），但
+ * **文档册没有任何同步触发器**——cycle-67 的 apiDocShapeContract 已证明这个
+ * 形态会在协议扩展时静默落后四轮（「API 册停在 cycle-97」先例）。
+ * `docs/agents/工具面参考.md` 是本仓此前**完全缺失**的一册（19 工具零覆盖，
+ * skill-eco 研究实证），新册若无守卫，下一次加工具必然漂移。
+ *
+ * 判据：文档 §2 各表中的 `` `anic_xxx` `` 反引号 token 集合 === 注册代码集合。
+ * 双向相等（多写=文档臆造 / 漏写=文档缺口都红），不允许单向 contain 吞掉。
+ */
+describe('契约：工具面参考册 ⇄ 注册代码（双向）', () => {
+  const doc = readFileSync(fileURLToPath(new URL('../../docs/agents/工具面参考.md', import.meta.url)), 'utf-8');
+
+  /** 从文档提取反引号包裹的 anic_* token（本册以 `anic_xxx` 形态列工具）。 */
+  function documentedToolIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const m of doc.matchAll(/`(anic_[a-z0-9_]+)`/g)) {
+      if (m[1]) ids.add(m[1]);
+    }
+    return ids;
+  }
+
+  it('扫描集非空（文档格式漂移 = 解析空集，直接拦）', () => {
+    expect(documentedToolIds().size).toBeGreaterThanOrEqual(15);
+  });
+
+  it('文档里的每个工具 id 都真实注册（文档臆造 = 红）', () => {
+    const scanned = new Set(registeredToolIds());
+    const fabricated = [...documentedToolIds()].filter((id) => !scanned.has(id));
+    expect(fabricated, `文档写了但代码里没有的工具：${fabricated.join(', ')}`).toEqual([]);
+  });
+
+  it('注册的每个工具在文档中都有记载（新增工具必须补册 = 红）', () => {
+    const documented = documentedToolIds();
+    const undocumented = registeredToolIds().filter((id) => !documented.has(id));
+    expect(undocumented, `注册了但工具面参考册未记载：${undocumented.join(', ')}`).toEqual([]);
+  });
+
+  it('集合完全相等（双向；顺序无关）', () => {
+    expect([...documentedToolIds()].sort()).toEqual(registeredToolIds());
+  });
+});
