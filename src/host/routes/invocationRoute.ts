@@ -9,6 +9,11 @@
  * feed 是宿主进程内存态，本路由无工作区依赖；feed 缺失属接线错误，
  * 显式 500（空流 200 会让"未接线"看起来和"没有调用"一样——静默降级=永久绿）。
  * 响应统一走共享 send（CORS 头由 sendJson 注入，桌面/远程消费者可读）。
+ *
+ * cycle-71：归属字段（cycle/phase）由 feed 在**事件到达时**落盘（方案 A′，
+ * 见 runtime/invocationAttribution.ts），本路由只做**透传**——快照即响应形状，
+ * 不在这里补算任何字段（响应期补算会把归属变成"看的时候的坐标"，INV-27）。
+ * 路由因此保持无工作区依赖，请求头不参与归属判定。
  */
 import { type SnapshotCtx } from '../snapshotRoute.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';

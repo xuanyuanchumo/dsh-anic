@@ -21,6 +21,7 @@
 import { registerAnicRoutes } from './host/routes/index.ts';
 import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
+import { createInvocationAttributor } from './host/runtime/invocationAttribution.ts';
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
 import { registerBuiltinFlows } from './host/flows/builtin.ts';
 
@@ -31,7 +32,12 @@ export function apply(ctx: unknown): void {
   const c = ctx as { effect?: (fn: () => unknown, label?: string) => unknown };
   // 动态白盒调用流（cycle-97）：宿主进程内存态，供路由 + 面板轮询；
   // 事件订阅随插件卸载自动清理（官方 events.md：ctx.on 监听器即效果）。
-  const feed = attachInvocationFeed(ctx, createInvocationFeed());
+  // cycle-71：注入归属解析器（方案 A′）——用 session/event 第一参的
+  // SessionHeader.cwd 在**事件到达时**解析该调用所属的 cycle/phase；
+  // 工作区不可解析 → 字段不落（宁缺勿猜，见 invocationAttribution.ts）。
+  const feed = attachInvocationFeed(ctx, createInvocationFeed(), {
+    resolveAttribution: createInvocationAttributor(ctx),
+  });
   if (typeof c.effect === 'function') {
     // runtime 技能注册（静态 inject 保证 skills 已就绪；stub 宿主无 skills 时
     // registerRuntimeSkill 内部探测跳过，返回 null 即无需清理）。

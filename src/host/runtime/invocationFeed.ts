@@ -30,13 +30,21 @@
  *
  * T-4801 拆分：extractResultPreview/contentText 纯函数已拆至
  * ./invocationFeedPreview.ts（本文件触 250 行纪律时的同域拆分）。
+ * cycle-71 拆分：宿主事件接线（attach + 诊断注入）已拆至
+ * ./invocationFeedAttach.ts —— 归属字段（cycle/phase，方案 A′）把本文件推向
+ * 250 行纪律。两个拆出模块均由本文件**再导出**，消费者 import 路径零变更。
  */
-import { createScoped } from '../logger.ts';
-import { extractResultPreview, previewOf } from './invocationFeedPreview.ts';
+import { previewOf } from './invocationFeedPreview.ts';
+import type { InvocationAttribution } from './invocationAttribution.ts';
 
 export { extractResultPreview, previewOf } from './invocationFeedPreview.ts';
-
-const log = createScoped('anic:invocation-feed');
+/**
+ * cycle-71 同域拆分：宿主事件接线（attach + 诊断注入）拆至
+ * `./invocationFeedAttach.ts` —— 归属字段（方案 A′）把本文件推向 250 行纪律
+ * （先例：T-4801 的 invocationFeedPreview.ts 拆分）。此处**再导出**，消费者
+ * （src/index.ts / 单测）的 import 路径零变更。
+ */
+export { attachInvocationFeed, type AttachOptions } from './invocationFeedAttach.ts';
 
 /** 单次工具调用的白盒记录（序列化形状 = 路由响应形状）。 */
 export interface InvocationRecord {
@@ -54,11 +62,20 @@ export interface InvocationRecord {
   /**
    * cycle-48 T-4801：结果内容预览（截断 200 字符，对齐 argumentsPreview）。
    * 提取自 tools/result 载荷的 content 文本块（官方 ContentBlock[] 形状，
-   * 见下方 extractResultPreview 契约注）；错误调用无此字段（error 三元组已足）。
+   * 见 ./invocationFeedPreview.ts 的 extractResultPreview 契约注）；错误调用
+   * 无此字段（error 三元组已足）。
    */
   resultPreview?: string;
   /** in-flight 超过 15 分钟：结束事件大概率永远不会来，如实标记。 */
   possiblyOrphaned?: boolean;
+  /**
+   * cycle-71 T-10501：流程归属（`workflow-state.json` 的 currentCycle）——
+   * 白盒四元组「流程流向」元的 join key。**事件到达时**解析（call = 模型请求
+   * 调用的瞬间），解析不到则缺省不落（宁缺勿猜，INV-27；见 invocationAttribution.ts）。
+   */
+  cycle?: string;
+  /** 同上的 currentPhase（宏观六相之一，如 `build`）。 */
+  phase?: string;
 }
 
 /** 路由响应形状。 */
@@ -109,7 +126,7 @@ const ORPHAN_AFTER_MS = 15 * 60 * 1000;
 
 /** 环回缓冲（纯数据结构，便于单测；宿主接线见 attachInvocationFeed）。 */
 export interface InvocationFeed {
-  recordCall(input: { callId: string; name: string; arguments: string; turn?: number; step?: number }): void;
+  recordCall(input: { callId: string; name: string; arguments: string; turn?: number; step?: number; attribution?: InvocationAttribution | null }): void;
   /**
    * 结束一次调用；返回是否真实结算（命中 in-flight 记录）——诊断计数用。
    * cycle-48 T-4801：第二参收 tools/result 全载荷（isError/error/resultPreview
@@ -119,6 +136,16 @@ export interface InvocationFeed {
   snapshot(now?: number): InvocationFeedSnapshot;
   /** 事件通道诊断（由 attachInvocationFeed 注入；未接线时不存在）。 */
   diagnostics?(): FeedDiagnostics;
+}
+
+/**
+ * 归属字段落盘（cycle-71）：只落**真实解析到**的值——整体 null 或字段缺失/
+ * 空串一律不加字段。绝不写占位符（`undefined`/空串/`process.cwd()` 兜底）。
+ */
+function applyAttribution(rec: InvocationRecord, attribution?: InvocationAttribution | null): void {
+  if (!attribution) return;
+  if (typeof attribution.cycle === 'string' && attribution.cycle !== '') rec.cycle = attribution.cycle;
+  if (typeof attribution.phase === 'string' && attribution.phase !== '') rec.phase = attribution.phase;
 }
 
 /** 创建环回缓冲。limit 默认 50。 */
@@ -146,6 +173,9 @@ export function createInvocationFeed(limit = 50): InvocationFeed {
         startedAt: Date.now(),
         status: 'in-flight',
       };
+      // cycle-71：归属是观测元数据——解析不到就**不落字段**（宁缺勿猜），
+      // 且只在 call 相位沉淀一次（终态不改写，保持"发生时的坐标"语义）。
+      applyAttribution(rec, input.attribution);
       records.push(rec);
       byCallId.set(input.callId, rec);
       evict();
@@ -176,63 +206,3 @@ export function createInvocationFeed(limit = 50): InvocationFeed {
   };
 }
 
-/** 最小宿主事件类型（宿主 ctx 为 unknown 的房屋风格：本地窄化，不引宿主包）。 */
-interface EventCapableCtx {
-  on?: (name: string, handler: (...args: never[]) => void) => unknown;
-}
-
-/**
- * 订阅宿主双事件通道，把本插件的调用写进 feed。
- *
- * ctx.on 注册的监听器随插件卸载自动移除（官方 events.md「事件监听器也是效果」），
- * 因此无需手动退订。宿主没有 on（stub/旧代）时静默跳过——feed 仍可由测试直接喂。
- */
-export function attachInvocationFeed(ctx: unknown, feed: InvocationFeed): InvocationFeed {
-  const c = ctx as EventCapableCtx;
-  if (typeof c.on !== 'function') { log.info('宿主无事件通道，实时调用流未挂载（feed 保留可查询）'); return feed; }
-
-  // 诊断计数：两个通道各自"看到任何事件"的证据。feed 空时由路由一并返回，
-  // 用于区分「事件没到」（计数 0）与「到了但被过滤」（计数 > 0）。
-  const diag: FeedDiagnostics = { sessionEvents: 0, sessionToolCalls: 0, toolsResults: 0, anicCalls: 0, anicResults: 0 };
-  feed.diagnostics = () => ({ ...diag });
-
-  // 开始相位：持久化会话事件 tool/call（模型请求瞬间）。
-  // 事件信封（dsh-session Session.append，lib/index.js:1453-1459）：
-  //   { type, seq, time, data: { turn, step, callId, name, arguments } }
-  // —— 载荷在 event.data 里，不在顶层（P0-FEED-ENVELOPE：曾直接读 event.callId
-  //   恒 undefined，事件到达但全被过滤，诊断计数 sessionToolCalls>0 / anicCalls=0）。
-  // callId 用 falsy 检查：空串 callId 永远配不上真实 tools/result，进了流只会
-  // 制造"永远执行中"的假条目。
-  c.on('session/event', ((session: unknown, event: { type?: string; data?: { callId?: string; name?: string; arguments?: string; turn?: number; step?: number } }) => {
-    diag.sessionEvents++;
-    if (!event || event.type !== 'tool/call') return;
-    diag.sessionToolCalls++;
-    const payload = event.data ?? {};
-    if (!payload.callId || typeof payload.name !== 'string') return;
-    const raw = typeof payload.arguments === 'string' ? payload.arguments : '';
-    if (!isAnicInvocation(payload.name, raw)) return;
-    diag.anicCalls++;
-    feed.recordCall({ callId: payload.callId, name: payload.name, arguments: raw, turn: payload.turn, step: payload.step });
-  }) as (...args: never[]) => void);
-
-  // 结束相位：工具运行时冻结结果（exec.callId 配对）。
-  // T-4801：tools/result 载荷是 materializeFinalResult 产物（宿主 asar 考古）：
-  //   { content: ContentBlock[], meta?, isError, error?, concludesTurn?, value }
-  // —— extractResultPreview 从 content text 块提取预览（纯函数，只读——
-  //    宿主已 deepFreeze(result)，任何写访问都会抛）。error 三元组原样透传。
-  c.on('tools/result', ((exec: { callId?: string; name?: string }, result: unknown) => {
-    diag.toolsResults++;
-    if (!exec || !exec.callId) return;
-    // tools/result 覆盖全部工具执行（含嵌套分发）；recordResult 按 callId 命中，
-    // 未命中（非本插件调用）自然跳过——不需要在结束相位重复过滤 name。
-    const r = (result ?? {}) as { isError?: boolean; error?: { name: string; code: string; reason?: string } };
-    const settled = feed.recordResult(exec.callId, {
-      isError: r.isError === true,
-      error: r.isError === true && r.error ? r.error : undefined,
-      resultPreview: extractResultPreview(result),
-    });
-    if (settled) diag.anicResults++;
-  }) as (...args: never[]) => void);
-
-  return feed;
-}
