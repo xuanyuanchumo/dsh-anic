@@ -1,21 +1,21 @@
 # DSH 多代兼容与双端适配
 
 > 本文档是 dsh-anic 对 DSH 宿主多版本兼容与「网页端 / 桌面端」双端适配的权威开发规范。
-> 全部结论基于源码取证（dsh 0.2.0-rc.2 / cordis 4.0.4 本机实测 + dsh-plugin-dev-kb 1.4.0），
-> 每条带 `文件:行号` 出处；未验证项显式标注，不虚构。
+> **版本基线（cycle-71 校正）**：本机实测宿主 = **dsh 0.2.1-rc.2**（`resources/runtime/primary-runtime/runtime.json` 的 `desktopVersion`，asar `dsh/package.json` 同值）+ **cordis 4.0.5**（asar 依赖表）；KB 镜像 = dsh-plugin-dev-kb 1.5.2。此前本册与 `docs/anic/07` 写"实测基线 0.2.0-rc.2"**与事实不符**——0.2.0-rc.2 是本仓声明的**下限**，本机从未安装该版本（两套 profile 均 0.2.1-rc.2），故"0.2.0 系列已验证"应读作"0.2.0 系列声明下限 + 0.2.1-rc.2 实测取证"。
+> 全部结论基于源码取证，每条带 `文件:行号` 出处；未验证项显式标注，不虚构。
 
 ## 1. 兼容性门的真实现（不要看文档，看源码）
 
-DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/lib/index.js:286-313` `evaluatePluginCompatibility`：
+DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/lib/index.js:311-333` `evaluatePluginCompatibility`：
 
-- `:289` 插件**无 `peerDependencies`** → 直接返回 undefined，**永不报错**；
-- `:294` 只检查 peerDependencies 中 **`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-` 前缀**的条目（cordis 不在白名单）；
-- `:300` `semver.satisfies(runtimeVersion, requirement, { includePrerelease: true })`；
-- `:271` `getDshRuntimeVersion()` 读 **app-boot 包自身的 version**（本机 = 0.2.0-rc.2）；
-- `:930-931` **bundle 不兼容 → throw**（组装失败）；`:2079-2080` 插件行不兼容 → 仅 warning。
+- `:281-285` **插件有 `engines.dsh` → 由它单独决定，`peerDependencies` 被完全忽略**（原文注释 `:301-304`："An own `engines.dsh` range decides alone and peerDependencies are ignored"）；
+- `:286-291` 只有在**无 `engines.dsh`** 时才回退读 peerDependencies，且只检查 **`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-` 前缀**的条目（cordis 不在白名单）；
+- `:292-296` `workspace:^/~/*` 仅能在 **peerDependencies** 里解析为当前 runtime；出现在 `engines.dsh` 里一律视为**未满足**；
+- `:276-277` `semver.satisfies(runtimeVersion, requirement, { includePrerelease: true })`；空串即 false；
+- `:271-275` `getDshRuntimeVersion()` 读 **app-boot 包自身的 version**（本机 = **0.2.1-rc.2**）；
+- `:281-284` `engines` 非对象 → 直接判不兼容；拒绝记录字段名为 **`requirements`**（0.2.1-alpha.3 起由 `peers` 改名）——消费方读拒绝记录时勿用旧名。
 
-`engines.dsh` 字段**不被任何代码读取**（`dsh-package-manifest/lib/types/types.d.ts:55-64` 逐字注释：
-"Runtime requirements; DSH compatibility is declarative until a reader enforces it."）。
+**旧结论作废（cycle-45 遗留的中间态）**：下段曾写"`engines.dsh` 不被任何代码读取"，那是 0.2.1-alpha.3 **之前**的形态；0.2.1-rc.2 起 engines.dsh **优先且单独决定**。0.2.1-alpha.3 的官方升级指南与此 asar 实测一致。该变更属 **B9 改写**（见 `docs/anic/07`）。
 
 ### 1.1 dsh-anic 的下限声明（已落地）
 
@@ -32,13 +32,14 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 （cycle-40 勘误：上方引用块旧版省略上界预发布排除号 `-0`——`package.json:25/:29` 逐字是 `<0.4.0-0`；语义近似（两者都拦 0.4.0 系全部版本），但 `-0` 形态额外显式排除 0.4.0 的预发布。以下判定行同理按 `<0.4.0-0` 口径理解。）
 
-- **生效层是 peerDependencies（兼容性门只读它）**；`optional: true` 只影响 npm 安装期对等解析，不影响宿主门（门只读键值，忽略 meta）。
-- **cycle-45（T-4501，KB v0.2.1-alpha.3 plugin-engines-dsh 变更）**：上游已把兼容判定改为 **engines.dsh 优先**——声明了 engines.dsh 时 peerDependencies 被忽略。本仓双声明同范围是正确姿势，但两处范围**必须同步演化**（改一处不改另一处=静默漂移）；且 engines.dsh **不得出现 `workspace:`**（出现即判不兼容）、engines 非对象直接拒绝。守卫提示：dshConformance 契约测试钉的是 peerDependencies 形状——若未来宿主全面切 engines.dsh 判定，需把守卫扩到双锚。
+- **生效层是 `engines.dsh`**（0.2.1-rc.2 起它优先且单独决定；peerDependencies 同值是**纵深防御** + npm 安装期对等解析约束）；`optional: true` 只影响 npm 安装期，不影响宿主门（门只读键值，忽略 meta）。
+- **`cordis` 的 peer `^4.0.1` 实际永不被宿主判定**（engines.dsh 短路；且 cordis 不在 peer 白名单内）。实现捆绑 cordis **4.0.5**——若要真守 cordis 兼容需运行时探测形状，当前不必。
+- **双锚同步纪律**：两处范围**必须同步演化**（改一处不改另一处=静默漂移）；`engines.dsh` **不得出现 `workspace:`**（出现即判不兼容）、`engines` 必须是对象。守卫已双锚化：`tests/contract/dshConformance.test.ts` 同时断言 engines.dsh 与 peerDependencies（cycle-71 扩）。
 - **为什么写 `>=0.2.0-rc.2` 而不是 `>=0.2.0`**：semver 的 `includePrerelease` 不会让 `>=0.2.0` 接受 `0.2.0-rc.2`（预发布号被排除在非预发布范围外）。实测（宿主自带 semver）：
   - `0.2.0-rc.2` vs `>=0.2.0` → **false**（会把当前 rc 宿主判为不兼容 → bundle throw → 双端崩）
   - `0.2.0-rc.2` vs `>=0.2.0-rc.2 <0.4.0` → **true**；`0.2.0`/`0.2.1`/`0.3.x` → true；`0.4.0` → false（上界拦住）；`0.1.7-rc.2` → false（下限拦住）
-- 语义即「下限 = **dsh 0.2.0 系列起点**（含其预发布），上界 0.4.0（未验证的破坏性变更代际）」。
-- 守卫测试：`tests/contract/dshConformance.test.ts` 断言 peerDependencies 含 `@deepseek-ai/dsh` 且范围形状正确。
+- 语义即「下限 = **dsh 0.2.0 系列起点**（含其预发布），上界 0.4.0（**未验证的破坏性变更代际**——0.3.x/0.4.x 在 npm registry 上**不存在**：`@deepseek-ai/dsh` dist-tags `latest=0.2.1-rc.2`，`0.3.0-rc.2`/`0.4.0-rc.1` 均 404；旁证：dsh-ops `lib/compat/alias.js:1-2` 注释称工具改名发生在 "0.4.0"，说明上游有 0.4 代际规划但未发布）」。
+- 守卫测试：`tests/contract/dshConformance.test.ts` 断言 engines.dsh + peerDependencies 双锚与范围形状。
 
 ## 2. 多代适配器策略：能力探测，不读版本号
 
@@ -68,9 +69,11 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 
 | 维度 | 网页端（`dsh` CLI / start-dsh-test.mjs） | 桌面端（DeepSeek Harness Electron） |
 |---|---|---|
-| 宿主进程 | `node` 直启 | `dsh-desktop-host`（Electron main 内嵌 node） |
-| GUI 端口 | 单端口（如 3080）同时服务 GUI 与插件路由 | **同**：GUI 与插件路由同在 19387（另有 8326 为带鉴权内部服务） |
-| 插件路由鉴权 | GUI 需 token；插件 `webServer.register` 路由**不经 GUI 鉴权层**（直接 200） | 同左（实测 `/anic/org-status` 等无 token 返回 200） |
+| 宿主进程 | `node` 直启 | `dsh-desktop-host`（Electron main 内嵌 node，asar `lib/main.js:3793-3811` spawn） |
+| GUI origin | `http://127.0.0.1:<port>`（webserver `getOrigin()`） | **`dsh-app://app`**（自定义 privileged scheme，`lib/main.js:7009` 定义 + `:11880-11890` 注册） |
+| **插件路由如何到达** | 直连 Host webserver | **经 `protocol.handle` 反向代理**：非静态路径一律 `forwardWebRequest(request, hostUrl, hostCookie)`（`lib/main.js:12411-12412`）→ 同一 Host webserver → 插件 handler。代理注入 Host 认证 cookie、剥离 host/origin/cookie，并**白名单 Origin**（`:8271` 逐字 `if (origin !== null && origin !== "dsh-app://app") return 403`） |
+| 插件路由鉴权 | GUI 需 token；插件 `webServer.register` 路由**不经 GUI 鉴权层**（直接 200） | 同左——且桌面代理已代持认证 cookie，面板同源 fetch 无需 token（实测 `/anic/org-status` 等无 token 返回 200） |
+| **客户端 fetch 硬约束** | — | **必须同源相对路径**（代理按 `Origin: dsh-app://app` 白名单放行；绝对 `http(s)://` URL 会被 403 或跨源拒绝）。本仓已是相对路径（`components/fetchJson.ts`、`components/usePanelFetch.ts`、`features/selfinit/useSelfInit.ts`；`grep http(s):// src/client` 零命中）→ 合规；契约守卫见 `tests/contract/clientSameOriginContract.test.ts` |
 | 客户端壳 | `@deepseek-ai/dsh-web-app`（0.2.x） | `@linxin666/dsh-web-all`（0.4.4）——**两端都经 `dsh.client.platform:'web'` + `exports['./client']` 加载客户端 bundle**（桌面端 ANIC 标签已实测可见） |
 | 工作区解析 | 单工作区：`resolveWorkspaceRoots` → sessions 首条 cwd（正确） | **多会话宿主**：解析到 sessions 列表**第一条**的 cwd（实测解析到 `D:\Projects\TraeProjects\Studying`，与当前会话工作区无关）→ 已知 P2 限制（见 §5） |
 | 插件热更新 | restart 即重新加载 dist | **运行中宿主持有旧 bundle**（进程启动时加载，dist 重建后需重启桌面应用才生效） |
@@ -107,6 +110,58 @@ DSH 宿主对插件版本兼容性的真实判定在 `@deepseek-ai/dsh-app-boot/
 | v0.2.1-alpha.1 tool-presentation-mode | tools mode 只认 native\|ptc，both 拒绝 | 无（未用 presentAs/mode） |
 | v0.2.1-alpha.1 working-directory | presentationMeta 在嵌套 PTC 调用中也运行，须纯函数，异常致 ToolOutputError | 无（本仓 presentationMeta 仅类型声明未实用；presentCall/presentResult 已是纯函数） |
 | v0.2.1-alpha.4 account-notification-fields | 账号通知字段 | 无（不涉账号通知） |
+
+### 4b. cycle-71 asar 一手取证补充（B12-B18 新类 + 两处文档漂移纠正）
+
+**方法**：只读 asar 条目字节（`D:\DSH\DeepSeek Harness\resources\app.asar`）+ `cordis_inspect_query` 服务/事件目录实测 + npm registry 在线核验。**asar 一手证据 > 在线实测 > KB 文档镜像**（本次发现 KB 两处与实装冲突，见下）。
+
+| 编号 | 新类 | 内容与证据 | dsh-anic 命中 |
+|---|---|---|---|
+| B12 | 工具呈现模式枚举收紧 | `mode` 只认 `native\|ptc`，`both` 拒绝；`DSH_TOOLS_MODE=both` 报错；`presentAs` 仅 scoped ctx 且同 scope 重复声明抛（asar `dsh-tools/lib/index.js:2911-2926`） | 否（未用 presentAs/mode） |
+| B13 | 兼容拒绝记录字段改名 + engines 优先 | 兼容判定 `engines.dsh` 优先；`IncompatiblePlugin`/`PluginCompatibility` 的 **`peers` → `requirements`**（键为 `engines.dsh` 或 peer 包名） | 否（不读该记录）——但 §1 叙述已随之改写 |
+| B14 | profile 服务键改名 + 监听地址收紧 | `webRuntime` 服务与 `web-runtime` bundle 行退役 → **`webStartup`**；`ctx.webRuntime.trustedHosts` 求值失败会让必需 Connection 行 pending；**通配监听地址加载期拒绝**（asar `dsh-host-webserver/lib/index.js:252-256`；服务目录实测 `webStartup`/`webRuntime` 均**不在** host 目录） | 否（未 inject webRuntime） |
+| B15 | 服务键「在场」≠「可属性访问」 | 未被自己 `inject` 声明的服务做**属性访问会抛**（本仓 `routes/index.ts` 曾记录 4 路由恒 400 空体的 postmortem）；`ctx.get(name, strict=true)` 只返回提供方 fiber **当前 active** 的实现 | **命中过（已修）**——全仓统一 `ctx.get(key, false)` |
+| B16 | 客户端动态包的 inject/环硬约束 | (a) 动态包 `ctx.<service>` 访问被 `fiber.inject` 门控，未声明即拒绝并 park（asar `dsh-cordis-client-runner/lib/client.js:323-332`）；(b) `dsh.client.external` 自请求或依赖图成环 → 组合期 throw（`dsh-client-modules/lib/index.js:422-444`）；(c) 缺 `exports["./client"]` 且声明 `dsh.client` → throw（`:738`） | 否（未声明 `external`；`./client` 存在） |
+| B17 | 会话事件词汇白名单 + `ignorable` 兼容机制 | 未知 type 的**持久化**会话事件在无 `ignorable:true` 标记时被读取路径拒绝（`dsh-session/lib/types/known-event-types.js:1-22`）；`Session.append()` **无法**设置该标记 → 插件绝不能 append 自定义 type | 否（不写 session log；`ctx.emit`/`session.append` grep 零命中） |
+| B18 | 客户端 release 一致性门 | Host/page release 不等则页面**拒绝应用**图与 rebuilt 帧，仅刷新可换（`dsh-client-modules`） | 否——但解释 §3 表格「运行中桌面宿主持旧 bundle 必须重启」的机制来源 |
+
+**轨迹可见性官方契约（补证 §D，双向证据）**：
+
+- `tool/call` / `tool/result` 是**持久化会话事件类型**（由 agent loop `session.append`，asar `dsh-agent-loop/lib/index.js:681-706`），**不是同名 Cordis 事件**——观察它们须监听 `session/event` 并检查 `event.type`。官方 `site/develop/framework/events.md:109` 逐字同述。
+- 另有一个**同名 Cordis 事件 `tools/result`**（emit，`(exec, result)`）——本仓实时流双通道订阅正是 `session/event`（起始相位）+ `tools/result`（结束相位），**合规**。
+- **遗漏 1（官方语义，非本插件缺陷）**：插件 HTTP 路由调用**不进会话轨迹**（事件词汇表无 HTTP 事件；`dsh-host-webserver` grep `session.append` 零命中）→ 面板触发或 curl 触发的 `/anic/*` 写侧动作不留轨迹。必须显式记录，勿误以为「所有调用都可见」。
+- **遗漏 2（P2，待收口）**：PTC 模式下调用走 `tool/ptc-dispatch` / `tool/ptc-dispatch-start`（词汇表 `known-event-types.js:75-77`），而本仓 feed 只认 `tool/call` → 若 `tools mode=ptc`，实时调用流**会漏记**。修复落点 `src/host/runtime/invocationFeed.ts`。
+
+**KB 文档漂移（两处，以 asar 为准）**：
+
+1. **桌面端架构**：KB `site/reference/subsystems/web-server.md:9` 称 Electron 走 `file://`+IPC「不使用本服务器」——实际是 `dsh-app://` privileged scheme + `protocol.handle` 同源反向代理到同一 Host webserver（asar `lib/main.js:7009 / :11880-11890 / :12406-12415 / :8271-8290`）。插件路由**完全可达**，见 §3 表格。
+2. **`ctx.inject(deps, cb)` 语义**：官方语义是 `ctx.plugin({inject, apply:cb})` 的简写，**服务变化时卸载并重跑**（KB `site/reference/cordis-api/registry.md:13-38`）。本仓此前把它当「官方语义不可用」——实为 **0.2.x 本机实测「回调未触发」（根因未定位）**，非规范结论。升级到新型号后须重测该路径并记录日志/命名空间证据。
+
+**`__ModuleLoader__.load` 契约（一手取文）**：气泡在 `dsh-client-modules/lib/index.js:460-480`（`bootInjections` 生成 inline queue 脚本），注册形状 = `{ id, factory }`；`factory(require)` 是 **lazy CJS 物化点**（bundle 执行只注册 factory，模块副作用含 CSS 注入在物化时运行，有 `loadCache` 记忆化，循环 require 抛）；`id` 身份 = **包名**（`<pkg>/client` 与裸 `<pkg>` 归一，`:96-100`）。本仓 `scripts/wrap-client-bundle.mjs` 实现与官方 `load({id,factory})` 形状匹配（`id` 由第三个 CLI 参数注入）。**与 cordis 的关系**：`__ModuleLoader__` 只负责「插件代码如何到达浏览器」，到达后由 cordis client runner 建 fiber、按 `inject` 门控服务访问、按 `ctx.effect` 清理——是**接力关系，不是同一契约**。
+
+### 4c. dsh-ops / dsh-plugin-dev-kb 可借鉴设计（cycle-71 首轮实读外仓）
+
+> 实测对象：`.dsh/profiles/desktop/node_modules/dsh-ops`（**0.4.1**）+ KB 镜像 `dsh-plugin-dev-kb@1.5.2`（commit `687f282`）。**纠正前档**：`docs/anic/07`/§4a 记「KB 全库零提及 dsh-ops」，本次复核**仍为零**（kb 全文 grep 零命中）——上条结论有效；本节是首轮实读外仓源码的增量。
+
+**建议吸收（按 ROI）**：
+
+| # | 机制 | 对方落点 | 本仓落点 |
+|---|---|---|---|
+| 1 | **跨代工具改名静默迁移层**：`RENAMED_TOOLS`（7 条，如 `read_many→read_files`）+ `migrateRawName`/`migrateRawNames`（去重） | `dsh-ops/lib/compat/alias.js:1-18` | `src/host/toolIds.ts` 旁增设别名归一——未来 `anic_*` 改名不破坏旧客户端与旧工件 |
+| 2 | **组件化 patch 行**：单一 `cordis.patch.yml` 内 7 个稳定 id，每行独立 `disabled` + `config`，consumer 可整行覆盖 | `dsh-ops/cordis.patch.yml:1-42` | 把 `anic_*` 工具与路由按域拆成可停用组件行（配置显式化/降级路径的「显式」形态） |
+| 3 | **无宿主包依赖的窄化探测 + provider 化注册**：`ctx.get('tools')?.schemas(agent)`（try/catch 包裹）+ `registerNativeProvider(ctx, defs, tool => ctx.tools.register(tool))` 懒绑定，不 import 宿主类型 | `dsh-ops/lib/index.js:35-43,50-70` | `src/host/toolsSlot.ts` 的手写窄化接口可升级为「provider 注册器」（一处收口探测/降级/诊断三角色） |
+| 4 | **release/尺寸静态门禁三件套**：`validate-manifest.mjs` + `check-file-size.mjs` + `check-release.mjs` + `verify:release` 组合串 | `dsh-ops/package.json:107-116` | `scripts/validate-dsh.mjs` 已有 2/3，可补「发布前一次跑」 |
+| 5 | **工件逆向分析文档留档**（中英双语 5 篇 asar 拆解） | `dsh-ops/docs/` | 本次 asar 取证正落成 §4b（抑制文档漂移复发） |
+
+**明确不吸收（附理由）**：
+
+| 候选 | 理由 |
+|---|---|
+| 多入口 `exports` 矩阵（`./shell ./file ./ptc ./panel ./tui`…） | 每个子路径 exports 都是一条**跨版本契约边**（B6 类）；本仓单包已是最小面，扩面只增脆弱性 |
+| `hide-official` 组件（替换/隐藏官方工具） | 与「不改写共享工具注册表」纪律冲突；会与他插件的 `tools.restrict` 形成不可预测交叠 |
+| native Rust worker + koffi/PTY 二进制矩阵 | 与「多代兼容 + 纯 JS + 零运行时依赖」三条资产正面冲突（`docs/anic/18 §5` negative space 已裁决不做） |
+| `dsh-plugin.json` 引用**远程** schema URL | 引入外部供应链/网络面与可变性；若要吸收必须把 schema **本地冻结** + sha 校验 |
+| `panel` 组件（跨会话抓取 stdout，默认 disabled） | 与本仓「轨迹可见性经官方事件通道 + 工件投影」纪律冲突；对方自己也默认关闭，说明非基座能力 |
 
 **工具/技能注册官方契约 vs 本仓实现（P1/P2 研究结论，已等价）**：
 

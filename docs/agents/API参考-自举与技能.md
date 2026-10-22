@@ -14,14 +14,27 @@
 2. **依赖已安装的 skill 脚本**：`resolveSkillScriptsDir(roots)` 为 null 时返回 404 `{ error: 'skill scripts not found' }`。这是与 native 域的本质差异 —— native 域用原生 TS 实现，不需要脚本。
 3. **本域会真正执行子进程**（`invokeSkillScript`，超时 60000ms）。
 
-**两个解析辅助函数的正则形状是契约**：
+**两个解析辅助函数不是正则——它们是按脚本真实输出行契约实现的判定函数**（唯一实现在 `src/host/runtime/scriptParsers.ts`，本册此前的「正则形状契约」描述与实现**互斥**，cycle-71 纠正）：
 
 ```ts
-parseEvalScore(stdout)   // /(?:Overall\s+)?score[:\s]+([0-9.]+)/i
-parseGateVerdict(stdout) // /(?:Overall|GATE|Verdict)[:\s]+(PASS|FAIL|doubt|SKIP)/i  → 无匹配则 'unknown'
+// scriptParsers.ts:48-53
+parseEvalScore(result)   // 二值 1|0，不是连续分数
+//   1 = /All \d+ evaluated dimension\(s\) passed\./ 命中 stdout（eval-runner.mjs:515）
+//   0 = /dimension\(s\) failed:/ 命中 stderr（:509），或输出不可识别（fail-closed）
+
+// scriptParsers.ts:62-72
+parseGateVerdict(result) // 'PASS' | 'FAIL' | 'unknown'
+//   PASS   = /All gates PASSED\./ 命中 stdout（gate-check.mjs:228）
+//   FAIL   = /Gate check FAILED\./ 命中 stderr（:225）
+//   PASS/FAIL 兜底 = 逐门禁行 /^[ \t]*\[(PASS|FAIL)\] G\d/gm（:198/:219；LEDGER 行不匹配）
+//   'unknown' = 零匹配（无总裁决行的致命路径）
 ```
 
-`getLatestCycleDir(cyclesDir)` 扫 `<cyclesDir>/cycles` 下匹配 `/^cycle-\d+$/` 的目录，降序取第一个。
+**为什么不是连续分数（旧描述的错误源）**：三个真实脚本**从不输出** `Overall score: 0.875` 这类行——真实的 `eval-runner` 成功路径只打印通过维度数（`:515`），失败清单在 stderr（`:509`）。连续分数**不可推导**，因此 `evalScore` 忠实二值；`advanceBootstrap` 不按它分支（只作记录）。
+
+**'unknown' 的消费语义**：调用方把它当"未通过"处理——`advanceBootstrap` 只认 `'PASS'`/`'approve'`，故 `unknown` 永不推进（fail-closed）。
+
+`getLatestCycleDir(cyclesDir)` 扫 `<cyclesDir>/cycles` 下匹配 `/^cycle-\d+$/` 的目录，**数值序**降序取第一个（字典序会让 `cycle-9` 大于 `cycle-49`——cycle-50 真机实证的同族陷阱，见 `latestCycleDir` 实现注记）。
 
 ### 1.1 POST `/anic/self/evaluate`（`selfBootstrapRoute.ts:62`）
 

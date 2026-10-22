@@ -228,3 +228,57 @@ describe('源码形状守卫（slots / disposer / 注入形态）', () => {
     expect(indexText).not.toMatch(/inject\s*=\s*\[[^\]]*workspaceRegistry/);
   });
 });
+
+/**
+ * 兼容门双锚契约（cycle-71，asar 一手取证）。
+ *
+ * **为什么是双锚**：0.2.1-rc.2 的兼容判定 `evaluatePluginCompatibility`
+ * （asar `dsh-app-boot/lib/index.js:311-333`）语义是——
+ *   `:281-285` 有 `engines.dsh` → **由它单独决定，peerDependencies 被忽略**
+ *              （原文注释 `:301-304`："An own engines.dsh range decides alone
+ *              and peerDependencies are ignored"）；
+ *   `:286-291` 无 engines.dsh 才回退 peer，且只认 `@deepseek-ai/dsh` 与
+ *              `@deepseek-ai/dsh-` 前缀（cordis 不在白名单）；
+ *   `:292-296` `workspace:` 仅能在 **peer** 里解析；出现在 engines.dsh 一律判不兼容；
+ *   `:281-284` `engines` 非对象 → 直接判不兼容。
+ *
+ * 本仓双声明同范围 = engines.dsh 生效 + peer 纵深防御 + npm 安装期解析约束。
+ * 两处范围若**只改一处**，生效层与防御层静默漂移——本守卫就是防这个。
+ */
+describe('兼容门双锚契约（package.json engines.dsh ⇄ peerDependencies）', () => {
+  const raw = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8')) as {
+    engines?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const DSH_RANGE = raw.engines?.dsh ?? '';
+  const PEER_RANGE = raw.peerDependencies?.['@deepseek-ai/dsh'] ?? '';
+
+  it('engines 是对象且 engines.dsh 是非空字符串（非对象 = 宿主直接判不兼容）', () => {
+    expect(typeof raw.engines).toBe('object');
+    expect(raw.engines).not.toBeNull();
+    expect(typeof DSH_RANGE).toBe('string');
+    expect(DSH_RANGE.length).toBeGreaterThan(0);
+  });
+
+  it('两处范围逐字相等（-0 上界形态；改一处不改另一处 = 静默漂移）', () => {
+    expect(DSH_RANGE).toBe(PEER_RANGE);
+    // cycle-40 勘误的形态钉：上界必须是 <0.4.0-0（显式排除 0.4.0 预发布）
+    expect(DSH_RANGE).toContain('<0.4.0-0');
+    expect(DSH_RANGE).toContain('0.2.0-rc.2');
+  });
+
+  it('两处均不得含 workspace: 协议（engines.dsh 里出现即判不兼容；peer 里仅本地开发可解析）', () => {
+    expect(DSH_RANGE).not.toContain('workspace:');
+    expect(PEER_RANGE).not.toContain('workspace:');
+  });
+
+  it('反向自检：真范围解析正确，坏范围被识破（守卫可失败）', () => {
+    // 正例：本仓范围形状
+    expect(DSH_RANGE).toMatch(/^>=0\.2\.0-rc\.2 <0\.4\.0-0$/);
+    // 负例：拼错的形状不得被上面的正则接受——证明 matcher 不是恒真
+    const badRanges = ['>=0.2.0', 'workspace:^', '>=0.2.0-rc.2 <0.4.0', ''];
+    for (const bad of badRanges) {
+      expect(bad, `坏范围 ${JSON.stringify(bad)} 不应通过形状检查`).not.toMatch(/^>=0\.2\.0-rc\.2 <0\.4\.0-0$/);
+    }
+  });
+});
