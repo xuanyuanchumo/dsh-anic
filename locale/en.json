@@ -53,7 +53,8 @@
     "colVerdict": "Verdict",
     "colLabel": "Name",
     "detailClose": "Close detail",
-    "nodeDetailLabel": "Node detail: {label}"
+    "nodeDetailLabel": "Node detail: {label}",
+    "foldMemoryHint": "Collapsed state is remembered per section (stored in local preferences, kept across sessions)"
   },
   "state": {
     "loading": "Loading…",
@@ -93,7 +94,17 @@
     "resultPreviewLabel": "returned",
     "turnDensity": " · {rate} calls/min",
     "turnCompletedAt": " · completed at {at}",
-    "elapsed": "elapsed {sec}s"
+    "elapsed": "elapsed {sec}s",
+    "summaryP95": " · P95 {ms}ms",
+    "summaryErrorCodes": " · error codes {codes}",
+    "cardTitle": "Most recent completed call (full picture)",
+    "cardAria": "Most recent completed call: {name}",
+    "cardIdentity": "Identity",
+    "cardTiming": "Timing",
+    "cardArguments": "Arguments",
+    "cardResult": "Result",
+    "cardError": "Error",
+    "cardGate": "Gate verdict"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",
@@ -259,7 +270,8 @@
     "levelInsufficient": "Insufficient samples",
     "levelUnused": "Unused",
     "recentVsOverall": "Recent success {recent} · overall {overall}",
-    "noRecentData": "No gateway calls in the last 7 days; current state undetermined (showing all-time value)"
+    "noRecentData": "No gateway calls in the last 7 days; current state undetermined (showing all-time value)",
+    "lastInvoked": "Last invoked: {at}"
   },
   "budget": {
     "title": "Governance budget (.cycles/ workspace)",
@@ -288,6 +300,9 @@
     "empty": "Zero debt — no unconsumed proposals (only failed eval dimensions produce them).",
     "more": "…{count} more not shown (cap)",
     "resolvedCount": "{count} consumed (with audit fields)",
-    "skipped": "{count} non-proposal file(s) (hover title for reason)"
+    "skipped": "{count} non-proposal file(s) (hover title for reason)",
+    "proposedAction": "→ {action}",
+    "ageToday": "today",
+    "ageDays": "{days} day(s) ago"
   }
 }

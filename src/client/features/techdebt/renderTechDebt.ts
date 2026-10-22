@@ -65,9 +65,26 @@ function severityColor(sev: TechDebtEntryJson['severity']): string {
   return token('anic-text-dim');
 }
 
-/** 渲染单条 open 提案行。 */
-function renderOpenEntry(rec: { file: string; entry: TechDebtEntryJson }, key: string): ReactElement {
+/**
+ * cycle-104（量化补全）：债务**年龄**（天）。「欠了多久」是债务队列的排序语境
+ * ——同 severity 下 3 天与 300 天的债完全不同。原因子 `createdAt` 已在数据面，
+ * 但此前没有被消费。
+ *
+ * 时钟是**显式参数**（不是隐式 Date.now()）：相对量必须能确定性测试，
+ * 与 invocationGrouping.inFlightElapsedMs 取显式基准同纪律。非法/未来时刻
+ * → null（不渲染负数年龄，宁缺勿猜）。
+ */
+function ageDays(createdAt: string, nowMs: number): number | null {
+  const ms = Date.parse(createdAt);
+  if (!Number.isFinite(ms)) return null;
+  const days = Math.floor((nowMs - ms) / 86_400_000);
+  return days < 0 ? null : days;
+}
+
+/** 渲染单条 open 提案行（提案动作 + 年龄：债务「是什么」与「欠了多久」）。 */
+function renderOpenEntry(rec: { file: string; entry: TechDebtEntryJson }, key: string, nowMs: number): ReactElement {
   const e = rec.entry;
+  const days = ageDays(e.createdAt, nowMs);
   return createElement(
     'div',
     {
@@ -78,14 +95,25 @@ function renderOpenEntry(rec: { file: string; entry: TechDebtEntryJson }, key: s
     },
     createElement('span', { style: { color: severityColor(e.severity), flexShrink: 0, minWidth: 44 } }, `[${e.severity}]`),
     createElement('span', { style: { color: token('anic-text-dim'), flexShrink: 0 } }, e.dimension),
+    // 年龄：0 天=今天（不写「0 天」——那不是人话）。
+    days !== null
+      ? createElement('span', { 'data-anic-techdebt-age': String(days), title: e.createdAt, style: { color: token('anic-text-faint'), flexShrink: 0 } },
+          days === 0 ? t('techdebt.ageToday') : t('techdebt.ageDays', { days: String(days) }))
+      : null,
     createElement('span', { style: { color: token('anic-text'), overflowWrap: 'anywhere' } }, e.description),
+    // 提案动作：本队列的「该做什么」——此前宿主返回而面板丢弃（只读队列里
+    // 它是唯一把「问题」接到「行动」的字段）。
+    e.proposedAction !== ''
+      ? createElement('span', { 'data-anic-techdebt-action': 'true', title: e.proposedAction, style: { color: token('anic-text-dim'), flexBasis: '100%', overflowWrap: 'anywhere' } }, t('techdebt.proposedAction', { action: e.proposedAction }))
+      : null,
   );
 }
 
 /**
  * 渲染 tech-debt 队列分区主体（null=未拉到——不渲染伪造空态）。
+ * nowMs 是年龄的显式时钟基准（默认取当前时刻；测试传固定值保证确定性）。
  */
-export function renderTechDebt(data: TechDebtListingJson | null): ReactElement | null {
+export function renderTechDebt(data: TechDebtListingJson | null, nowMs: number = Date.now()): ReactElement | null {
   if (data === null) return null;
   const shown = data.open.slice(0, TECH_DEBT_RENDER_CAP);
   const hidden = data.open.length - shown.length;
@@ -101,7 +129,7 @@ export function renderTechDebt(data: TechDebtListingJson | null): ReactElement |
     data.open.length === 0
       ? createElement('div', { 'data-anic-techdebt-empty': 'true', style: { fontSize: 11, color: token('anic-text-faint') } }, t('techdebt.empty'))
       : createElement('div', { 'data-anic-techdebt-open': 'true', style: { display: 'flex', flexDirection: 'column' } },
-          ...shown.map((rec, i) => renderOpenEntry(rec, rec.entry.id + String(i))),
+          ...shown.map((rec, i) => renderOpenEntry(rec, rec.entry.id + String(i), nowMs)),
           hidden > 0
             ? createElement('div', { key: 'more', 'data-anic-techdebt-more': String(hidden), style: { fontSize: 10, color: token('anic-text-faint') } },
                 t('techdebt.more', { count: String(hidden) }))

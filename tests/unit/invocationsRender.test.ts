@@ -105,7 +105,10 @@ describe('renderInvocations（动态白盒分区）', () => {
     expect(html).toContain('data-anic-invocation="b"');
   });
 
-  it('有 turn 元数据 → 按组折叠：turn 降序、最新组默认展开、组内行序=feed 序', () => {
+  it('有 turn 元数据 → 按组折叠：turn 降序、静态组默认折叠、组内行序=feed 序', () => {
+    // cycle-104：默认展开条件收窄为「组内含运行中调用」——本夹具全为 done，
+    // 故两组都折叠（「最近一次已完成调用」已上移为独立全貌卡，见 liveCard.test.ts；
+    // 同一调用不再在 turn 组里重复展开）。
     const html = renderToStaticMarkup(renderInvocations(snap([
       inv({ callId: 'newer', turn: 2, step: 1 }),
       inv({ callId: 'older-a', turn: 1, step: 3 }),
@@ -113,13 +116,15 @@ describe('renderInvocations（动态白盒分区）', () => {
     ]), null));
     expect(html).toContain('data-anic-turn-group="t2"');
     expect(html).toContain('data-anic-turn-group="t1"');
-    // 最新组（t2）默认展开——open 属性出现在第一个 details 上
     const firstDetails = html.indexOf('<details');
     const t2Idx = html.indexOf('data-anic-turn-group="t2"');
     expect(firstDetails).toBeGreaterThan(-1);
-    expect(html.slice(firstDetails, firstDetails + 200)).toContain('open');
     expect(t2Idx).toBeGreaterThan(firstDetails);
     expect(t2Idx).toBeLessThan(firstDetails + 200);
+    // turn 降序：t2 在 t1 前；两组都折叠（无 open=""，标记为 false）
+    expect(html.indexOf('data-anic-turn-group="t1"')).toBeGreaterThan(t2Idx);
+    expect(html).toContain('data-anic-turn-group-open-default="false"');
+    expect(html).not.toContain('data-anic-turn-group-open-default="true"');
     // 组内序=feed 序：older-a 先于 older-b（渲染层不重排契约延伸到组内）
     const ia = html.indexOf('data-anic-invocation="older-a"');
     const ib = html.indexOf('data-anic-invocation="older-b"');
@@ -149,9 +154,9 @@ describe('renderInvocations（动态白盒分区）', () => {
 });
 
 // ── cycle-41：用户目标 A（默认展开语义）+ Top5（截限）+ Top4a（播报区）+ 概览量化 ──
-describe('renderInvocations —— cycle-41 展开语义与收纳', () => {
-  it('目标 A：默认展开 = 含运行中调用的组 + 最近一次已完成所在的组；其余折叠', () => {
-    // t3 全部完成且是最近完成（endedAt 最新）；t2 全部完成（更早）；t1 含运行中。
+describe('renderInvocations —— cycle-41（展开语义）+ cycle-104（收窄为运行中）', () => {
+  it('cycle-104 用户要求核心：最近完成的组**不再**默认展开（痕迹上移到全貌卡）', () => {
+    // t3 全部完成且是最近完成（endedAt 最新）；t2 更早完成；t1 含运行中。
     const html = renderToStaticMarkup(renderInvocations(snap([
       inv({ callId: 't3-done', turn: 3, status: 'done', endedAt: 300 }),
       inv({ callId: 't2-done', turn: 2, status: 'done', endedAt: 200 }),
@@ -163,11 +168,12 @@ describe('renderInvocations —— cycle-41 展开语义与收纳', () => {
     expect(g3).toBeGreaterThan(-1);
     expect(g2).toBeGreaterThan(g3); // turn 降序
     expect(g1).toBeGreaterThan(g2);
-    // t3（最近完成）与 t1（运行中）默认展开；t2（历史）折叠
+    // 只有含运行中调用的 t1 默认展开；t3（最近完成）与 t2（历史）都折叠。
     // （断言用「 open 属性」的词边界——marker 属性 open-default="false" 含 open 子串）
     const seg = (idx: number): string => html.slice(idx, idx + 300);
-    expect(seg(g3)).toContain('open=""');
     expect(seg(g1)).toContain('open=""');
+    expect(seg(g3)).toContain('open-default="false"');
+    expect(seg(g3)).not.toContain('open=""');
     expect(seg(g2)).toContain('open-default="false"');
     expect(seg(g2)).not.toContain('open=""');
     // 展开标记（折叠收纳后仍可一眼定位）
@@ -183,18 +189,14 @@ describe('renderInvocations —— cycle-41 展开语义与收纳', () => {
     expect(html).toContain('（1 执行中）');
   });
 
-  it('目标 A 兼容：旧断言「最新组展开」在新语义下仍成立（最新组含最近完成者）', () => {
+  it('cycle-104：全为已完成调用时无任何组默认展开（运行中判定为唯一条件）', () => {
     const html = renderToStaticMarkup(renderInvocations(snap([
-      inv({ callId: 'newer', turn: 2, step: 1 }),
-      inv({ callId: 'older-a', turn: 1, step: 3 }),
-      inv({ callId: 'older-b', turn: 1, step: 1 }),
+      inv({ callId: 'newer', turn: 2, step: 1, endedAt: 900 }),
+      inv({ callId: 'older', turn: 1, step: 1, endedAt: 100 }),
     ]), null));
-    const firstDetails = html.indexOf('<details');
-    const t2Idx = html.indexOf('data-anic-turn-group="t2"');
-    expect(firstDetails).toBeGreaterThan(-1);
-    expect(html.slice(firstDetails, firstDetails + 200)).toContain('open');
-    expect(t2Idx).toBeGreaterThan(firstDetails);
-    expect(t2Idx).toBeLessThan(firstDetails + 200);
+    expect(html).toContain('data-anic-turn-group="t2"');
+    expect(html).not.toContain('data-anic-turn-group-open-default="true"');
+    expect(html).not.toContain('open=""');
   });
 
   it('Top5 截限：单组超 40 条渲染截断 +「另有 N 条」计数行（数据计数如实）', () => {

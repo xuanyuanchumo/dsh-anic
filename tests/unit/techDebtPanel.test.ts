@@ -31,6 +31,54 @@ function listing(overrides: Partial<TechDebtListingJson> = {}): TechDebtListingJ
   };
 }
 
+describe('cycle-104 proposedAction 与债务年龄（此前字段在数据面而未消费）', () => {
+  const NOW = Date.parse('2026-10-22T12:00:00.000Z');
+
+  it('proposedAction 渲染（「问题」接到「行动」——只读队列里的行动指针）', () => {
+    const html = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ proposedAction: '补 E2 维度用例' }) }], openCount: 1,
+    }), NOW)!);
+    expect(html).toContain('data-anic-techdebt-action');
+    expect(html).toContain('→ 补 E2 维度用例');
+  });
+
+  it('proposedAction 为空串 → 不渲染动作段（不渲染空箭头）', () => {
+    const html = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ proposedAction: '' }) }], openCount: 1,
+    }), NOW)!);
+    expect(html).not.toContain('data-anic-techdebt-action');
+  });
+
+  it('债务年龄：createdAt → 天（显式时钟基准，确定性可测）', () => {
+    const html = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ createdAt: '2026-10-19T12:00:00.000Z' }) }], openCount: 1,
+    }), NOW)!);
+    expect(html).toContain('data-anic-techdebt-age="3"');
+    expect(html).toContain('3 天前');
+    expect(html).toContain('title="2026-10-19T12:00:00.000Z"'); // 原始时刻在悬停里
+  });
+
+  it('当天债务 → 「今天」（不写「0 天前」）', () => {
+    const html = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ createdAt: '2026-10-22T09:00:00.000Z' }) }], openCount: 1,
+    }), NOW)!);
+    expect(html).toContain('data-anic-techdebt-age="0"');
+    expect(html).toContain('今天');
+    expect(html).not.toContain('0 天前');
+  });
+
+  it('createdAt 非法 / 未来时刻 → 不渲染年龄（不显示负数，宁缺勿猜）', () => {
+    const bad = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ createdAt: 'nonsense' }) }], openCount: 1,
+    }), NOW)!);
+    expect(bad).not.toContain('data-anic-techdebt-age');
+    const future = renderToStaticMarkup(renderTechDebt(listing({
+      open: [{ file: 'f.json', entry: entry({ createdAt: '2027-01-01T00:00:00.000Z' }) }], openCount: 1,
+    }), NOW)!);
+    expect(future).not.toContain('data-anic-techdebt-age');
+  });
+});
+
 describe('cycle-54 T-5401 tech-debt 面板渲染', () => {
   it('null 态不渲染（未拉到不伪造空态）', () => {
     expect(renderTechDebt(null)).toBeNull();

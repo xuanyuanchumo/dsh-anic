@@ -28,7 +28,12 @@ const GROUP_RENDER_CAP = 40;
 // cycle-60 T3 拆分：分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/
 // turnTimeRange/turnDensity/turnCompletedAt）迁至 invocationGrouping.ts——
 // 「算什么」与「怎么渲」分离。
-import { groupByTurn, mostRecentCompletedKey, turnTimeRange, turnDensity, turnCompletedAt, inFlightElapsedMs } from './invocationGrouping.ts';
+// cycle-104：mostRecentCompletedKey 的唯一消费点（turn 组默认展开）已撤
+//——「最近一次已完成调用」上移为独立全貌卡（renderLastCompletedCard），
+// 由 LiveInvocationsSection 在列表之前渲染；此处改消费量化纯函数
+//（invocationQuant.ts，与分组/时序同域但不同族：分布 vs 组）。
+import { groupByTurn, turnTimeRange, turnDensity, turnCompletedAt, inFlightElapsedMs } from './invocationGrouping.ts';
+import { p95Of, errorCodeHistogram } from './invocationQuant.ts';
 
 /**
  * in-flight 状态点的脉冲动画：样式本体迁移至 components/statusDot.ts（B4 合并
@@ -121,8 +126,10 @@ function feedDiagnosticsLine(data: InvocationsJson): ReactElement | null {
 /** 渲染实时调用分区。data 为 null 且无错误 = 尚未轮询到（不伪造空态）。 */
 export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true, announce = ''): ReactElement {
   const groups = data === null ? null : groupByTurn(data.invocations);
-  // cycle-41（用户目标 A）：默认展开语义的判定输入。
-  const mrcKey = data === null ? undefined : mostRecentCompletedKey(data.invocations);
+  // cycle-104：量化补全（运行状态量化）——P95 长尾耗时 + 错误码 top3 直方图。
+  // 样本门槛（只取终态且 durationMs 合法）在 invocationGrouping 内统一裁决。
+  const p95 = data === null ? null : p95Of(data.invocations);
+  const errorCodes = data === null ? [] : errorCodeHistogram(data.invocations).slice(0, 3);
   // cycle-41：概览量化（运行中/失败计数进标题行——「共有多少」一眼可读）。
   const running = data === null ? 0 : data.invocations.filter((i) => i.status === 'in-flight').length;
   const errors = data === null ? 0 : data.invocations.filter((i) => i.status === 'error').length;
@@ -146,6 +153,13 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
       data ? t('live.summary', { total: String(data.total), generatedAt: data.generatedAt }) : t('live.notFetched'),
       data && running > 0 ? t('live.summaryRunning', { count: String(running) }) : '',
       data && errors > 0 ? t('live.summaryErrors', { count: String(errors) }) : '',
+      // cycle-104：P95 长尾耗时（仅样本充足时——无终态样本时 p95 为 null，
+      // 不伪造 0ms；此处「数据在 → 有样本」由路由语义保证，仍以 null 门槛兜底）。
+      p95 !== null ? t('live.summaryP95', { ms: String(p95) }) : '',
+      // 错误码 top3（次数降序，快照式排序在纯函数内定死——渲染层零重排）。
+      errorCodes.length > 0
+        ? t('live.summaryErrorCodes', { codes: errorCodes.map((e) => `${e.code}×${String(e.count)}`).join(' ') })
+        : '',
       pollError ? t('live.pollFailed', { error: pollError }) : '',
     ),
     // 三态分支：null（尚未轮询到）≠ 空流（确实没有调用）≠ 有数据。
@@ -173,14 +187,13 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
             groups === null
               // 平铺模式（零 turn 元数据）：与分组改造前逐字节同构——既有断言面。
               ? data.invocations.map((inv) => invocationRow(inv, genMs))
-              // 分组模式：details 折叠。cycle-41（用户目标 A）默认展开语义：
-              //   组默认展开 ⇔ 组内含**运行中**调用（实时透明）或组内含**最近
-              //   一次已完成**的调用；其余历史组默认折叠收纳。
-              //   （旧语义 gi===0 只开最新 turn——最新组若全 in-flight 而最近
-              //   完成者落在更早组时，最近完成痕迹会被折叠。）
+              // 分组模式：details 折叠。cycle-104（用户要求核心）：turn 组默认
+              // 展开只剩**运行中**一个条件——「最近一次已完成调用」已上移为
+              // 分区顶部的独立全貌卡（LiveInvocationsSection 内、本渲染器之前），
+              // 同一调用不再在两处重复展开。历史组一律折叠收纳（组内摘要有计数）。
               : groups.map((g) => {
                   const gRunning = g.items.some((inv) => inv.status === 'in-flight');
-                  const open = gRunning || g.turn === mrcKey;
+                  const open = gRunning;
                   return createElement(
                     'details',
                     {

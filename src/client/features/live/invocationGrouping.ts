@@ -50,6 +50,36 @@ export function mostRecentCompletedKey(invocations: InvocationJson[]): number | 
 }
 
 /**
+ * cycle-104（用户要求核心）：最近一次已完成调用的**本体**。
+ *
+ * 与 mostRecentCompletedKey 同源排序规则（跳过 in-flight、取
+ * `endedAt ?? startedAt` 的 max、`startedAt > 0` 门槛），但返回调用本体——
+ * 「最近完成的那一次调用」需要一个单点落点渲染其全貌（身份/时序/入参/产出/
+ * 裁决），而不是只定位它落在哪个 turn 组。
+ *
+ * 为什么单独实现而不复用 key 版：key 版必须保持既有语义逐字节不变
+ * （return undefined 表示「无已完成调用」，turn 组展开判定依赖它）；本体版
+ * 额外要求「时刻必须真实」（startedAt > 0），否则旧 feed 的 0 值占位会让
+ * 「最近完成者」变成一条没有时刻的伪造记录，卡片会渲染出空时序。
+ */
+export function mostRecentCompleted(invocations: InvocationJson[]): InvocationJson | null {
+  let best: InvocationJson | null = null;
+  let bestAt = 0;
+  for (const inv of invocations) {
+    if (inv.status === 'in-flight') continue;
+    // 与 turnTimeRange 同构的合法性门槛：epoch 0 / 负值 / 非有限不是真实调用时刻。
+    if (typeof inv.startedAt !== 'number' || !Number.isFinite(inv.startedAt) || inv.startedAt <= 0) continue;
+    const at = inv.endedAt ?? inv.startedAt;
+    if (!Number.isFinite(at)) continue;
+    if (best === null || at > bestAt) {
+      best = inv;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/**
  * cycle-60（T-6001 调用流时序）：组内时间范围——feed 的条目本身带绝对
  * 时间戳（startedAt/endedAt，epoch ms），但面板此前只显示「t3/s1」这类
  * 步进坐标，绝对时间语义（这组调用发生在几点、耗时多久）不可见。
@@ -169,3 +199,4 @@ export function inFlightElapsedMs(inv: InvocationJson, generatedAtMs: number): n
   if (elapsed < 0) return null;
   return elapsed;
 }
+

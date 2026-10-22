@@ -15,7 +15,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { createPanelStore } from '../../src/client/components/panelStore.ts';
 import { createInitialPanelState } from '../../src/client/panelState.ts';
-import { LiveInvocationsSection, LedgerSection, StepTraceSection, ToolbarStatusLine } from '../../src/client/components/panelSections.ts';
+import { LiveInvocationsSection, LedgerSection, StepTraceSection, ToolbarStatusLine, CyclesSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, HitlSection, BudgetSection } from '../../src/client/components/panelSections.ts';
+import { renderFoldableSection } from '../../src/client/components/sectionShell.ts';
+import { writeFoldPref } from '../../src/client/features/prefs/foldPrefs.ts';
 import type { LedgerListJson, LedgerEntryJson } from '../../src/client/features/ledger/renderLedger.ts';
 import type { InvocationsJson, InvocationJson } from '../../src/client/features/live/renderInvocations.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
@@ -31,6 +33,55 @@ function inv(over: Partial<InvocationJson>): InvocationJson {
 function snap(invocations: InvocationJson[]): InvocationsJson {
   return { invocations, total: invocations.length, generatedAt: '2026-10-21T00:00:00.000Z' };
 }
+
+describe('cycle-104 折叠默认策略（用户要求核心：默认只展开 live）', () => {
+  /** 十个静态分区装配渲染（与 panelAssemblyContract 同款顺序）。 */
+  function renderAllSections(): string {
+    const store: PanelDataStore = createPanelStore(createInitialPanelState());
+    return renderToStaticMarkup(createElement('div', null,
+      createElement(CyclesSection, { store }),
+      createElement(StepTraceSection, { store, enabled: true }),
+      createElement(DiagnosticsSection, { store, enabled: true }),
+      createElement(OrgSection, { store }),
+      createElement(SkillHealthSection, { store }),
+      createElement(TechDebtSection, { store }),
+      createElement(FlowsSection, { store, enabled: true }),
+      createElement(LedgerSection, { store, onShowMore: () => {} }),
+      createElement(HitlSection, { store, enabled: true }),
+      createElement(BudgetSection, { store }),
+    ));
+  }
+
+  it('只有 diagnostics 与 hitl 默认展开（兜底观测面），其余八区默认收纳', () => {
+    const html = renderAllSections();
+    const openIds = [...html.matchAll(/data-anic-fold="([^"]+)"[^>]*?data-anic-fold-state="open"/g)].map((m) => m[1]);
+    expect(openIds.sort()).toEqual(['diagnostics', 'hitl']);
+    // 反向：每个收纳分区都带 closed 标记（不是"标记缺失=恰好也是收纳"）
+    const closed = [...html.matchAll(/data-anic-fold="([^"]+)"[^>]*?data-anic-fold-state="closed"/g)].map((m) => m[1]);
+    expect(closed.sort()).toEqual(['budget', 'cycles', 'flows', 'ledger', 'org', 'skillHealth', 'stepTrace', 'techDebt']);
+    // 非空下限：真的渲染了十个分区（否则上面两条是在比空数组）
+    expect([...html.matchAll(/data-anic-fold="/g)].length).toBe(10);
+  });
+
+  it('live 分区默认展开形态不受本策略影响（它不是折叠壳分区，自带 turn 组 details）', () => {
+    const store: PanelDataStore = createPanelStore(createInitialPanelState());
+    const html = renderToStaticMarkup(createElement(LiveInvocationsSection, { store, autoRefreshOn: true }));
+    expect(html).not.toContain('data-anic-fold=');
+    expect(html).toContain('data-anic-invocations="section"');
+  });
+
+  it('用户折叠记忆覆盖默认：写入 diagnostics=false 后该区渲染 closed（受控 value 与记忆同步）', () => {
+    // 直接驱动 sectionShell（分区组件是纯装配），断言记忆优先于 defaultOpen。
+    writeFoldPref('diagnostics', false);
+    try {
+      const html = renderToStaticMarkup(renderFoldableSection({ id: 'diagnostics', title: 'T', children: null, defaultOpen: true }));
+      expect(html).toContain('data-anic-fold-state="closed"');
+      expect(html).not.toContain('open=""');
+    } finally {
+      writeFoldPref('diagnostics', true); // 还原：本次会话内 diagnostics 默认仍是展开
+    }
+  });
+});
 
 describe('ToolbarStatusLine（cycle-45 T-4502a：fetchLine 顶层切片直测——12 分区包装组件中曾无直测者）', () => {
   it('初始态渲染 `ANIC · 构建期快照` 来源行（fetchLine 订阅接线）', () => {

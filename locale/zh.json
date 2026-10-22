@@ -53,7 +53,8 @@
     "colVerdict": "裁决",
     "colLabel": "名称",
     "detailClose": "关闭详情",
-    "nodeDetailLabel": "节点详情：{label}"
+    "nodeDetailLabel": "节点详情：{label}",
+    "foldMemoryHint": "折叠状态按分区记忆（存于本地偏好，会话间保留）"
   },
   "state": {
     "loading": "加载中…",
@@ -93,7 +94,17 @@
     "resultPreviewLabel": "返回",
     "turnDensity": " · {rate} 次/分钟",
     "turnCompletedAt": " · 完成于 {at}",
-    "elapsed": "已进行 {sec}s"
+    "elapsed": "已进行 {sec}s",
+    "summaryP95": " · P95 {ms}ms",
+    "summaryErrorCodes": " · 错误码 {codes}",
+    "cardTitle": "最近一次已完成调用（全貌）",
+    "cardAria": "最近一次已完成调用：{name}",
+    "cardIdentity": "身份",
+    "cardTiming": "时序",
+    "cardArguments": "参数",
+    "cardResult": "产出",
+    "cardError": "失败",
+    "cardGate": "门禁裁决"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",
@@ -259,7 +270,8 @@
     "levelInsufficient": "样本不足",
     "levelUnused": "未使用",
     "recentVsOverall": "近期成功率 {recent} · 全史 {overall}",
-    "noRecentData": "近 7 天无网关调用，当前状态不可判定（展示全史值）"
+    "noRecentData": "近 7 天无网关调用，当前状态不可判定（展示全史值）",
+    "lastInvoked": "最近调用：{at}"
   },
   "budget": {
     "title": "治理预算（.cycles/ 工作区）",
@@ -288,6 +300,9 @@
     "empty": "零欠债——无未消费提案（评估失败维度才会产提案）。",
     "more": "…还有 {count} 条未展示（截限）",
     "resolvedCount": "已消费 {count} 条（带审计字段）",
-    "skipped": "非提案形态 {count} 个文件（title 悬停见原因）"
+    "skipped": "非提案形态 {count} 个文件（title 悬停见原因）",
+    "proposedAction": "→ {action}",
+    "ageToday": "今天",
+    "ageDays": "{days} 天前"
   }
 }

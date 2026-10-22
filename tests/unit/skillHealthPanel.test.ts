@@ -133,6 +133,37 @@ describe('cycle-53 T-5301 面板近期窗口展示（双量纲不丢史）', () 
   });
 });
 
+describe('cycle-104 lastInvoked（此前宿主返回而客户端丢弃的字段）', () => {
+  const base = {
+    suggestions: [], overallSuccessRate: 1, totalInvocations: 3,
+    generatedAt: '2026-10-22T00:00:00.000Z',
+  };
+
+  it('lastInvoked 存在 → 压短为 MM-DD HH:mm 并带完整 ISO title（健康分级的语境）', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [sh({ lastInvoked: '2026-10-21T08:30:00.000Z' })],
+    }));
+    expect(html).toContain('data-anic-skill-health-last="2026-10-21T08:30:00.000Z"');
+    expect(html).toContain('title="最近调用：2026-10-21T08:30:00.000Z"');
+    expect(html).toContain('10-21'); // 压短形态 MM-DD
+  });
+
+  it('lastInvoked 缺失（旧宿主）→ 该字段不渲染（零回归面，不伪造时刻）', () => {
+    const html = renderToStaticMarkup(renderSkillHealth(report()));
+    expect(html).not.toContain('data-anic-skill-health-last');
+    expect(html).not.toContain('最近调用');
+  });
+
+  it('非法 lastInvoked 串 → 原样呈现（如实，不吞也不编造时刻）', () => {
+    const html = renderToStaticMarkup(renderSkillHealth({
+      ...base,
+      scripts: [sh({ lastInvoked: 'not-a-date' })],
+    }));
+    expect(html).toContain('not-a-date');
+  });
+});
+
 describe('cycle-57 T-5702 面板陈旧态（近 7 天无网关调用）', () => {
   const base = {
     suggestions: [], overallSuccessRate: 0.5, totalInvocations: 3,

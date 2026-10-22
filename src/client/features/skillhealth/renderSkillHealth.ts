@@ -101,6 +101,17 @@ function pct(rate: number): string {
   return `${String(Math.round(rate * 100))}%`;
 }
 
+/**
+ * cycle-104（量化补全）：`lastInvoked` 此前已由宿主返回却被客户端渲染丢弃
+ * ——「这技能上次什么时候被调用」是健康分级的必要语境（成功率 100% 若来自
+ * 半年前，与昨天刚跑过是两回事）。只显示**日期 + 时刻**（ISO 串原样过短
+ * 形态，非法串原样呈现不吞）。
+ */
+function shortLastInvoked(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  return m !== null ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : iso;
+}
+
 /** 渲染技能健康分区。null=尚未轮询到（调用方不渲染本节，与 ledger 同模式）。 */
 export function renderSkillHealth(data: SkillHealthJson | null): ReactElement | null {
   if (data === null) return null;
@@ -140,6 +151,8 @@ export function renderSkillHealth(data: SkillHealthJson | null): ReactElement | 
             isStale(s) ? createElement('span', { 'data-anic-skill-health-stale': 'true', title: t('health.noRecentData'), style: { color: token('anic-text-faint'), fontSize: 10 } }, '◦7d') : null,
             s.timeoutRate > 0 ? createElement('span', { title: t('health.timeoutRate'), style: { color: token('anic-warn-text') } }, `⏱${pct(s.timeoutRate)}`) : null,
             createElement('span', { title: t('health.avgDuration'), style: { color: token('anic-text-faint') } }, `${String(s.avgDurationMs)}ms`),
+            // cycle-104：最近调用时刻（健康分级的语境——旧宿主无字段时静默跳过）。
+            s.lastInvoked ? createElement('span', { 'data-anic-skill-health-last': s.lastInvoked, title: t('health.lastInvoked', { at: s.lastInvoked }), style: { color: token('anic-text-faint') } }, shortLastInvoked(s.lastInvoked)) : null,
             createElement('span', { style: { color: token('anic-text-faint') } }, levelLabel(s.level)),
           )),
           // 建议列表：严重程度着色（critical 红 / warn 琥珀 / info 淡）。
