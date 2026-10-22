@@ -76,6 +76,16 @@ export interface PanelActions {
   setLedgerList(v: LedgerListJson): void;
   setLedgerVerify(v: LedgerVerifyJson): void;
   setHitlAudit(v: HitlAuditJson): void;
+  // ── 分区失败通道（cycle-71 T-7117：消除「分区无声消失」）────────────────
+  /**
+   * 记下某分区的拉取失败（4s 档 10 端点通用）。
+   *
+   * **零通知不变式**：内容相同即不换对象——否则每个 4s tick 都产生新引用、
+   * 都通知全场（4s 档每轮都失败时尤为明显）。这是本动作的核心纪律。
+   */
+  markFetchFailure(id: string, f: FetchFailure): void;
+  /** 成功后清除该分区失败记录（同样零通知：本就无记录时不换对象）。 */
+  clearFetchFailure(id: string): void;
 }
 
 /**
@@ -117,5 +127,20 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     setLedgerList: (v) => { store.setState({ ledgerList: v }); },
     setLedgerVerify: (v) => { store.setState({ ledgerVerify: v }); },
     setHitlAudit: (v) => { store.setState({ hitlAudit: v }); },
+    // 分区失败通道（cycle-71 T-7117）：三分类文案复用唯一 classifier。
+    // 零通知不变式——先比内容，相同即原样返回（{failures: 同一引用} →
+    // store 的 Object.is 比较判「未变」→ 零监听器回调）。
+    markFetchFailure: (id, f) => {
+      const line = classifyFailure(f);
+      store.setState((s) => (s.failures[id] === line ? {} : { failures: { ...s.failures, [id]: line } }));
+    },
+    clearFetchFailure: (id) => {
+      store.setState((s) => {
+        if (!(id in s.failures)) return {}; // 无记录 → 零通知（4s 档常走此路）
+        const next = { ...s.failures };
+        delete next[id];
+        return { failures: next };
+      });
+    },
   };
 }

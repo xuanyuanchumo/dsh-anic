@@ -28,7 +28,7 @@ const GROUP_RENDER_CAP = 40;
 // cycle-60 T3 拆分：分组/时序纯逻辑（groupByTurn/mostRecentCompletedKey/
 // turnTimeRange/turnDensity/turnCompletedAt）迁至 invocationGrouping.ts——
 // 「算什么」与「怎么渲」分离。
-// cycle-104：mostRecentCompletedKey 的唯一消费点（turn 组默认展开）已撤
+// cycle-71 T-7131：mostRecentCompletedKey 的唯一消费点（turn 组默认展开）已撤
 //——「最近一次已完成调用」上移为独立全貌卡（renderLastCompletedCard），
 // 由 LiveInvocationsSection 在列表之前渲染；此处改消费量化纯函数
 //（invocationQuant.ts，与分组/时序同域但不同族：分布 vs 组）。
@@ -126,7 +126,7 @@ function feedDiagnosticsLine(data: InvocationsJson): ReactElement | null {
 /** 渲染实时调用分区。data 为 null 且无错误 = 尚未轮询到（不伪造空态）。 */
 export function renderInvocations(data: InvocationsJson | null, pollError: string | null, autoRefreshOn = true, announce = ''): ReactElement {
   const groups = data === null ? null : groupByTurn(data.invocations);
-  // cycle-104：量化补全（运行状态量化）——P95 长尾耗时 + 错误码 top3 直方图。
+  // cycle-71 T-7131：量化补全（运行状态量化）——P95 长尾耗时 + 错误码 top3 直方图。
   // 样本门槛（只取终态且 durationMs 合法）在 invocationGrouping 内统一裁决。
   const p95 = data === null ? null : p95Of(data.invocations);
   const errorCodes = data === null ? [] : errorCodeHistogram(data.invocations).slice(0, 3);
@@ -153,7 +153,7 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
       data ? t('live.summary', { total: String(data.total), generatedAt: data.generatedAt }) : t('live.notFetched'),
       data && running > 0 ? t('live.summaryRunning', { count: String(running) }) : '',
       data && errors > 0 ? t('live.summaryErrors', { count: String(errors) }) : '',
-      // cycle-104：P95 长尾耗时（仅样本充足时——无终态样本时 p95 为 null，
+      // cycle-71 T-7131：P95 长尾耗时（仅样本充足时——无终态样本时 p95 为 null，
       // 不伪造 0ms；此处「数据在 → 有样本」由路由语义保证，仍以 null 门槛兜底）。
       p95 !== null ? t('live.summaryP95', { ms: String(p95) }) : '',
       // 错误码 top3（次数降序，快照式排序在纯函数内定死——渲染层零重排）。
@@ -187,7 +187,7 @@ export function renderInvocations(data: InvocationsJson | null, pollError: strin
             groups === null
               // 平铺模式（零 turn 元数据）：与分组改造前逐字节同构——既有断言面。
               ? data.invocations.map((inv) => invocationRow(inv, genMs))
-              // 分组模式：details 折叠。cycle-104（用户要求核心）：turn 组默认
+              // 分组模式：details 折叠。cycle-71 T-7131（用户要求核心）：turn 组默认
               // 展开只剩**运行中**一个条件——「最近一次已完成调用」已上移为
               // 分区顶部的独立全貌卡（LiveInvocationsSection 内、本渲染器之前），
               // 同一调用不再在两处重复展开。历史组一律折叠收纳（组内摘要有计数）。

@@ -63,7 +63,9 @@
     "degraded": "Degraded",
     "stale": "Showing last known data",
     "retry": "Retry",
-    "lastSuccess": "Last success: {time}"
+    "lastSuccess": "Last success: {time}",
+    "sectionFailed": "Section data unavailable: {error}",
+    "sectionFailedStale": "Last fetch failed: {error} (showing last successful data)"
   },
   "live": {
     "title": "Live invocations (dynamic white-box): ",
@@ -104,7 +106,8 @@
     "cardArguments": "Arguments",
     "cardResult": "Result",
     "cardError": "Error",
-    "cardGate": "Gate verdict"
+    "cardGate": "Gate verdict",
+    "cardBelonging": "Belongs to"
   },
   "trace": {
     "title": "Step Trace (white-box projection)",

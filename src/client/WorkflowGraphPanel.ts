@@ -122,17 +122,19 @@ export function WorkflowGraphPanel(): ReactElement {
   // 一次性绑定，targets 数组渲染期零闭包分配）。
   const actions = bindPanelActions(store);
   usePanelFetch([
-    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { actions.setOrgStatus(v as OrgStatusJson); } },
-    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { actions.setFlowsStatus(v as FlowStatusJson); } },
-    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { actions.setCycleList(v as CycleListJson); } },
-    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { actions.setCycleState(v as CycleStateJson); } },
+    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { actions.setOrgStatus(v as OrgStatusJson); }, onFail: (f) => { actions.markFetchFailure('orgStatus', f); }, onRecover: () => { actions.clearFetchFailure('orgStatus'); } },
+    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { actions.setFlowsStatus(v as FlowStatusJson); }, onFail: (f) => { actions.markFetchFailure('flowsStatus', f); }, onRecover: () => { actions.clearFetchFailure('flowsStatus'); } },
+    // B1：cycle 时间线两个端点同一 4s 档——两端点各自记失败 key（一个成功
+    // clear 与一个失败 mark 并发时按端点粒度不竞态，分区侧聚合，cycle-71）。
+    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { actions.setCycleList(v as CycleListJson); }, onFail: (f) => { actions.markFetchFailure('cycleList', f); }, onRecover: () => { actions.clearFetchFailure('cycleList'); } },
+    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { actions.setCycleState(v as CycleStateJson); }, onFail: (f) => { actions.markFetchFailure('cycleState', f); }, onRecover: () => { actions.clearFetchFailure('cycleState'); } },
     // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
     ...governanceTargets(actions, ledgerLimit),
     // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
-    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { actions.setSkillHealth(v as SkillHealthJson); } },
+    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { actions.setSkillHealth(v as SkillHealthJson); }, onFail: (f) => { actions.markFetchFailure('skillHealth', f); }, onRecover: () => { actions.clearFetchFailure('skillHealth'); } },
     // cycle-54（T-5401）：tech-debt 队列并进 4s 档（技能健康的改进建议语义簇）。
-    { url: TECH_DEBT_URL, guard: isTechDebtListing, apply: (v) => { actions.setTechDebt(v as TechDebtListingJson); } },
-    { url: BUDGET_URL, guard: isBudget, apply: (v) => { actions.setBudget(v as BudgetJson); } },
+    { url: TECH_DEBT_URL, guard: isTechDebtListing, apply: (v) => { actions.setTechDebt(v as TechDebtListingJson); }, onFail: (f) => { actions.markFetchFailure('techDebt', f); }, onRecover: () => { actions.clearFetchFailure('techDebt'); } },
+    { url: BUDGET_URL, guard: isBudget, apply: (v) => { actions.setBudget(v as BudgetJson); }, onFail: (f) => { actions.markFetchFailure('budget', f); }, onRecover: () => { actions.clearFetchFailure('budget'); } },
   ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();

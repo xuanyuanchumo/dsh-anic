@@ -74,7 +74,7 @@ function foldHint(): string {
  * 原生 details/summary——零 JS 状态、静态可渲染、键盘可达（与 invocations 的
  * turn 分组同款机制）。
  *
- * cycle-104 折叠策略收口（用户要求核心）：`open` 从「初值即 true」改为
+ * cycle-71 T-7131 折叠策略收口（用户要求核心）：`open` 从「初值即 true」改为
  * **受控值** `foldPrefOf(id) ?? defaultOpen`，onToggle 立即写记忆
  * （features/prefs/foldPrefs，PREFS_KEY 的 folds 段）。默认值由调用方给：
  * 只有 live 分区传 true，其余静态产物分区 false（诊疗 diagnostics 与关闭
@@ -102,7 +102,7 @@ export function renderFoldableSection({ id, title, children, defaultOpen = false
     'details',
     {
       'data-anic-fold': id,
-      // cycle-104：与 data-anic-fold 并列的受控态锚点（测试与真机旅程可读，
+      // cycle-71 T-7131：与 data-anic-fold 并列的受控态锚点（测试与真机旅程可读，
       // 且使「受控 value 是否与用户操作同步」成为可断言的外部契约）。
       'data-anic-fold-state': open ? 'open' : 'closed',
       open,

@@ -1,5 +1,5 @@
 /**
- * 「最近一次已完成调用全貌卡」（cycle-104 用户要求核心）。
+ * 「最近一次已完成调用全貌卡」（cycle-71 T-7131·用户要求核心）。
  *
  * 用户原话：默认只展开**最近一次已完成的技能插件调用**，把调用自身的数据、
  * 流程流向、运行状态、运行产物白盒透明化。此前面板默认展开的是分区块，
@@ -11,9 +11,12 @@
  *   ② 时序  startedAt → endedAt + durationMs（>0 门槛，epoch 0 占位不算时刻）；
  *   ③ 参数  argumentsPreview；
  *   ④ 产出  resultPreview（done）或 error 三元组 name/code/reason（error）；
- *   ⑤ 归属  **不渲染**——阶段一的客户端数据面没有可靠的流程/阶段归属源
- *           （turn/step 已进 ①），宁缺勿猜（INV-27 语气）；
- *   ⑥ 证据  **不渲染**——同上，没有与单次调用绑定的工件路径字段；
+ *   ⑤ 归属  cycle · phase——该调用**发生瞬间**的流程坐标（cycle-71 T-10501）：
+ *           宿主在 `tool/call` 事件到达时解析并沉淀进记录，故是**精确字段**，
+ *           非 heuristic；两条都缺（多会话歧义/文件缺失）→ 整段不渲染
+ *           （不渲染空壳，宁缺勿猜 INV-27）；
+ *   ⑥ 证据  **不渲染**——仍无与单次调用绑定的工件路径字段（⑤ 已落地，
+ *           ⑥ 待 host 扩字段；如实留空而非伪造）；
  *   ⑦ 门禁裁决  仅当 name ∈ GATE_TOOL_GATES 时按「工具 → 账本 gate」映射取
  *           最近一条账本条目，并**带 heuristic 标注**（工具名 → gate 是推断，
  *           不是结构化事实——INV-27；账本无匹配条目则整段不渲染）。
@@ -108,6 +111,11 @@ export function renderLastCompletedCard(inv: InvocationJson, ledger?: GateLedger
     typeof inv.durationMs === 'number' ? `${String(inv.durationMs)}ms` : null,
   ].filter((s): s is string => s !== null).join(' · ');
   const gate = gateFinding(inv, ledger);
+  // ⑤ 归属：cycle 与 phase 独立可缺——拼出可得的部分（都缺 → 空串 → 整段不渲染）。
+  const belonging = [
+    typeof inv.cycle === 'string' && inv.cycle !== '' ? inv.cycle : null,
+    typeof inv.phase === 'string' && inv.phase !== '' ? inv.phase : null,
+  ].filter((s): s is string => s !== null).join(' · ');
   const errorTrio = inv.error
     ? `${inv.error.name}(${inv.error.code})${inv.error.reason ? `: ${inv.error.reason}` : ''}`
     : null;
@@ -139,7 +147,14 @@ export function renderLastCompletedCard(inv: InvocationJson, ledger?: GateLedger
       : inv.resultPreview
         ? fieldRow('data-anic-last-completed-result', t('live.cardResult'), longValue(inv.resultPreview, token('anic-text-dim')), 'res')
         : null,
-    // ⑤ 归属 / ⑥ 证据：无数据源，刻意不渲染（见文件头诚实边界）。
+    // ⑤ 归属（cycle-71 T-10501：宿主扩了 join key —— 该调用**发生瞬间**的流程坐标）。
+    //   精确字段，**不是** heuristic（值在 tool/call 事件到达时沉淀进记录）；
+    //   两条都缺（多会话歧义/文件缺失）→ 整段不渲染（不渲染空壳，INV-27）。
+    belonging !== ''
+      ? fieldRow('data-anic-last-completed-belonging', t('live.cardBelonging'),
+          createElement('span', { style: { fontFamily: 'ui-monospace, monospace' } }, belonging), 'belong')
+      : null,
+    // ⑥ 证据：仍无与单次调用绑定的工件路径字段——刻意不渲染（见文件头诚实边界）。
     // ⑦ 门禁裁决（+ heuristic 标注，INV-27）
     gate !== null
       ? fieldRow('data-anic-last-completed-gate', t('live.cardGate'),

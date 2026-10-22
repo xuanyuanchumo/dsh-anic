@@ -50,7 +50,7 @@ export function mostRecentCompletedKey(invocations: InvocationJson[]): number | 
 }
 
 /**
- * cycle-104（用户要求核心）：最近一次已完成调用的**本体**。
+ * cycle-71 T-7131（用户要求核心）：最近一次已完成调用的**本体**。
  *
  * 与 mostRecentCompletedKey 同源排序规则（跳过 in-flight、取
  * `endedAt ?? startedAt` 的 max、`startedAt > 0` 门槛），但返回调用本体——

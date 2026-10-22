@@ -66,7 +66,7 @@ function severityColor(sev: TechDebtEntryJson['severity']): string {
 }
 
 /**
- * cycle-104（量化补全）：债务**年龄**（天）。「欠了多久」是债务队列的排序语境
+ * cycle-71 T-7131（量化补全）：债务**年龄**（天）。「欠了多久」是债务队列的排序语境
  * ——同 severity 下 3 天与 300 天的债完全不同。原因子 `createdAt` 已在数据面，
  * 但此前没有被消费。
  *

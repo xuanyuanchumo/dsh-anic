@@ -37,6 +37,8 @@ import { renderHitl } from '../features/hitl/renderHitl.ts';
 import { renderBudget } from '../features/budget/renderBudget.ts';
 import { renderLiveSection } from '../features/live/renderLiveSection.ts';
 import { renderFoldableSection, renderSectionWrap, renderSectionDisabled } from './sectionShell.ts';
+// cycle-71 T-7117：4s 档分区失败行（消除「分区静默空体」——见该文件头注）。
+import { useSectionBody, useSectionFailure, bodyOrFailure } from './sectionFailure.ts';
 
 // ── 模块级 selector（usePanelSlice 硬契约：引用稳定 + 返回原引用）──────────
 const selGraph = (s: PanelState) => s.graph;
@@ -58,7 +60,7 @@ const selInvocations = (s: PanelState) => s.invocations;
 const selInvocationsError = (s: PanelState) => s.invocationsError;
 const selInvocationsAnnounce = (s: PanelState) => s.invocationsAnnounce;
 
-// ── 折叠策略（cycle-104 用户要求核心）─────────────────────────────────
+// ── 折叠策略（cycle-71 T-7131 · 用户要求核心）─────────────────────────────────
 /**
  * 用户要求：面板默认**只**展开「最近一次已完成调用 + 运行时调用可视化」，
  * 静态产物分区默认收纳。live 分区不是 renderFoldableSection 体系（自带
@@ -87,13 +89,13 @@ function GraphSectionImpl({ store, onNodeClick }: GraphSectionProps): ReactEleme
 /** 图区：订阅 graph + trace 两切片（verdicts 由 trace 派生）。 */
 export const GraphSection = memo(GraphSectionImpl);
 
-// ── 实时调用流（2s tick —— Top2 主战场 / cycle-104 用户要求核心）────────
+// ── 实时调用流（2s tick —— Top2 主战场 / cycle-71 T-7131 用户要求核心）────────
 interface LiveInvocationsSectionProps { store: PanelDataStore; autoRefreshOn: boolean; }
 function LiveInvocationsSectionImpl({ store, autoRefreshOn }: LiveInvocationsSectionProps): ReactElement {
   const invocations = usePanelSlice(store, selInvocations);
   const pollError = usePanelSlice(store, selInvocationsError);
   const announce = usePanelSlice(store, selInvocationsAnnounce);
-  // cycle-104：门禁裁决段的数据源（治理 4s 档账本切片，与 LedgerSection 同引用）。
+  // cycle-71 T-7131：门禁裁决段的数据源（治理 4s 档账本切片，与 LedgerSection 同引用）。
   const ledger = usePanelSlice(store, selLedgerList);
   // useDeferredValue：昂贵列表降为可中断渲染；紧急渲染期间引用不变 →
   // React 跳过列表 diff（旧元素树复用）。stale = 引用不同步（正在追赶）。
@@ -112,7 +114,9 @@ interface SectionProps { store: PanelDataStore; }
 function CyclesSectionImpl({ store }: SectionProps): ReactElement {
   const list = usePanelSlice(store, selCycleList);
   const state = usePanelSlice(store, selCycleState);
-  return renderFoldableSection({ id: 'cycles', title: t('fold.cycles'), defaultOpen: defaultOpenOf('cycles'), children: renderCyclesTimeline({ list, state }) });
+  // cycle-71：两端点各自记失败 key，此处聚合（一个成功一个失败时不竞态）。
+  const body = useSectionBody(store, 'cycles', ['cycleList', 'cycleState'], renderCyclesTimeline({ list, state }));
+  return renderFoldableSection({ id: 'cycles', title: t('fold.cycles'), defaultOpen: defaultOpenOf('cycles'), children: body });
 }
 export const CyclesSection = memo(CyclesSectionImpl);
 
@@ -149,17 +153,22 @@ export const DiagnosticsSection = memo(DiagnosticsSectionImpl);
 // ── org 全景（自主级仪表带 + 文本明细，同一数据源）──────────────────────
 function OrgSectionImpl({ store }: SectionProps): ReactElement {
   const orgStatus = usePanelSlice(store, selOrgStatus);
-  return renderFoldableSection({ id: 'org', title: t('fold.org'), defaultOpen: defaultOpenOf('org'), children: [
-    orgStatus ? createElement('div', { 'data-anic-gauge-wrap': 'true', key: 'gauge' }, renderAutonomyGauge(orgStatus)) : null,
-    orgStatus ? createElement('div', { 'data-anic-org-wrap': 'true', key: 'org' }, renderOrgStatus(orgStatus)) : null,
-  ] });
+  // cycle-71：org-status 失败时不再静默空体（该分区是自主级/熔断的主观测面）。
+  const body = useSectionBody(store, 'org', 'orgStatus', orgStatus
+    ? [
+        createElement('div', { 'data-anic-gauge-wrap': 'true', key: 'gauge' }, renderAutonomyGauge(orgStatus)),
+        createElement('div', { 'data-anic-org-wrap': 'true', key: 'org' }, renderOrgStatus(orgStatus)),
+      ]
+    : null);
+  return renderFoldableSection({ id: 'org', title: t('fold.org'), defaultOpen: defaultOpenOf('org'), children: body });
 }
 export const OrgSection = memo(OrgSectionImpl);
 
 // ── 技能健康 / 流程状态机（4s 档）───────────────────────────────────────
 function SkillHealthSectionImpl({ store }: SectionProps): ReactElement {
   const skillHealth = usePanelSlice(store, selSkillHealth);
-  return renderFoldableSection({ id: 'skillHealth', title: t('fold.skillHealth'), defaultOpen: defaultOpenOf('skillHealth'), children: renderSkillHealth(skillHealth) });
+  const body = useSectionBody(store, 'skillHealth', 'skillHealth', renderSkillHealth(skillHealth));
+  return renderFoldableSection({ id: 'skillHealth', title: t('fold.skillHealth'), defaultOpen: defaultOpenOf('skillHealth'), children: body });
 }
 export const SkillHealthSection = memo(SkillHealthSectionImpl);
 
@@ -168,15 +177,20 @@ export const SkillHealthSection = memo(SkillHealthSectionImpl);
 // 失败维度的产物，与技能健康同属「改进建议」语义簇。
 function TechDebtSectionImpl({ store }: SectionProps): ReactElement {
   const techDebt = usePanelSlice(store, selTechDebt);
-  return renderFoldableSection({ id: 'techDebt', title: t('fold.techdebt'), defaultOpen: defaultOpenOf('techDebt'), children: renderTechDebt(techDebt) });
+  const body = useSectionBody(store, 'techDebt', 'techDebt', renderTechDebt(techDebt));
+  return renderFoldableSection({ id: 'techDebt', title: t('fold.techdebt'), defaultOpen: defaultOpenOf('techDebt'), children: body });
 }
 export const TechDebtSection = memo(TechDebtSectionImpl);
 
 function FlowsSectionImpl({ store, enabled }: GatedSectionProps): ReactElement {
   const flowsStatus = usePanelSlice(store, selFlowsStatus);
-  return renderFoldableSection({ id: 'flows', title: t('fold.flows'), defaultOpen: defaultOpenOf('flows'), children: enabled
-    ? renderFlows(flowsStatus)
-    : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') }) });
+  // hooks 规则：订阅必须**无条件**调用（启停门控只影响 body 组装——下方三元）。
+  const failure = useSectionFailure(store, 'flowsStatus');
+  // 关闭形态（renderSectionDisabled）优先于失败行——「关了什么」比「取不到」更根本。
+  const body = enabled
+    ? bodyOrFailure(renderFlows(flowsStatus), 'flows', failure)
+    : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') });
+  return renderFoldableSection({ id: 'flows', title: t('fold.flows'), defaultOpen: defaultOpenOf('flows'), children: body });
 }
 export const FlowsSection = memo(FlowsSectionImpl);
 
@@ -185,25 +199,31 @@ interface LedgerSectionProps extends SectionProps { onShowMore: () => void; }
 function LedgerSectionImpl({ store, onShowMore }: LedgerSectionProps): ReactElement {
   const ledgerList = usePanelSlice(store, selLedgerList);
   const ledgerVerify = usePanelSlice(store, selLedgerVerify);
-  return renderFoldableSection({ id: 'ledger', title: t('fold.ledger'), defaultOpen: defaultOpenOf('ledger'), children: renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
+  // cycle-71：list 与 verify 是两端点——失败 key 分开记，此处聚合。
+  const body = useSectionBody(store, 'ledger', ['ledgerList', 'ledgerVerify'], renderLedger(ledgerList, ledgerVerify, ledgerList !== null && ledgerList.entries.length < ledgerList.total
     ? { hasMore: true, onShowMore }
-    : undefined) });
+    : undefined));
+  return renderFoldableSection({ id: 'ledger', title: t('fold.ledger'), defaultOpen: defaultOpenOf('ledger'), children: body });
 }
 export const LedgerSection = memo(LedgerSectionImpl);
 
 // ── HITL 审计队列（开关门控）───────────────────────────────────────────
 function HitlSectionImpl({ store, enabled }: GatedSectionProps): ReactElement {
   const hitlAudit = usePanelSlice(store, selHitlAudit);
-  return renderFoldableSection({ id: 'hitl', title: t('fold.hitl'), defaultOpen: defaultOpenOf('hitl'), children: enabled
-    ? renderHitl(hitlAudit)
-    : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') }) });
+  // hooks 规则：订阅无条件调用（同 FlowsSection）。
+  const failure = useSectionFailure(store, 'hitlAudit');
+  const body = enabled
+    ? bodyOrFailure(renderHitl(hitlAudit), 'hitl', failure)
+    : renderSectionDisabled({ anchorKey: 'data-anic-approvals-disabled', text: t('hitl.disabled') });
+  return renderFoldableSection({ id: 'hitl', title: t('fold.hitl'), defaultOpen: defaultOpenOf('hitl'), children: body });
 }
 export const HitlSection = memo(HitlSectionImpl);
 
 // ── 治理预算（4s 档）───────────────────────────────────────────────────
 function BudgetSectionImpl({ store }: SectionProps): ReactElement {
   const budget = usePanelSlice(store, selBudget);
-  return renderFoldableSection({ id: 'budget', title: t('fold.budget'), defaultOpen: defaultOpenOf('budget'), children: renderBudget(budget) });
+  const body = useSectionBody(store, 'budget', 'budget', renderBudget(budget));
+  return renderFoldableSection({ id: 'budget', title: t('fold.budget'), defaultOpen: defaultOpenOf('budget'), children: body });
 }
 export const BudgetSection = memo(BudgetSectionImpl);
 

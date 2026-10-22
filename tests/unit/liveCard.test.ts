@@ -1,5 +1,5 @@
 /**
- * cycle-104（用户要求核心）：「最近一次已完成调用全貌卡」的落地测试。
+ * cycle-71 T-7131（用户要求核心）：「最近一次已完成调用全貌卡」的落地测试。
  *
  * 用户原话要求面板默认只展开**最近一次已完成调用**与运行时调用可视化，
  * 并把调用自身的**数据、流程流向、运行状态、运行产物**白盒透明化量化。
@@ -131,9 +131,34 @@ describe('renderLastCompletedCard —— 全貌卡七段', () => {
     expect(html).not.toContain(`${'x'.repeat(241)}…</span>`);
   });
 
-  it('诚实边界：无数据源的「归属」「证据」两段**不渲染**（宁缺勿猜，不伪造）', () => {
+  it('⑤ 归属（cycle-71 T-10501）：有 join key 时渲染精确流程坐标（cycle · phase）', () => {
+    const html = renderToStaticMarkup(renderLastCompletedCard(inv({ callId: 'a', status: 'done', cycle: 'cycle-71', phase: 'build' })));
+    expect(html).toContain('data-anic-last-completed-belonging');
+    expect(html).toContain('cycle-71');
+    expect(html).toContain('build');
+    // 精确字段**不带** heuristic 标注（对比 ⑦ 门禁裁决的推断值）
+    expect(html).toContain('data-anic-last-completed-belonging');
+  });
+
+  it('⑤ 归属：只有 cycle 或只有 phase 时渲染可得部分（缺一不丢另一）', () => {
+    const onlyCycle = renderToStaticMarkup(renderLastCompletedCard(inv({ callId: 'c', status: 'done', cycle: 'cycle-71' })));
+    expect(onlyCycle).toContain('cycle-71');
+    const onlyPhase = renderToStaticMarkup(renderLastCompletedCard(inv({ callId: 'p', status: 'done', phase: 'build' })));
+    expect(onlyPhase).toContain('build');
+  });
+
+  it('⑤ 归属：两条都缺（多会话歧义/文件缺失）→ 整段不渲染（不渲染空壳，INV-27）', () => {
+    const html = renderToStaticMarkup(renderLastCompletedCard(inv({ callId: 'n', status: 'done' })));
+    expect(html).not.toContain('data-anic-last-completed-belonging');
+  });
+
+  it('⑤ 归属：空串等同缺失（旧宿主/降级路径不产生空壳段）', () => {
+    const html = renderToStaticMarkup(renderLastCompletedCard(inv({ callId: 'e', status: 'done', cycle: '', phase: '' })));
+    expect(html).not.toContain('data-anic-last-completed-belonging');
+  });
+
+  it('诚实边界：⑥「证据」段仍**不渲染**（无绑定到单次调用的工件路径字段，不伪造）', () => {
     const html = renderToStaticMarkup(renderLastCompletedCard(full));
-    expect(html).not.toContain('data-anic-last-completed-stage');
     expect(html).not.toContain('data-anic-last-completed-evidence');
   });
 
@@ -183,7 +208,7 @@ describe('renderLiveSection —— 分区编排（卡片在列表之前，兄弟
   });
 });
 
-describe('renderInvocations —— cycle-104 量化补全（P95 / 错误码 top3）', () => {
+describe('renderInvocations —— cycle-71 T-7131 量化补全（P95 / 错误码 top3）', () => {
   it('P95 进概览行（终态样本充足时）；错误码 top3 按次数降序呈现', () => {
     const html = renderToStaticMarkup(renderInvocations({
       invocations: [

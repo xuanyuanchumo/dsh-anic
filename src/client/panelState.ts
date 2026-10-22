@@ -60,6 +60,17 @@ export interface PanelState {
   invocations: InvocationsJson | null;
   invocationsError: string | null;
   invocationsAnnounce: string;
+  /**
+   * 分区失败记录（cycle-71 T-7117）——id → 分类后的失败文案。
+   *
+   * 为什么是**单切片按 id 取值**而非每端点一切片：`usePanelSlice` 用 uSES
+   * 对**选中值**做 Object.is——即使本对象换引用触发全场通知，某分区选中的
+   * 仍是同一字符串（primitive），`Object.is` 相等 → 该分区**不重渲**。
+   * 「通知扇出但渲染隔离」自动成立（详见 components/sectionFailure.ts 头注）。
+   *
+   * 写侧纪律：内容相同**不得**产生新对象（否则每 tick 都通知全场）。
+   */
+  failures: Record<string, string>;
 }
 
 /** 面板 store 别名（订阅薄组件与钩子的公共类型）。 */
@@ -92,5 +103,6 @@ export function createInitialPanelState(): PanelState {
     invocations: null,
     invocationsError: null,
     invocationsAnnounce: '',
+    failures: {},
   };
 }

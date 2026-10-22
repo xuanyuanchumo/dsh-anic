@@ -63,7 +63,9 @@
     "degraded": "降级运行",
     "stale": "以下为最后已知数据",
     "retry": "重试",
-    "lastSuccess": "上次成功：{time}"
+    "lastSuccess": "上次成功：{time}",
+    "sectionFailed": "本节数据取不到：{error}",
+    "sectionFailedStale": "本节最近一次拉取失败：{error}（以下为上次成功的数据）"
   },
   "live": {
     "title": "实时调用（动态白盒）：",
@@ -104,7 +106,8 @@
     "cardArguments": "参数",
     "cardResult": "产出",
     "cardError": "失败",
-    "cardGate": "门禁裁决"
+    "cardGate": "门禁裁决",
+    "cardBelonging": "所属"
   },
   "trace": {
     "title": "步骤流程（白盒投影）",

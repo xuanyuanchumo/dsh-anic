@@ -161,7 +161,7 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 | `generatedAt` | `string`(ISO) | 快照生成时刻——面板 in-flight 已进行时长的时钟基准（cycle-64：与 startedAt 同为宿主进程时钟） |
 | `diagnostics` | `FeedDiagnostics \| null` | 通道计数（cycle-47）；`null`=旧宿主无此字段（协议三态见下） |
 
-### InvocationRecord 字段（12）
+### InvocationRecord 字段（14）
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -176,6 +176,13 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 | `durationMs` | `number?` | done/error 态耗时（终态精确值；in-flight 不设） |
 | `resultPreview` | `string?` | 结果内容预览（cycle-48，截断 200 字符对齐 argumentsPreview；提取自 tools/result 的 content 文本块；错误调用无此字段） |
 | `possiblyOrphaned` | `boolean?` | in-flight 超 15 分钟：结束事件大概率永不到来，如实标记 |
+| `cycle` | `string?` | **流程归属**（cycle-71 T-10501）：**该调用发生瞬间**的 `.cycles/workflow-state.json` 的 `currentCycle`（如 `cycle-71`）——白盒四元组「流程流向」元的 join key。宿主在 `tool/call` 到达时解析（`invocationAttribution.ts`，TTL 2s 缓存）。**响应期不重算**（对已结束的调用补当前相 = 伪造，INV-27）。解析不到（多会话歧义/文件缺失/JSON 损坏）→ 缺省不落 |
+| `phase` | `string?` | 同上的 `currentPhase`（宏观六相：plan/design/build/test/deploy/maintain） |
+
+> **归属字段的时序语义（重要）**：`cycle`/`phase` 描述的是**调用发生那一刻**的流程坐标，
+> 不是**你读取响应那一刻**的坐标。同一调用在不同时刻查询得到**相同**归属（值在事件到达时
+> 沉淀进记录）；若某条记录缺这两个字段，说明当时**无法无歧义地确定工作区**——宿主
+> **刻意不兜底**（多会话宿主上用 `process.cwd()`/首条注册表项会归错工作区 = 伪造）。
 
 ### FeedDiagnostics 五计数（排障语义：feed 空时区分「事件没到」与「到了被过滤」）
 
