@@ -62,7 +62,7 @@
 - **新增 2 契约守卫**：`dshConformance` 双锚（engines.dsh ⇄ peer 逐字相等 + `-0` 上界 +
   无 `workspace:` + engines 必须对象）+ `clientSameOriginContract`（客户端零绝对 http(s) URL）。
 
-**⑥ 文档册补齐（docs/agents 19 → 21 册）**
+**⑥ 文档册补齐（docs/agents 17 → 19 册，+2）**
 - **《工具面参考.md》**（新建）：19 工具**零覆盖**的结构性缺口 + **册⇄源码双向契约**
   （`toolIdsContract` 10→14 用例：文档臆造/文档缺口都红）。
 - **《自举与健康取证.md》**（新建）：三工件分工 / 解析器二值语义 / **谁进 flow-tracker 谁不进** /
