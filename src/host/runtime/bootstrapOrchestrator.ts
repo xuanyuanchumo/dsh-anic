@@ -5,25 +5,27 @@
  * 本模块实现主动编排：每轮自动调用 eval → gate → fix，直到 CONVERGED 或 EXHAUSTED。
  * 每步通过 FlowTracker 记录，供 anic_status 查询和大模型审计。
  *
- * 步骤执行（跑一步+记账+解析）已拆分至 bootstrapSteps.ts（cycle-38 T3：re-gate
- * 环让 gate 步骤出现三个调用点，重复第三次即拆分时机）。本文件只保留状态机
- * 编排：相位推进（enterPhase）与轮次结算（advanceBootstrap）。
+ * 拆分史（T3 250 行上限，两次拆分均因单文件越界）：
+ *   - cycle-38：步骤执行（跑一步+记账+解析）→ bootstrapSteps.ts（gate 步骤在
+ *     re-gate 环下出现三个调用点，重复第三次即拆分时机）；
+ *   - cycle-72：异步执行循环 → bootstrapOrchestratorAsync.ts；相位推进 →
+ *     bootstrapPhase.ts（同步/异步两版都必须有同一份状态机权威，不能各复制一份）。
+ * 本文件保留：同步编排循环 + 轮次结算（advanceBootstrap）。
  */
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
-import { invokeSkillScriptAsync, resolveSkillScriptsDir } from '../skillInvoker.ts';
+import { resolveSkillScriptsDir } from '../skillInvoker.ts';
 import {
   type BootstrapState,
-  type BootstrapTrigger,
   initialBootstrapState,
   loadBootstrapState,
   saveBootstrapState,
   advanceBootstrap,
-  transitionBootstrap,
 } from '../selfBootstrap.ts';
-import { loadFlowTracker, startFlow, finishFlow, type FlowTrackerState } from './flowTracker.ts';
-import { runEvalStep, runGateStep, runFixStep, gateVerdictPassed, GATE_CHECK_ARGS } from './bootstrapSteps.ts';
-import { parseEvalScore, parseGateVerdict, parseFixApplied } from './scriptParsers.ts';
+import { loadFlowTracker, type FlowTrackerState } from './flowTracker.ts';
+import { runEvalStep, runGateStep, runFixStep, gateVerdictPassed } from './bootstrapSteps.ts';
+import { enterPhase, type PhaseTrigger } from './bootstrapPhase.ts';
+import { checkBootstrapPreconditions, type PreflightResult } from './bootstrapPreflight.ts';
 
 export interface BootstrapCycleResult {
   state: BootstrapState;
@@ -35,26 +37,15 @@ export interface BootstrapCycleResult {
     evalFlowId?: string;
     gateFlowId?: string;
     fixFlowId?: string;
+    /** 复检（fix-done 后的第二次 gate-check）流 ID——与 gateFlowId 分开，见异步版注释。 */
+    verifyFlowId?: string;
   }>;
   converged: boolean;
-}
-
-/**
- * 相位推进：把中间态落盘（cycle-38 修 doc18 P1-6「中间态空转」）。
- *
- * 旧实现里 EVALUATING / GATE_CHECKING / VERIFYING 三个状态**从不被赋值**，
- * 编排器跑动期间 `self-bootstrap.json` 里的 status 只在轮末结算时变化，
- * 于是「正在评估」「正在查门禁」在磁盘上不可见——白盒面板看不到进行中的事实。
- *
- * 现在每个相位边界都走 `transitionBootstrap`（唯一写 status 的函数）并立即落盘。
- * 非法触发词不推进也不抛：返回原状态并让调用方继续，因为**相位记录是观测手段，
- * 不是裁决手段**——不能因为记账失败而让整轮自举停摆。
- */
-function enterPhase(cyclesDir: string, state: BootstrapState, trigger: BootstrapTrigger): BootstrapState {
-  const moved = transitionBootstrap(state, trigger);
-  if (!moved.ok) return state;
-  saveBootstrapState(cyclesDir, moved.state);
-  return moved.state;
+  /**
+   * 前置未就绪时非空（cycle-72 P0）。非空即代表**本轮一步未跑**：
+   * rounds 为空、状态未变、无提案落盘——调用方必须据此报错而不是读 evalScore。
+   */
+  precondition?: PreflightResult & { ok: false };
 }
 
 /**
@@ -76,6 +67,15 @@ export function runSelfBootstrapCycle(
   const cyclesDir = join(workspace, '.cycles');
   if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
   const scriptsDir = resolveSkillScriptsDir(workspace);
+
+  // 前置守卫（cycle-72 P0）：缺 config / cycle 目录时**一步都不跑**。
+  // 旧行为会把入口拒绝折叠成 evalScore 0 + gateVerdict FAIL，进而在每一轮写出
+  // 一份 0 分 tech-debt 提案——把「环境未就绪」伪装成「质量结论」，自举永不收敛
+  // 且持续污染债务队列。现在响亮返回专用码，调用方据此修复前置。
+  const preflight = checkBootstrapPreconditions(scriptsDir, cyclesDir);
+  if (!preflight.ok) {
+    return { state: loadBootstrapState(cyclesDir), rounds: [], converged: false, precondition: preflight };
+  }
 
   let state = loadBootstrapState(cyclesDir);
   if (state.status === 'CONVERGED' || state.status === 'EXHAUSTED') {
@@ -101,6 +101,7 @@ export function runSelfBootstrapCycle(
 
     let fixApplied: string | null = null;
     let fixFlowId: string | undefined;
+    let verifyFlowId: string | undefined;
     if (!gateVerdictPassed(gateVerdict) && scriptsDir) {
       state = enterPhase(cyclesDir, state, 'gate-fail'); // 相位 2：FIXING
       const fixStep = runFixStep(scriptsDir, cyclesDir, trackerState, workspace, timeoutMs);
@@ -110,6 +111,7 @@ export function runSelfBootstrapCycle(
       state = enterPhase(cyclesDir, state, 'fix-done'); // 相位 3：VERIFYING（真实复检）
       const verifyStep = runGateStep(scriptsDir, cyclesDir, trackerState, workspace, timeoutMs);
       trackerState = verifyStep.trackerState;
+      verifyFlowId = verifyStep.flowId; // cycle-72：复检流 ID 不得丢弃（见异步版说明）
       if (gateVerdictPassed(verifyStep.value)) {
         gateVerdict = verifyStep.value; // 复检通过 → 新裁决结算
       } else {
@@ -128,6 +130,7 @@ export function runSelfBootstrapCycle(
       evalFlowId: evalStep.flowId,
       gateFlowId: gateStep.flowId,
       fixFlowId,
+      verifyFlowId,
     });
   }
 
@@ -135,82 +138,12 @@ export function runSelfBootstrapCycle(
 }
 
 /**
- * 异步版自举循环（P1-EVENT-LOOP / P1-EXEC-SIGNAL，cycle-16）。
+ * 异步版自举循环已拆分至 bootstrapOrchestratorAsync.ts（cycle-72 T3：加入前置守卫后
+ * 本文件 261 行 > 250 上限）。此处 re-export 保持既有 import 路径稳定
+ * （toolsBootstrapGateway / bootstrapEngineIntegration 等调用方无需改动）。
  *
- * 语义与同步版逐字相同（同 FlowTracker 记账、同状态机推进、同解析器），
- * 差异仅三点：async spawn 不阻塞宿主事件循环；exec.signal 触发即终止当前
- * 子进程并在当前轮边界停止（已完成轮次的状态/账本/flow 记录如实保留——
- * 绝不回滚已落盘事实）；返回体多 aborted 字段如实上报取消。
- * re-gate 环语义与同步版一致（fix-done 后真实复检）。
+ * 相位权威不在此处转发：enterPhase 已迁至 bootstrapPhase.ts，同步与异步两版
+ * 都从那一处 import——避免「编排器再导出一次」形成第二个引用入口。
  */
-export async function runSelfBootstrapCycleAsync(
-  workspace: string,
-  maxRounds = 3,
-  timeoutMs = 60000,
-  options?: { signal?: AbortSignal },
-): Promise<BootstrapCycleResult & { aborted: boolean }> {
-  const cyclesDir = join(workspace, '.cycles');
-  if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
-  const scriptsDir = resolveSkillScriptsDir(workspace);
-  const signal = options?.signal;
+export { runSelfBootstrapCycleAsync } from './bootstrapOrchestratorAsync.ts';
 
-  let state = loadBootstrapState(cyclesDir);
-  if (state.status === 'CONVERGED' || state.status === 'EXHAUSTED') {
-    state = initialBootstrapState(maxRounds);
-  }
-  state = { ...state, maxRounds };
-
-  let trackerState = loadFlowTracker(cyclesDir);
-  const rounds: BootstrapCycleResult['rounds'] = [];
-  let aborted = false;
-
-  const runStep = async (
-    script: 'eval-runner' | 'gate-check' | 'auto-fix-loop',
-    args: string[],
-  ): Promise<{ flowId?: string; result?: Awaited<ReturnType<typeof invokeSkillScriptAsync>> } > => {
-    if (!scriptsDir) return {};
-    const { state: s, flowId } = startFlow(cyclesDir, trackerState, script, workspace, args);
-    trackerState = s;
-    const result = await invokeSkillScriptAsync(scriptsDir, script, args, workspace, timeoutMs, { signal });
-    trackerState = finishFlow(cyclesDir, trackerState, flowId, result);
-    return { flowId, result };
-  };
-
-  while (state.round < state.maxRounds && state.status !== 'CONVERGED') {
-    if (signal?.aborted) { aborted = true; break; }
-    state = enterPhase(cyclesDir, state, 'start'); // 相位 0：EVALUATING
-
-    const evalRun = await runStep('eval-runner', []);
-    const evalScore = evalRun.result ? parseEvalScore(evalRun.result) : 0;
-
-    state = enterPhase(cyclesDir, state, 'eval-done'); // 相位 1：GATE_CHECKING
-    const gateRun = await runStep('gate-check', GATE_CHECK_ARGS);
-    let gateVerdict = gateRun.result ? parseGateVerdict(gateRun.result) : 'unknown';
-
-    if (signal?.aborted) { aborted = true; break; }
-
-    let fixApplied: string | null = null;
-    if (!gateVerdictPassed(gateVerdict) && !signal?.aborted) {
-      state = enterPhase(cyclesDir, state, 'gate-fail'); // 相位 2：FIXING
-      const fixRun = await runStep('auto-fix-loop', []);
-      fixApplied = fixRun.result ? parseFixApplied(fixRun.result) : null;
-      state = enterPhase(cyclesDir, state, 'fix-done'); // 相位 3：VERIFYING（真实复检）
-      const verifyRun = await runStep('gate-check', GATE_CHECK_ARGS);
-      if (verifyRun.result) {
-        const reVerdict = parseGateVerdict(verifyRun.result);
-        if (gateVerdictPassed(reVerdict)) {
-          gateVerdict = reVerdict; // 复检通过 → 新裁决结算
-        } else {
-          state = enterPhase(cyclesDir, state, 'verify-fail'); // 复检未过 → 回 GATE_CHECKING
-        }
-      }
-    }
-
-    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied);
-    saveBootstrapState(cyclesDir, state);
-
-    rounds.push({ round: state.round, evalScore, gateVerdict, fixApplied, evalFlowId: evalRun.flowId });
-  }
-
-  return { state, rounds, converged: state.status === 'CONVERGED', aborted };
-}

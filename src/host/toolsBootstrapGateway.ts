@@ -50,6 +50,18 @@ export function registerBootstrapGatewayTools(
 
       // P1-EVENT-LOOP：自举循环可能跑数分钟——异步版 + signal（轮边界协作取消）。
       const result = await runSelfBootstrapCycleAsync(ws, maxRounds, timeout, { signal: exec?.signal });
+      // cycle-72 P0：前置未就绪时**不**把结果报成 evalScore 0 / FAIL。
+      // 折叠会在工具面重演同一个缺陷（大模型看到 0 分会去"修代码"，而真正要做的
+      // 是补齐 .cycles 前置），故此处响亮返回专用码 + 修复指引，并显式标注未跑。
+      if (result.precondition) {
+        return {
+          error: 'ANIC_BOOTSTRAP_PRECONDITION',
+          preconditionCode: result.precondition.code,
+          message: result.precondition.message,
+          remedy: result.precondition.remedy,
+          roundsExecuted: 0,
+        };
+      }
       return {
         status: result.state.status,
         round: result.state.round,

@@ -58,9 +58,16 @@ describe('analyzeBootstrapWithEngines', () => {
 
   it('gate 未通过时产 tech-debt 条目', () => {
     autoInstallSkill(workspace);
+    // cycle-72：前置缺失时编排器零动作（rounds 为空）→ generateTechDebt 无输入，
+    // 该用例会退化成「空输入不产条目」的空断言。补齐前置才能测到真实 FAIL 路径。
+    mkdirSync(join(workspace, '.cycles', 'cycles', 'cycle-1'), { recursive: true });
+    writeFileSync(join(workspace, '.cycles', 'config.yml'),
+      'build_cmd: "echo build"\ntest_cmd: "echo ok"\nlint_cmd: "echo lint"\n', 'utf8');
     const cycle = runSelfBootstrapCycle(workspace, 1, 30000);
     const insights = analyzeBootstrapWithEngines(cycle, workspace);
 
+    // 先钉住"确实跑了"——否则下面的条件断言会在空输入上恒定成立
+    expect(cycle.rounds.length).toBeGreaterThanOrEqual(1);
     // 如果编排器未收敛，应有 tech-debt
     if (!cycle.converged) {
       expect(insights.techDebt.length).toBeGreaterThan(0);
@@ -71,6 +78,9 @@ describe('analyzeBootstrapWithEngines', () => {
 describe('runBootstrapWithEngines', () => {
   it('返回 cycle + insights 完整结构', () => {
     autoInstallSkill(workspace);
+    mkdirSync(join(workspace, '.cycles', 'cycles', 'cycle-1'), { recursive: true });
+    writeFileSync(join(workspace, '.cycles', 'config.yml'),
+      'build_cmd: "echo build"\ntest_cmd: "echo ok"\nlint_cmd: "echo lint"\n', 'utf8');
     const result = runBootstrapWithEngines(workspace, 1, 30000);
 
     expect(result.cycle).toHaveProperty('state');
@@ -82,6 +92,9 @@ describe('runBootstrapWithEngines', () => {
 
   it('多次调用风险评分稳定（幂等性）', () => {
     autoInstallSkill(workspace);
+    mkdirSync(join(workspace, '.cycles', 'cycles', 'cycle-1'), { recursive: true });
+    writeFileSync(join(workspace, '.cycles', 'config.yml'),
+      'build_cmd: "echo build"\ntest_cmd: "echo ok"\nlint_cmd: "echo lint"\n', 'utf8');
     const r1 = runBootstrapWithEngines(workspace, 1, 30000);
     const r2 = runBootstrapWithEngines(workspace, 1, 30000);
 

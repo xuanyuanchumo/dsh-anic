@@ -6,7 +6,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,24 +22,108 @@ const args = parseCliArgs(process.argv, {
   flags: { 'project-dir': { type: 'string' } },
   positionals: { min: 0, max: 0, name: '' },
 });
-const projectDir = args.projectDir ? resolve(args.projectDir) : process.cwd();
+// 形状校验（纵深防御，第二道）。真正的注入防线是下方 runScript 的 argv 形态——
+// 值永远不进 shell 语法，故含空格/引号/`&&`/`;` 的目录名此刻已天然无害。
+// 因此这里**故意不**拒绝空格与引号（它们是 Windows 上的合法路径字符，拒绝会造成
+// 功能回归），只拒绝 NUL 与「显式传入却为空」两种形状：
+//   - NUL 无法出现在任何真实路径里，出现即伪造值；
+//   - 显式传空值必须响亮拒绝而不是回落 cwd——静默回落会把「调用方说了什么」与
+//     「实际作用在哪个目录」分离，属 CLAUDE.md 反复收口的静默降级形态。
+// 未提供旗标时才回落 cwd（undefined 与空串必须区分，故不能靠真值判断）。
+function resolveProjectDir(raw) {
+  let dir = raw;
+  if (dir === undefined) {
+    dir = process.cwd(); // 未提供旗标：CLI 惯例回落当前目录
+  } else if (typeof dir !== 'string' || dir.length === 0) {
+    console.error('[mcp-server] --project-dir 需要一个非空路径值');
+    process.exit(1);
+  }
+  if (dir.includes('\0')) {
+    console.error('[mcp-server] --project-dir 含 NUL 字节，拒绝执行');
+    process.exit(1);
+  }
+  return resolve(dir);
+}
 
+const projectDir = resolveProjectDir(args.projectDir);
+
+/**
+ * 把单个「旗标 + 值」样本切成 argv token，识别双引号与反斜杠转义。
+ *
+ * 为什么还需要它：17 个工具分支历史上按 shell 串习惯写法传参（`--gate all`、
+ * `--test-cmd "<cmd>"`）。shell 移除后这些串仍是**单个**数组元素，直接透传会变成
+ * 一个含空格的 argv token（`--gate all` 被脚本当成未知旗标而拒绝）。本函数把
+ * 旧写法无损还原为 token 序列。
+ *
+ * 安全边界：切分发生在**已经无法逃逸**之后。token 由 spawnSync 经 CreateProcess/
+ * execve 直传，不解析 shell 元字符——`&&`、`;`、`|`、`$()` 只是普通字符。
+ */
+function splitArgTokens(spec) {
+  const tokens = [];
+  let cur = '';
+  let inQuote = false;
+  let started = false; // 区分「空 token」（引号空串应保留）与「无 token」
+  for (let i = 0; i < spec.length; i++) {
+    const ch = spec[i];
+    if (ch === '\\' && i + 1 < spec.length && (spec[i + 1] === '"' || spec[i + 1] === '\\')) {
+      cur += spec[++i];
+      started = true;
+    } else if (ch === '"') {
+      inQuote = !inQuote;
+      started = true; // `""` 合法空 token
+    } else if (!inQuote && /\s/.test(ch)) {
+      if (started) { tokens.push(cur); cur = ''; started = false; }
+    } else {
+      cur += ch;
+      started = true;
+    }
+  }
+  if (started) tokens.push(cur);
+  return tokens;
+}
+
+/** 把调用方给的参数数组规范化为 argv token 序列（每一项可含数个 token）。 */
+function toArgvTokens(scriptArgs) {
+  return scriptArgs.flatMap((a) => splitArgTokens(String(a)));
+}
+
+/**
+ * 以 **argv 数组形态**执行技能脚本（cycle-72 P0 安全根修）。
+ *
+ * 旧实现 `execSync(\`node "${scriptPath}" "${projectDir}" ${scriptArgs.join(' ')}\`)`
+ * 把路径与参数拼进 shell 命令行：`projectDir` 含空格、双引号或 `&&`/`;` 时
+ * 即成为命令注入（Windows 为主平台，路径带空格属常态，本机恰好无空格所以从未爆雷）。
+ * 引号包裹不是防线——值里的 `"` 本身就能闭合它。
+ *
+ * 现在改为 spawnSync(command, argsArray)：projectDir 是**独立 argv token**，
+ * shell 完全不参与解析，任何字节都只是路径或参数的字面内容。
+ * 这与 src/host/skillInvoker.ts:200 的宿主侧形态一致（同一约定：脚本第一个
+ * 位置参数是项目目录，`node <script> <workspace> ...args`）。
+ */
 function runScript(scriptName, scriptArgs = []) {
   const scriptPath = join(SKILL_ROOT, 'scripts', scriptName);
   if (!existsSync(scriptPath)) {
     return { success: false, error: `Script not found: ${scriptName}` };
   }
-  try {
-    const cmd = `node "${scriptPath}" "${projectDir}" ${scriptArgs.join(' ')}`;
-    const output = execSync(cmd, { timeout: 120000, stdio: 'pipe', encoding: 'utf-8' });
-    return { success: true, output };
-  } catch (e) {
+  const r = spawnSync('node', [scriptPath, projectDir, ...toArgvTokens(scriptArgs)], {
+    timeout: 120000,
+    encoding: 'utf-8',
+    maxBuffer: 16 * 1024 * 1024, // 大工作区 stderr 超 1MB 默认上限会 ENOBUFS
+  });
+  // 超时/无法启动（ENOENT）走 r.error；非零退出码是脚本的裁决，与启动失败区分
+  if (r.error) {
     return {
       success: false,
-      error: e.stderr ? e.stderr.toString().trim() : e.message,
-      exitCode: e.status,
+      error: /\bETIMEDOUT\b|timed out/i.test(r.error.message) ? 'Script timed out' : r.error.message,
+      exitCode: r.status ?? -1,
     };
   }
+  if (r.status === 0) return { success: true, output: r.stdout ?? '' };
+  return {
+    success: false,
+    error: (r.stderr || r.stdout || '').toString().trim(),
+    exitCode: r.status ?? -1,
+  };
 }
 
 function readYamlConfig() {

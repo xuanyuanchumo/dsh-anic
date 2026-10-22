@@ -110,6 +110,18 @@ function makeCtxWithWs(ws: string): ReturnType<typeof makeCtx> {
   };
 }
 
+/**
+ * 补齐自举前置（cycle-72）：`.cycles/config.yml` + 至少一个 `cycle-N/` 目录。
+ *
+ * 三个 self 端点现在走前置守卫，缺前置即 412——这些用例要测的是**裁决路径**，
+ * 故必须先把环境准备好，否则测到的是守卫而不是被测语义（守卫本身另有专测）。
+ */
+function writeBootstrapPrereqs(ws: string): void {
+  mkdirSync(join(ws, '.cycles', 'cycles', 'cycle-1'), { recursive: true });
+  writeFileSync(join(ws, '.cycles', 'config.yml'),
+    'build_cmd: "echo build"\ntest_cmd: "echo ok"\nlint_cmd: "echo lint"\n', 'utf8');
+}
+
 /** 领域 gate-check 输出格式的假技能脚本（parseGateLines/parseGateVerdict 消费面）。 */
 function writeFakeSkillScripts(ws: string, gateStdout: string, gateStderr = '', gateExit = 0): string {
   const scriptsDir = join(ws, '.dsh', 'skills', 'ai-native-iteration-cycle', 'scripts');
@@ -481,7 +493,7 @@ describe('selfBootstrapRoute', () => {
 
   it('POST /anic/self/evaluate — 假脚本全绿 → score=1 + 状态推进 EVALUATING', async () => {
     const ws = mkTmp('anic-sb-eval');
-    mkdirSync(join(ws, '.cycles'), { recursive: true });
+    writeBootstrapPrereqs(ws);
     const scriptsDir = join(ws, '.dsh', 'skills', 'ai-native-iteration-cycle', 'scripts');
     mkdirSync(scriptsDir, { recursive: true });
     writeFileSync(join(scriptsDir, 'init-workflow.mjs'), '// sentinel\n', 'utf8');
@@ -496,6 +508,12 @@ describe('selfBootstrapRoute', () => {
     const body = captured.body as Record<string, unknown>;
     expect(body.score).toBe(1);
     expect(body.exitCode).toBe(0);
+    // cycle-72：端点已接 FlowTracker——flowId 必须出现在响应体（旧实现零记账）
+    expect(typeof body.flowId).toBe('string');
+    const tracker = JSON.parse(readFileSync(join(ws, '.cycles', 'flow-tracker.json'), 'utf8'));
+    expect(tracker.flows).toHaveLength(1);
+    expect(tracker.flows[0].script).toBe('eval-runner');
+    expect(tracker.flows[0].status).toBe('DONE');
     // 状态文件已推进（磁盘事实）
     const state = JSON.parse(readFileSync(join(ws, '.cycles', 'self-bootstrap.json'), 'utf8'));
     expect(state.status).toBe('EVALUATING');
@@ -504,7 +522,7 @@ describe('selfBootstrapRoute', () => {
 
   it('POST /anic/self/gate-check — 假脚本 PASSED → verdict=PASS + 状态推进 GATE_CHECKING', async () => {
     const ws = mkTmp('anic-sb-gate');
-    mkdirSync(join(ws, '.cycles'), { recursive: true });
+    writeBootstrapPrereqs(ws);
     writeFakeSkillScripts(ws, [
       '[PASS] G0: ok',
       '[PASS] G1: ok',
@@ -520,6 +538,10 @@ describe('selfBootstrapRoute', () => {
     expect(captured.status).toBe(200);
     const body = captured.body as Record<string, unknown>;
     expect(body.verdict).toBe('PASS');
+    // cycle-72：gate 调用同样记账
+    const tracker = JSON.parse(readFileSync(join(ws, '.cycles', 'flow-tracker.json'), 'utf8'));
+    expect(tracker.flows).toHaveLength(1);
+    expect(tracker.flows[0].script).toBe('gate-check');
     const state = JSON.parse(readFileSync(join(ws, '.cycles', 'self-bootstrap.json'), 'utf8'));
     expect(state.status).toBe('GATE_CHECKING');
     expect(state.lastGateVerdict).toBe('PASS');
@@ -527,7 +549,7 @@ describe('selfBootstrapRoute', () => {
 
   it('POST /anic/self/iterate — FAIL 路径写 tech-debt 提案（R-31 不自改代码）', async () => {
     const ws = mkTmp('anic-sb-iter');
-    mkdirSync(join(ws, '.cycles'), { recursive: true });
+    writeBootstrapPrereqs(ws);
     const scriptsDir = join(ws, '.dsh', 'skills', 'ai-native-iteration-cycle', 'scripts');
     mkdirSync(scriptsDir, { recursive: true });
     writeFileSync(join(scriptsDir, 'init-workflow.mjs'), '// sentinel\n', 'utf8');
@@ -545,11 +567,65 @@ describe('selfBootstrapRoute', () => {
     expect(body.gateVerdict).toBe('FAIL');
     expect(body.fixApplied).toContain('tech-debt/self-bootstrap-round-1.json');
     expect(Array.isArray(body.techDebtProposals)).toBe(true);
+    // cycle-72 取证补齐验收：iterate = eval + gate 两次调用 ⇒ flow-tracker ≥ 2 条
+    expect(typeof body.evalFlowId).toBe('string');
+    expect(typeof body.gateFlowId).toBe('string');
+    const tracker = JSON.parse(readFileSync(join(ws, '.cycles', 'flow-tracker.json'), 'utf8'));
+    expect(tracker.flows.length).toBeGreaterThanOrEqual(2);
+    expect(tracker.flows.map((f: { script: string }) => f.script)).toEqual(
+      expect.arrayContaining(['eval-runner', 'gate-check']),
+    );
     // 提案文件确已落盘且声明 REVIEW_REQUIRED（R-31：自举不自改）
     const tdPath = join(ws, '.cycles', 'tech-debt', 'self-bootstrap-round-1.json');
     expect(existsSync(tdPath)).toBe(true);
     const proposal = JSON.parse(readFileSync(tdPath, 'utf8'));
     expect(proposal.action).toContain('REVIEW_REQUIRED');
     expect(proposal.source).toBe('self-bootstrap');
+  });
+
+  // cycle-72 P0：缺前置必须是**专用错误码**，不得折叠成 evalScore 0 / FAIL。
+  // 这是两轮自举恒 0 分的根因（eval-runner 缺 config 即 exit 1），修复后必须
+  // 在契约层钉死三者：HTTP 状态码、机器错误码、可执行修复指引。
+  it('缺 .cycles 前置 → 412 + ANIC_BOOTSTRAP_PRECONDITION（不产 0 分提案）', async () => {
+    const ws = mkTmp('anic-sb-preflight');
+    mkdirSync(join(ws, '.cycles'), { recursive: true });
+    const scriptsDir = join(ws, '.dsh', 'skills', 'ai-native-iteration-cycle', 'scripts');
+    mkdirSync(scriptsDir, { recursive: true });
+    writeFileSync(join(scriptsDir, 'init-workflow.mjs'), '// sentinel\n', 'utf8');
+    const { ctx, routes } = makeCtxWithWs(ws);
+    registerSelfBootstrapRoutes(ctx, sendFn);
+
+    for (const p of ['/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate']) {
+      const { captured, res } = makeRes();
+      routes.get(p)!({ body: { maxRounds: 1 } }, res);
+      await flushMicrotasks(80);
+      expect(captured.status).toBe(412);
+      const body = captured.body as { error?: { code?: string; preconditionCode?: string; remedy?: string } };
+      expect(body.error?.code).toBe('ANIC_BOOTSTRAP_PRECONDITION');
+      expect(body.error?.preconditionCode).toBe('CONFIG_MISSING');
+      expect(body.error?.remedy).toContain('init-workflow');
+    }
+    // 关键断言：未产出任何 0 分 tech-debt 提案（旧缺陷的可见症状）
+    expect(existsSync(join(ws, '.cycles', 'tech-debt'))).toBe(false);
+    // 且状态文件未被写成 FAIL/0——守卫在动作之前拦截，而非事后纠正
+    expect(existsSync(join(ws, '.cycles', 'self-bootstrap.json'))).toBe(false);
+  });
+
+  it('有 config 但无 cycle 目录 → 412 CYCLE_DIR_MISSING（与 CONFIG_MISSING 分开报）', async () => {
+    const ws = mkTmp('anic-sb-nocycle');
+    mkdirSync(join(ws, '.cycles'), { recursive: true });
+    writeFileSync(join(ws, '.cycles', 'config.yml'), 'test_cmd: "echo ok"\n', 'utf8');
+    const scriptsDir = join(ws, '.dsh', 'skills', 'ai-native-iteration-cycle', 'scripts');
+    mkdirSync(scriptsDir, { recursive: true });
+    writeFileSync(join(scriptsDir, 'init-workflow.mjs'), '// sentinel\n', 'utf8');
+    const { ctx, routes } = makeCtxWithWs(ws);
+    registerSelfBootstrapRoutes(ctx, sendFn);
+    const { captured, res } = makeRes();
+    routes.get('/anic/self/evaluate')!({}, res);
+    await flushMicrotasks(30);
+    expect(captured.status).toBe(412);
+    const body = captured.body as { error?: { preconditionCode?: string; remedy?: string } };
+    expect(body.error?.preconditionCode).toBe('CYCLE_DIR_MISSING');
+    expect(body.error?.remedy).toContain('init-cycle');
   });
 });
