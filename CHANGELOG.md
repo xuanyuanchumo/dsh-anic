@@ -1,5 +1,106 @@
 # dsh-anic CHANGELOG
 
+## v0.40.0 — 2026-10-22（cycle-41..71；**cycle-71 补录**——此前 CHANGELOG 停在 v0.38.0）
+
+> **补录说明**：v0.39.0/v0.40.0 的版本号在 `package.json` 与 git commit 里早已生效
+> （`2ada8b3` v0.39.0 / `3c70baa` v0.40.0），但 **CHANGELOG 未同步**——两代未记录。
+> cycle-71 补录，并加**版本锚点守卫**（`tests/contract/versionAnchorContract.test.ts`）防再漂。
+
+### cycle-71 本轮：阻断级 P0 修复 + 用户核心 UI 要求落地 + 三路研究
+
+**① 阻断级 P0：H2 扫描死循环（非全局正则 `exec`）**
+- **缺陷**：`classifyDestructiveLine` 对**非全局**正则调 `re.exec(line)` 循环到 `null`。非全局
+  `exec` **忽略 `lastIndex`**，每次返回同一首个命中且 `lastIndex` 恒 0——零宽保护
+  `if (m.index === re.lastIndex) re.lastIndex++` **永不触发**（`m.index` 是命中下标、`lastIndex` 是 0）→ **死循环**。
+- **后果实测（两处）**：① vitest 跑完 121/122 文件后**永不打印汇总、进程不退出**（整条
+  `pnpm run test` 挂死 >25min）；② **`checkH2` 同路径——任何含破坏性命令词形的 diff 会挂住宿主进程**。
+- **修复**：模块级全局副本 + `String.prototype.matchAll`（按 species 克隆迭代、只读调用者
+  `lastIndex`、天然有界，不依赖调用方推进）。
+- **补全第二缺陷**：设计定义引用上下文含「**注释内**、文档块」，首版只做引号 → 本体 JSDoc
+  说明行仍自触发熔断。补四类（散文行 `#`/`*`、字符串、`//` 注释、行内代码）+ URL scheme 漏报面防线。
+- **T3**：`hitlAudit.ts` 290→226 行（扫描域拆出 `governance/destructiveScan.ts`，re-export 保 API 稳定）。
+- 契约：`hitlAuditContract` 44 例（含**自免疫钉**：本体源码词形行全部降敏）。
+
+**② 阻断级 P0：mcp-server 命令注入（安全）**
+- `assets/skill/scripts/mcp-server.mjs` 旧用 `execSync` **模板串拼接** `projectDir` →
+  路径含空格/引号/`&&`/`;` 即成命令注入。**独立复核确认真实可利用**（旧模板串在恶意路径下写出哨兵文件）。
+- 修复：`spawnSync` **argv 形态** + `resolveProjectDir` 形状校验（NUL/显式空值响亮拒绝；
+  顺带修掉「显式传空静默回落 cwd」的静默降级）+ 7 例回归含**反向自检**。
+
+**③ P0：自举「缺前置被折叠成 0 分」（L4 收敛不可能的结构根因）**
+- 两轮 `lastEvalScore:0`/`gateVerdict:FAIL`、`CONVERGED` 恒假的根因**不是解析器坏了**，
+  而是 `eval-runner` 缺 `.cycles/config.yml` 时硬 `exit(1)`，插件记为 `evalScore 0`
+  → 自举**无法区分「缺前置」与「真失败」**。
+- 修复：`bootstrapPreflight.ts` 专用前置码 + 编排器拦截 + 网关 + **HTTP 412**；空工作区
+  **不再产出误导性 0 分提案**（`rounds.length=0`，`tech-debt/` 不创建）。
+- 伴生 **P0 取证面缺位**：`/anic/self/*` 三端点零 FlowTracker（状态文件有失败、流里零条）
+  → `selfBootstrapFlow.ts` 唯一实现接入；**真机复核新增 flow-tracker 记录**。
+- `scriptParsers` 三态（passed/failed/not-run+reason，薄包装零破坏，**fail-closed 不变**）；
+  异步 rounds 补 `fixFlowId`/`verifyFlowId`（四 ID 互异断言）。
+
+**④ P0：用户核心 UI 要求（真机 3080 验证）**
+- **默认只展开最近一次已完成调用** → 10 分区 `defaultOpen` 收口为 **8 闭 / 2 开**
+  （仅 `diagnostics`/`hitl` 为兜底观测面）；新增 `data-anic-fold-state` 锚点。
+- **最近一次已完成调用全貌卡**（七段；⑤归属/⑥证据按 INV-27 **刻意留空**、⑦门禁裁决带
+  `heuristic` 标注）；`role=region` **不含 `aria-live`**（APG：自动更新内容禁 live region）。
+- **折叠记忆**（`foldPrefs`，`PREFS_KEY` 加 `folds` 段**不升 version**）——原 `open:true` 是
+  「初值当受控值」；改受控后**内存先行 + storage best-effort**（隐私模式下只信 localStorage
+  会让受控值反向）——**真机等 2 轮 4s tick 验证折叠不弹回**。
+- 量化补全：P50/P95/max + 错误码直方图（新 `invocationQuant.ts`）+ skillHealth `lastInvoked`
+  + techDebt `proposedAction`/年龄。
+
+**⑤ DSH 规范文档校正（asar 一手取证）**
+- **宿主基线错证**：本机实测 **0.2.1-rc.2**（`runtime/primary-runtime/runtime.json` 的
+  `desktopVersion` + asar `dsh/package.json` 双证），非文档长期所写的 0.2.0-rc.2
+  （该版本**从未安装**）→ 「0.2.0 系列已验证」改读作「**声明下限** + 0.2.1-rc.2 实测取证」。
+- **B9 叙述作废**：0.2.1-rc.2 起 **`engines.dsh` 优先且单独决定**（asar `app-boot:281-285`
+  逐字注释），无 engines 才回退 peer——双声明同范围成为正确姿势。
+- **桌面端架构纠正（KB 漂移）**：非 `file://`+IPC，实为 **`dsh-app://` privileged scheme +
+  `protocol.handle` 同源反向代理**（Origin 白名单 `dsh-app://app`，`main.js:8271`）
+  → `/anic/*` 桌面端**完全可达**；引出「客户端必须相对路径 fetch」硬约束。
+- 新增 **B12-B18** 破坏性变更类 + dsh-ops/dsh-plugin-dev-kb 吸收裁决（5 吸收 / 5 不吸收）。
+- **新增 2 契约守卫**：`dshConformance` 双锚（engines.dsh ⇄ peer 逐字相等 + `-0` 上界 +
+  无 `workspace:` + engines 必须对象）+ `clientSameOriginContract`（客户端零绝对 http(s) URL）。
+
+**⑥ 文档册补齐（docs/agents 19 → 21 册）**
+- **《工具面参考.md》**（新建）：19 工具**零覆盖**的结构性缺口 + **册⇄源码双向契约**
+  （`toolIdsContract` 10→14 用例：文档臆造/文档缺口都红）。
+- **《自举与健康取证.md》**（新建）：三工件分工 / 解析器二值语义 / **谁进 flow-tracker 谁不进** /
+  技能健康时间窗根因（cycle-57「修复从未被健康面承认」）/ **「能力就位 ≠ 真机收敛」** / 排障手册。
+- **《API参考-自举与技能.md》纠错**：解析器描述旧写「正则形状契约」**与实现互斥**
+  （实为按脚本真实输出行判定，evalScore 是**忠实二值**）→ 按真实契约重写。
+- `.cycles/cycles/cycle-71/research/三路研究汇总裁决.md`：三路研究（asar / context7 / 生态实读）并入 + 证据边界声明。
+
+**⑦ 工程与测试**
+- **测试宿主解析显式化**：`findDshCmd` 原两个硬编码候选**均不存在**（两套 profile 的
+  `@deepseek-ai/*` 是 **244 个 dangling symlink**）→ 显式解析序
+  （`DSH_TEST_CLI` → 桌面 app CLI → PATH 兜底）+ **打印宿主版本**（消除「版本不可知」）。
+- **测试塔**：vitest **128 文件 / 1627 用例**（本轮 +7 文件 +112 用例）；全量金字塔 ALL GREEN（30.3s）。
+- **真机验证**（Chrome DevTools MCP）：折叠 8/2 实测 · 跨 2 轮 tick 稳定 · HITL 4/4 PASS ·
+  API 5 端点 200 · ANIC 标签挂载 245 节点/378 边 · 控制台本插件零错误。
+- **门禁**：G0-G3 全过（账本 hash `d65909c7` / `b7139da6`）。
+
+**诚实边界**：**未宣称自举已收敛**（本轮修的是「收敛不可能」的根因，真实 `CONVERGED` 尚需
+完整全绿一轮）；**白盒四元组未完整**（「流程流向/运行产物」两元仍缺——调用与 cycle/phase/门禁
+**零 join key**）；**j0-probe 未跑**（`@playwright/test` 工具链不可达）改用 Chrome DevTools MCP
+等价验证；E5 性能基线/覆盖率**未采样**（SKIP 如实标注）。
+
+> v0.40.0 系列横跨 cycle-41..71（31 轮提交）。cycle-41 起的主线：invocations 默认展开语义 +
+  聚合播报 + 九分区折叠壳 + 概览量化（cycle-41）；live 域时序三轮深化（cycle-60/63/64）；
+  面板分区装配契约 + G-DOC-API / API 数据面形状三腿契约（cycle-66/67/69）；H2 词边界修复
+  （cycle-68，挂账 20 轮终点）；场地复核点按期执行（cycle-70/65）；守卫族命名收口（cycle-58）；
+  时间窗健康三件套（cycle-57）；测试体系审计（cycle-59）；响应式断点表契约（cycle-61）；
+  E5 性能基线工件通道（cycle-62）。
+
+## v0.39.0 — 2026-10-21（cycle-40；**cycle-71 补录**）
+
+研究驱动深挖轮——迁移合法性矩阵 **5/5 收口**（`validateRecordShape` 记录类型白名单 +
+`cycleRunner.advanceCycle` 哈希链 fail-closed 校验）+ E3/E8 根因归档修正（execSync ENOBUFS、
+技能 v2.4.0 三态判定）+ 文档审计 P0×2/P1×8/P2×5/P3×6 全修（G-IND 颠倒 / inject 四元 /
+62 端点闭合 / flows 域补录）+ KB 吸收 `toolsSlot`（`timeoutMs` / `isConcurrencySafe`）+
+UI 研究 Top1/Top3（`usePanelFetch` 退避 + abort + 稳定 key）+ iterate 超时参数化 + Post-Verify 环 +
+场地 journey 红→绿 + DiffPanel a11y + G0-G3 全过。技能 **v2.3.0→v2.4.0**。
+
 ## v0.38.0 — 2026-10-20
 
 cycle-39：**研究驱动优化轮（1×P0 + 6×P1 修复 + journey 门禁落地 + 场地 3 实验）**——P0-DAG-PARSE 根除（stateMachine 解析器三形状实证失明）+ quick-validate 网关相对路径自动解析（flow #29）+ journey_coverage 门禁双侧实现（场地首跑抓 3 处真漂移）+ W-3 全档测试报告投影 + 19/19 presentCall 完备 + TerminalCallView 官方字段名 + skillRoute 行为测试 + 文档数字契约。技能 v2.2.0→**v2.3.0**。vitest 106→**109 文件 1294→1325 用例**。
