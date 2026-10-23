@@ -199,3 +199,49 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
     }
   });
 });
+describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「确保生产与消费」）', () => {
+  /**
+   * 为什么需要「不增长」棘轮（而非只钉几条样例）：
+   * 原有断言只要求「基线里**某些**缺口仍被报出」。于是新增 100 个无人消费的键/路由
+   * 也能全绿——**未消费面可以静默膨胀**，正是用户诉求点名的「产物未使用却无人察觉」。
+   * 本棘轮把**分族计数**钉成上限：只许降（修掉缺口）、不许升；
+   * 一旦升级（新增未消费资产）立刻红，迫使改动者显式面对。
+   *
+   * 为什么按**族**钉而非逐项：逐项清单会让每次新增工具/键都要改这一个大数组，
+   * 易漏易冲突；分族计数是紧的上界且维护成本低，配合既有逐项基线已足够。
+   */
+  const BASELINE: Record<string, number> = { i18n: 45, routes: 44 };
+
+  /**
+   * 棘轮判据（**抽成纯函数**，好让反向自检能对着同一判据证明它两态可分）。
+   * `null` = 未超限（合规）；否则返回一句人话理由。
+   */
+  function growthViolation(cl: { cluster: string; unconsumed: number }): string | null {
+    const limit = BASELINE[cl.cluster];
+    if (limit === undefined) return null;
+    return cl.unconsumed > limit
+      ? `族 ${cl.cluster} 未消费数 ${cl.unconsumed} 超过基线 ${limit}——新增了无人消费的资产。`
+        + '要么补消费方，要么显式上调基线并说明理由。'
+      : null;
+  }
+
+  it('分族未消费数**不得超过**基线（只许降不许升）', () => {
+    for (const cl of summary.clusters) {
+      expect(growthViolation(cl), '未消费面静默膨胀').toBeNull();
+    }
+  });
+
+  it('总量未消费数不得超过基线之和（89）', () => {
+    const limit = Object.values(BASELINE).reduce((a, b) => a + b, 0);
+    expect(summary.totals.unconsumed).toBeLessThanOrEqual(limit);
+  });
+
+  it('反向自检：同一判据能判「合规/违规」两态（不是恒真断言）', () => {
+    // 对着**生产判据本身**证明它两态可分——而非另写一段模仿逻辑（那样证明不了真判定器）。
+    expect(growthViolation({ cluster: 'i18n', unconsumed: BASELINE.i18n ?? 0 }), '等于基线应合规').toBeNull();
+    expect(growthViolation({ cluster: 'i18n', unconsumed: (BASELINE.i18n ?? 0) - 1 }), '低于基线应合规').toBeNull();
+    expect(growthViolation({ cluster: 'i18n', unconsumed: (BASELINE.i18n ?? 0) + 1 }), '+1 必须被判违规').not.toBeNull();
+    // 未列入基线的族不参与棘轮（新增族由人显式登记，不静默判违规）
+    expect(growthViolation({ cluster: 'unknown-cluster', unconsumed: 9999 })).toBeNull();
+  });
+});
