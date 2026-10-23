@@ -11,6 +11,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getToolDisclosure } from './toolDisclosure.ts';
 
 export const CANONICAL_CONFIG = '.cycles/config.yml';
 export const LEGACY_CONFIG = '.cycles/cycle-config.yml';
@@ -26,6 +27,8 @@ export interface WorkspaceConfig {
     autonomyLevel: 'L1' | 'L2' | 'L3' | 'L4';
     /** anic 段的开关覆盖（F 族 workspace 层数据源；键为 flow.* 全量 id） */
     flowOverrides: Record<string, boolean>;
+    /** 工具面披露模式（cycle-74）：'full'（默认，零行为变更）| 'indexed'（索引+按需激活）。 */
+    toolDisclosure: 'full' | 'indexed';
     /**
      * 允许跨源读取本插件 HTTP 面的来源白名单（P0-8）。
      *
@@ -113,7 +116,7 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
     return {
       source: 'missing',
       warnings: [`workspace config not found (expected ${CANONICAL_CONFIG}); run skill init-workflow first`],
-      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {}, allowedOrigins: [] },
+      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {}, allowedOrigins: [], toolDisclosure: 'full' },
     };
   }
 
@@ -143,6 +146,7 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
       autonomyLevel: autonomy,
       flowOverrides: anicSection.flows,
       allowedOrigins: anicSection.allowedOrigins,
+      toolDisclosure: getToolDisclosure(content),
     },
   };
 }

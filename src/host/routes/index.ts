@@ -15,6 +15,8 @@ import { pluginAssetDir, resolvePluginRoot } from '../pluginRoot.ts';
 import { registerSnapshotRoute, type SnapshotCtx } from '../snapshotRoute.ts';
 import { registerStepTraceRoute } from './stepTraceRoute.ts';
 import { registerSelfCheckRoute } from './selfCheckRoute.ts';
+import { loadWorkspaceConfig } from '../config.ts';
+import { join } from 'node:path';
 import { registerSelfInitRoute } from './selfInitRoute.ts';
 import { registerCycleRoute } from './cycleRoute.ts';
 import { registerLedgerRoute } from './ledgerRoute.ts';
@@ -70,7 +72,18 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
   disposers.push(
     registerSnapshotRoute(ctx),
     registerStepTraceRoute(ctx),
-    registerSelfCheckRoute(ctx, { send, getWorkspaceRoot, agentCardsDir, indexDir: defaultIndexDir() }),
+    registerSelfCheckRoute(ctx, {
+      send, getWorkspaceRoot, agentCardsDir, indexDir: defaultIndexDir(),
+      // cycle-74：披露模式从工作区配置读（INV-25 单入口；缺省 full ⇒ 零行为变更）。
+      // 读不到工作区时回落 'full'（fail-closed 到零变更，绝不悄悄切 indexed）。
+      toolDisclosure: (() => {
+        try {
+          const root = getWorkspaceRoot();
+          if (!root) return 'full' as const;
+          return loadWorkspaceConfig(join(root, '.cycles')).values.toolDisclosure;
+        } catch { return 'full' as const; }
+      })(),
+    }),
     registerSelfInitRoute(ctx, { send, getWorkspaceRoot, loadFlows }),
     // 动态白盒数据面（cycle-97）：无工作区依赖，feed 缺失时显式 500。
     registerInvocationRoute(ctx, { send, feed: options.invocationFeed ?? null }),

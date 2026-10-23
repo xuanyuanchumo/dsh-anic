@@ -161,12 +161,16 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
     expect(body).toContain('ANIC_ROUTE_SELF_CHECK_NO_WORKSPACE');
   });
 
-  it('绿工作区 → 200 {checks:7, allOk:true, requestId}（探针失败不抛异常——诊断端点诚实形态）', () => {
+  it('绿工作区 → 200 {checks:8, allOk:true, requestId}（探针失败不抛异常——诊断端点诚实形态）', () => {
     const h = makeHarness(greenWorkspace());
     const cap = h.call({ method: 'GET' });
     expect(cap.status).toBe(200);
     const body = cap.body as { checks: ProbeResult[]; allOk: boolean; requestId: string };
-    expect(body.checks).toHaveLength(7);
+    expect(body.checks).toHaveLength(8);
+    // P8（cycle-74）：披露模式的运行时消费者——默认 full（零行为变更）必须如实反映
+    const p8 = probeMap(body.checks).get('P8-tool-disclosure-mode');
+    expect(p8?.ok).toBe(true);
+    expect(String(p8?.detail)).toContain('mode=full');
     expect(body.allOk).toBe(true);
     expect(body.requestId).toBeTruthy();
   });

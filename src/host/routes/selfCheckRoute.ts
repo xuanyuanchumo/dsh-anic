@@ -21,7 +21,8 @@ import { buildWorkflowSnapshot } from '../../shared/snapshotCore.ts';
 import { buildStepTrace } from '../../shared/stepTrace.ts';
 import { loadWorkspaceConfig } from '../config.ts';
 import { loadAgentCards } from '../agents.ts';
-import { checkIndexDrift } from '../capabilityIndexRuntime.ts';
+import { checkIndexDrift, loadInjectedIndex } from '../capabilityIndexRuntime.ts';
+import { resolveDisclosureMode } from '../toolDisclosure.ts';
 import { captureRegisteredFaces } from '../toolsFaceCapture.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
@@ -42,6 +43,8 @@ export interface SelfCheckInput {
   agentCardsDir: string;
   /** 能力索引目录（插件 assets/index；cycle-73 P7 探针读取） */
   indexDir: string;
+  /** 工具披露模式初值（cycle-74 P8；缺省 'full'）。 */
+  toolDisclosure?: 'full' | 'indexed';
 }
 
 /** 运行六项运行时不变量探针并返回逐项结果。 */
@@ -109,6 +112,21 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
   // P6 INV-26 形态声明（运行时无副作用：本端点零写路径；源码守卫 tests/contract/independenceGuard.test.ts 常驻）
   checks.push({ id: 'P6-diagnostics-domain-isolation', inv: 'INV-26', ok: true, detail: 'self-check is read-only by construction (no write path in this module)' });
 
+  // P8 工具披露模式（cycle-74）：机制已 A0′ PASS，但实现**默认 full**（零行为变更）。
+  // 本探针是披露配置的**运行时消费者**——否则该配置又成了「写了没人读」的制品。
+  try {
+    const mode = resolveDisclosureMode(input.toolDisclosure);
+    const idx = loadInjectedIndex(input.indexDir);
+    const bytes = idx ? Buffer.byteLength(JSON.stringify(idx), 'utf8') : 0;
+    checks.push({
+      id: 'P8-tool-disclosure-mode',
+      ok: true,
+      detail: `mode=${mode} (default full, zero behavior change); index=${String(bytes)}B`,
+    });
+  } catch (e) {
+    checks.push({ id: 'P8-tool-disclosure-mode', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });
+  }
+
   // P7 能力索引 ⇄ 注册面（cycle-73 T-7301）：索引制品的**运行时消费者**。
   // 不接这一段，索引就只剩「制品 + 测试」——正是本轮反复收口的「产物生成了但没人读」。
   // 判据与 capabilityIndexContract 同源（共用 capabilityIndex.ts / Runtime），不写第二套。
@@ -125,7 +143,17 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
 }
 
 /** HTTP 注册（GET /anic/api/self-check）。deps 注入与 selfInit 同形态；只读。 */
-export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown, status: number, body: unknown, requestId?: string) => void; getWorkspaceRoot: (req?: unknown) => string | null; agentCardsDir: string; indexDir: string }): (() => void) | null {
+export function registerSelfCheckRoute(
+  ctx: unknown,
+  deps: {
+    send: (res: unknown, status: number, body: unknown, requestId?: string) => void;
+    getWorkspaceRoot: (req?: unknown) => string | null;
+    agentCardsDir: string;
+    indexDir: string;
+    /** 工具披露模式（cycle-74 P8；缺省 'full'）。 */
+    toolDisclosure?: 'full' | 'indexed';
+  },
+): (() => void) | null {
   const c = ctx as SnapshotCtx;
   const webServer = c.webServer;
   if (!webServer || typeof webServer.register !== 'function') return null;
@@ -139,7 +167,12 @@ export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown
         return;
       }
       try {
-        const result = runSelfChecks({ workspaceRoot: root, agentCardsDir: deps.agentCardsDir, indexDir: deps.indexDir });
+        const result = runSelfChecks({
+          workspaceRoot: root,
+          agentCardsDir: deps.agentCardsDir,
+          indexDir: deps.indexDir,
+          toolDisclosure: deps.toolDisclosure ?? 'full',
+        });
         deps.send(res, 200, result, result.requestId);
       } catch (e) {
         deps.send(res, 500, { error: e instanceof Error ? e.message : String(e) });
