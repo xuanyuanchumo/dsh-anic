@@ -157,7 +157,13 @@ describe('源码形状守卫（slots / disposer / 注入形态）', () => {
     // 而不是单条 snapshotRoute。断言聚合器名而非"任意函数"，否则把聚合器整个删掉
     // 改成只注册一条也会绿。
     const indexText = readFileSync(index ?? '', 'utf8');
-    expect(indexText).toMatch(/effect\(\s*\(\)\s*=>\s*registerAnicRoutes/);
+    // cycle-74 P0：路由面拆为独立子 fiber（anicRoutesPlugin 声明 inject webServer）。
+    // 入口经 wireRoutes 承接；子插件内部仍走聚合器 registerAnicRoutes。
+    expect(indexText).toMatch(/wireRoutes\(ctx/);
+    expect(indexText).not.toMatch(/inject\s*=\s*\[[^\]]*'webServer'/);
+    const pluginText = readFileSync(SRC_FILES.find((f) => f.endsWith('anicRoutesPlugin.ts')) ?? '', 'utf8');
+    expect(pluginText).toMatch(/inject:\s*\['webServer'\]/);
+    expect(pluginText).toMatch(/registerAnicRoutes/);
 
     // 聚合器必须逐个承接子路由 disposer 并逐个清理：filter(typeof === 'function')
     // 后 for-of 调用，是"少清一条"的唯一防线。
@@ -224,7 +230,9 @@ describe('源码形状守卫（slots / disposer / 注入形态）', () => {
     const indexText = readFileSync(SRC_FILES.find((f) => /src[\\/]index\.ts$/.test(f)) ?? '', 'utf8');
     // cycle-97：skills 进静态 inject（官方 dsh-skill-badge 同形态；ctx.inject 动态
     // 挂载在真实宿主不触发——见 src/index.ts 文件头）。workspaceRegistry 仍走探测。
-    expect(indexText).toMatch(/inject\s*=\s*\['tools',\s*'webServer',\s*'sessions',\s*'skills'\]/);
+    // cycle-74 P0：webServer 不再在父 inject（它由 dsh-web-app 提供，headless 无 => 整插件 pending）。
+    expect(indexText).toMatch(/inject\s*=\s*\['tools',\s*'sessions',\s*'skills'\]/);
+    expect(indexText, 'webServer 必须不在父 inject（P0）').not.toMatch(/inject\s*=\s*\[[^\]]*webServer/);
     expect(indexText).not.toMatch(/inject\s*=\s*\[[^\]]*workspaceRegistry/);
   });
 });

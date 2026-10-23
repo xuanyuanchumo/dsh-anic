@@ -381,7 +381,8 @@ describe('宿主入口 apply', () => {
     // label 必须点明是聚合注册（少一层即功能面缺失）
     expect(effect.mock.calls[0]?.[1]).toContain('dsh-anic: runtime skill');
     expect(effect.mock.calls[1]?.[1]).toContain('dsh-anic: routes');
-    expect(effect.mock.calls[1]?.[1]).toContain('snapshot');
+    // cycle-74 P0：路由改由独立子 fiber 承接（label 随实现更新）；子插件内部仍走聚合器。
+    expect(effect.mock.calls[1]?.[1]).toContain('child fiber');
     expect(effect.mock.calls[3]?.[1]).toContain('dsh-anic: builtin flows');
     expect(effect.mock.calls[4]?.[1]).toContain('dsh-anic: tool disclosure');
     // M1 全功能面：四条路由一次注册齐（少一条即功能面缺失）

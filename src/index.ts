@@ -1,12 +1,21 @@
 /**
  * dsh-anic host entry（M1..M8 全功能面）。
  *
- * inject 与父工程同纪律：只列**必需**服务。webServer 承载路由；sessions 是工作区
- * 解析的第一后备来源（registry 是可选服务，用 ctx.get 探测，不进 inject ——
- * 父工程 workspaceRegistry 同形态）。tools 是 DSH 工具注册槽位（M8 G-TOOL），
- * 供其他会话/agent 调用 dsh-anic 的能力（anic_evaluate/iterate/gate_check/bootstrap）。
- * skills 是官方技能注册槽位（cycle-97）：经 ctx.skills.register 把本技能注册为
- * runtime skill，模型经官方 skill 工具发现并调用，调用进 DSH 轨迹。
+ * inject 只列**本插件自身必需**的服务：
+ *   tools    —— DSH 工具注册槽位（21 个 anic_* 工具）；
+ *   sessions —— 工作区解析的第一后备来源（registry 为可选，用 ctx.get 探测，不进 inject）；
+ *   skills   —— 官方技能注册槽位（cycle-97），经 ctx.skills.register 注册 runtime skill。
+ *
+ * **webServer 已移出本插件 inject（cycle-74 P0 修复）**：它由 `@deepseek-ai/dsh-web-app`
+ * bundle 提供（desktop 有、headless 无）。列为硬依赖时 headless 下**整条 fiber pending**，
+ * 连不依赖它的 21 工具 / 索引 / 自举链一并失效（沙箱真机实测：
+ * `pending (waiting for service: webServer)` 且 `global_anic_count = 0`）——
+ * 属「注册了但没激活」的注册面缺口。现将路由面拆为**独立子插件**
+ * （anicRoutesPlugin：唯一声明 `inject: ['webServer']` 的地方）：缺席时只它自己 pending，
+ * 父插件照常激活；webServer 就绪后 cordis 自动激活之（组合语义）。
+ * **不是**「把 webServer 从 inject 删掉了事」：路由确实硬依赖 webServer，
+ * 直接删会丢「apply 时就绪」的保证（KB cordis-tutorial/03-services.md:35），
+ * 63 条路由可能抢跑静默丢失。
  *
  * 为什么 skills 用**静态** inject 而不是 ctx.inject 动态挂载（cycle-97 实测教训）：
  * 官方消费方（dsh-skill-badge lib/index.js）全部用静态 `const inject = ["skills"]`；
@@ -18,7 +27,7 @@
  * dsh-base 均含技能子系统，全局安装版与 asar 均已实测验证）。
  * 宿主没有 webServer 时路由整体跳过，插件主体（客户端标签 + 嵌入快照）不受影响。
  */
-import { registerAnicRoutes } from './host/routes/index.ts';
+import { wireRoutes } from './host/anicRoutesPlugin.ts';
 import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
 import { createInvocationAttributor } from './host/runtime/invocationAttribution.ts';
@@ -27,7 +36,8 @@ import { registerBuiltinFlows } from './host/flows/builtin.ts';
 import { wireToolDisclosureFromConfig } from './host/toolDisclosureWiringRuntime.ts';
 
 export const name = 'dsh-anic';
-export const inject = ['tools', 'webServer', 'sessions', 'skills'];
+// cycle-74 P0：webServer 已移交路由子插件（anicRoutesPlugin），本插件不再硬依赖它。
+export const inject = ['tools', 'sessions', 'skills'];
 
 export function apply(ctx: unknown): void {
   const c = ctx as { effect?: (fn: () => unknown, label?: string) => unknown };
@@ -43,7 +53,8 @@ export function apply(ctx: unknown): void {
     // runtime 技能注册（静态 inject 保证 skills 已就绪；stub 宿主无 skills 时
     // registerRuntimeSkill 内部探测跳过，返回 null 即无需清理）。
     c.effect(() => registerRuntimeSkill(ctx) ?? undefined, 'dsh-anic: runtime skill (ctx.skills.register)');
-    c.effect(() => registerAnicRoutes(ctx, { invocationFeed: feed }), 'dsh-anic: routes (snapshot+cycle+ledger+review+evolution+governance+self+skill+invocations+flows)');
+    // cycle-74 P0 修复：路由走**独立子 fiber**（只有它声明 inject webServer）。
+    c.effect(() => wireRoutes(ctx, { invocationFeed: feed }) ?? undefined, 'dsh-anic: routes (child fiber, webServer-scoped)');
     c.effect(() => registerAnicTools(ctx), 'dsh-anic: tools (anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check)');
     // 内置流程注册（R3 阶段 2/3）：FlowRegistry 生命周期跟随插件 fiber（卸载即注销）。
     c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check + macro-phase)');
@@ -51,7 +62,7 @@ export function apply(ctx: unknown): void {
     c.effect(() => { wireToolDisclosureFromConfig(ctx); }, 'dsh-anic: tool disclosure (agent/created, indexed only)');
   } else {
     registerRuntimeSkill(ctx);
-    registerAnicRoutes(ctx, { invocationFeed: feed });
+    wireRoutes(ctx, { invocationFeed: feed });
     registerAnicTools(ctx);
     registerBuiltinFlows();
     wireToolDisclosureFromConfig(ctx);

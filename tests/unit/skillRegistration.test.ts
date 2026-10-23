@@ -109,7 +109,9 @@ describe('入口静态 inject 契约（cycle-97）', () => {
     // 读真实入口源码：消费 ctx.skills 的接线必须经静态 inject（官方 dsh-skill-badge
     // 同形态；ctx.inject 动态挂载在真实宿主不触发——见 skillRegistration.ts 历史注记）。
     const indexText = readFileSync(join(HERE, '..', '..', 'src', 'index.ts'), 'utf8');
-    expect(indexText).toMatch(/inject\s*=\s*\['tools',\s*'webServer',\s*'sessions',\s*'skills'\]/);
+    // cycle-74 P0：webServer 不再在父 inject（它由 dsh-web-app 提供，headless 无 => 整插件 pending）。
+    expect(indexText).toMatch(/inject\s*=\s*\['tools',\s*'sessions',\s*'skills'\]/);
+    expect(indexText, 'webServer 必须不在父 inject（P0）').not.toMatch(/inject\s*=\s*\[[^\]]*webServer/);
     expect(indexText).not.toMatch(/inject\s*=\s*\[[^\]]*workspaceRegistry/);
     // apply 必须经 effect 注册技能（disposer 记账），不能裸调用后丢弃返回值
     expect(indexText).toMatch(/registerRuntimeSkill\(ctx\)\s*\?\?\s*undefined/);
