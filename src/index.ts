@@ -24,6 +24,7 @@ import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invoc
 import { createInvocationAttributor } from './host/runtime/invocationAttribution.ts';
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
 import { registerBuiltinFlows } from './host/flows/builtin.ts';
+import { wireToolDisclosureFromConfig } from './host/toolDisclosureWiringRuntime.ts';
 
 export const name = 'dsh-anic';
 export const inject = ['tools', 'webServer', 'sessions', 'skills'];
@@ -46,10 +47,13 @@ export function apply(ctx: unknown): void {
     c.effect(() => registerAnicTools(ctx), 'dsh-anic: tools (anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check)');
     // 内置流程注册（R3 阶段 2/3）：FlowRegistry 生命周期跟随插件 fiber（卸载即注销）。
     c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check + macro-phase)');
+    // cycle-74 工具面按需加载接线：默认 full 时**内部直接返回不注册监听器**（零行为变更）。
+    c.effect(() => { wireToolDisclosureFromConfig(ctx); }, 'dsh-anic: tool disclosure (agent/created, indexed only)');
   } else {
     registerRuntimeSkill(ctx);
     registerAnicRoutes(ctx, { invocationFeed: feed });
     registerAnicTools(ctx);
     registerBuiltinFlows();
+    wireToolDisclosureFromConfig(ctx);
   }
 }
