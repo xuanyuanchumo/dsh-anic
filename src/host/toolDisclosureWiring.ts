@@ -28,10 +28,22 @@ import type { CapabilityIndexInjectable } from './capabilityIndex.ts';
 
 const log = createScoped('anic:tool-disclosure');
 
+/**
+ * 索引 section 的排序位（**必须**是有限数字，否则宿主抛错——cycle-74 实测）：
+ * 官方 `systemPrompt.section()` 校验 `order` 为有限数（dsh-system-prompt 源码注释：
+ * 「duplicates within one layer and non-finite orders throw」），且官方自身一律经
+ * `getSectionOrder('KEY')` 从 `SECTION_ORDERS` 取值。
+ *
+ * 本插件取 4950：落在**工具区尾部**（TOOL_* 到 3000、MCP_SERVERS 3100）
+ * 与 `TOOLS_SDK`(5000) 之间——因为本索引正是「替代常驻工具 schema」的东西，
+ * 语义上应紧随工具定义之后、SDK 之前。**不**借用官方键名（那不是我们的语义）。
+ */
+const INDEX_SECTION_ORDER = 4950;
+
 /** 接线所需的**scoped**宿主面（本地窄化，不引宿主包）。 */
 interface ScopedCtx {
   tools?: { restrict?: (f: { deny: string[] }) => () => void };
-  systemPrompt?: { section?: (s: { name: string; order?: number; text: string }) => unknown };
+  systemPrompt?: { section?: (s: { name: string; order: number; text: string }) => unknown };
 }
 interface DisclosureHost {
   on?: (name: string, handler: (payload: { agent?: unknown }) => void) => unknown;
@@ -79,12 +91,31 @@ export function applyDisclosureToScope(
     return { wired: false, reason: 'activation blocked: 加载器（' + INDEX_LOADER_TOOLS.join('/') + '）未全部注册，切档将自锁', denyCount: 0 };
   }
   if (!scoped.tools?.restrict) return { wired: false, reason: 'host has no scoped tools.restrict (old generation/stub) — stay full', denyCount: 0 };
+  // **原子性纪律**（cycle-74 实测教训）：**先**注入索引，**后**遮蔽工具。
+  // 反序曾造成「restrict 成功、section 抛错」= 只遮蔽未注入索引——
+  // 这是本设计明令禁止的半途落地（净收益归零且模型无检索通道），
+  // 且当时的返回值 wired:false 与实际已遮蔽**不符**（谎报）。
+  // 现在：任何一步失败都在遮蔽之前中止 ⇒ 要么两半都成，要么全不动。
+  if (scoped.systemPrompt?.section) {
+    try {
+      scoped.systemPrompt.section({
+        name: 'anic:capability-index',
+        order: INDEX_SECTION_ORDER,
+        text: buildIndexSectionText(index),
+      });
+    } catch (e) {
+      return { wired: false, reason: 'index section threw (nothing restricted) — stay full: ' + (e instanceof Error ? e.message : String(e)), denyCount: 0 };
+    }
+  } else {
+    // 无 systemPrompt 通道 ⇒ 注入不可能 ⇒ 绝不能遮蔽（否则模型无检索通道 = 自锁）
+    return { wired: false, reason: 'host has no systemPrompt.section — cannot inject index, refuse to restrict (would self-lock)', denyCount: 0 };
+  }
   try {
     scoped.tools.restrict({ deny: plan.deny });
-    scoped.systemPrompt?.section?.({ name: 'anic:capability-index', text: buildIndexSectionText(index) });
     return { wired: true, reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools', denyCount: plan.deny.length };
   } catch (e) {
-    return { wired: false, reason: 'restrict threw: ' + (e instanceof Error ? e.message : String(e)), denyCount: 0 };
+    // restrict 失败 ⇒ 未遮蔽（section 已注入但无害：索引在 full 模式下只是补充信息）。
+    return { wired: false, reason: 'restrict threw (not restricted, index section only): ' + (e instanceof Error ? e.message : String(e)), denyCount: 0 };
   }
 }
 

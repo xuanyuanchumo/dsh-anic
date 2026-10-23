@@ -61,7 +61,11 @@ describe('cycle-74 T-7406 按需加载接线契约', () => {
   });
 
   it('绝不半途遮蔽：restrict 抛错 ⇒ 回落 full 且原因如实', () => {
-    const ctx = { tools: { restrict: () => { throw new Error('boom'); } } };
+    // 两通道俱在，让流程走到 restrict；restrict 抛错 ⇒ 未遮蔽（wired:false 且不与实际不符）。
+    const ctx = {
+      tools: { restrict: () => { throw new Error('boom'); } },
+      systemPrompt: { section: () => undefined },
+    };
     const out = applyDisclosureToScope(ctx, index, 'indexed', ids);
     expect(out.wired).toBe(false);
     expect(out.reason).toContain('boom');
@@ -170,5 +174,50 @@ describe('cycle-74 T-7408 per-agent 解析（修多工作区错配）', () => {
     const a = agentWithCwd('D:/p/a');
     h.emit(a.agent);
     expect(a.calls.deny).toBeUndefined();
+  });
+});
+describe('cycle-74 T-7408 原子性与 order 契约（实测教训）', () => {
+  it('section 抛错 ⇒ **不遮蔽**（restrict 不得被调用；两半要么都成，要么全不动）', () => {
+    const calls: { deny?: string[] } = {};
+    const ctx = {
+      tools: { restrict: (f: { deny: string[] }) => { calls.deny = f.deny; return () => undefined; } },
+      // 复刻宿主对非法 order 的抛错
+      systemPrompt: { section: () => { throw new Error('order must be a finite number'); } },
+    };
+    const out = applyDisclosureToScope(ctx, index, 'indexed', ids);
+    expect(out.wired).toBe(false);
+    expect(out.reason).toContain('section threw');
+    expect(calls.deny, '注入失败时绝不能遮蔽（否则模型无检索通道）').toBeUndefined();
+  });
+
+  it('无 systemPrompt.section ⇒ 拒绝遮蔽（防自锁）', () => {
+    const calls: { deny?: string[] } = {};
+    const ctx = { tools: { restrict: (f: { deny: string[] }) => { calls.deny = f.deny; } } };
+    const out = applyDisclosureToScope(ctx, index, 'indexed', ids);
+    expect(out.wired).toBe(false);
+    expect(out.reason).toContain('refuse to restrict');
+    expect(calls.deny).toBeUndefined();
+  });
+
+  it('注入索引时 **order 必须是有限数字**（宿主硬校验：非有限数即抛）', () => {
+    let seenOrder: unknown = 'NOT_CALLED';
+    const ctx = {
+      tools: { restrict: () => () => undefined },
+      systemPrompt: { section: (s: { order: unknown }) => { seenOrder = s.order; return undefined; } },
+    };
+    const out = applyDisclosureToScope(ctx, index, 'indexed', ids);
+    expect(out.wired).toBe(true);
+    expect(typeof seenOrder).toBe('number');
+    expect(Number.isFinite(seenOrder)).toBe(true);
+  });
+
+  it('restrict 抛错（section 已注入）⇒ 未遮蔽且原因如实（不谎报 wired:true）', () => {
+    const ctx = {
+      tools: { restrict: () => { throw new Error('restrict boom'); } },
+      systemPrompt: { section: () => undefined },
+    };
+    const out = applyDisclosureToScope(ctx, index, 'indexed', ids);
+    expect(out.wired).toBe(false);
+    expect(out.reason).toContain('not restricted');
   });
 });
