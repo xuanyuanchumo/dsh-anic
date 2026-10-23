@@ -22,6 +22,8 @@ export interface StepOutcome<T> {
   trackerState: FlowTrackerState;
   flowId?: string;
   value: T;
+  /** 原始脚本结果（cycle-72：失败理由摘录需要它；null = 脚本没跑/未安装）。 */
+  result?: InvokeResult;
 }
 
 /** 同步跑一步 + 记账 + 解析（eval/gate/fix 共用形状；scriptsDir null → 零值直返）。 */
@@ -39,7 +41,7 @@ function runStep<T>(
   if (!scriptsDir) return { trackerState, value: zero };
   const { state: s, flowId } = startFlow(cyclesDir, trackerState, script, workspace, args);
   const result = invokeSkillScript(scriptsDir, script, args, workspace, timeoutMs);
-  return { trackerState: finishFlow(cyclesDir, s, flowId, result), flowId, value: parse(result) };
+  return { trackerState: finishFlow(cyclesDir, s, flowId, result), flowId, value: parse(result), result };
 }
 
 /** eval 步骤（解析：分数 0..1；失败清单在 stderr，cycle-96 起传入完整结果）。 */

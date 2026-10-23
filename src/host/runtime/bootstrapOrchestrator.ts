@@ -21,6 +21,7 @@ import {
   loadBootstrapState,
   saveBootstrapState,
   advanceBootstrap,
+  extractFailureReasons,
 } from '../selfBootstrap.ts';
 import { loadFlowTracker, type FlowTrackerState } from './flowTracker.ts';
 import { runEvalStep, runGateStep, runFixStep, gateVerdictPassed } from './bootstrapSteps.ts';
@@ -119,7 +120,13 @@ export function runSelfBootstrapCycle(
       }
     }
 
-    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied);
+    // 根因如实落盘（cycle-72 P0-BOOTSTRAP-NO-ROOTCAUSE）：门禁/评估各自的失败行都摘进来，
+    // 「为什么没收敛」因此在磁盘上可见，而不是只能靠外侧读脚本 stdout 拼。
+    const failureReasons = [
+      ...extractFailureReasons(gateStep.result),
+      ...extractFailureReasons(evalStep.result),
+    ];
+    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied, failureReasons);
     saveBootstrapState(cyclesDir, state);
 
     rounds.push({

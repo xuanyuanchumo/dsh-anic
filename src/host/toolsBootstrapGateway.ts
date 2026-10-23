@@ -9,6 +9,9 @@ import type { ToolRegistration, ToolsSlot } from './toolsSlot.ts';
 import { safeHandler, makeToolOutput } from './toolsSlot.ts';
 import { runSelfBootstrapCycleAsync } from './runtime/bootstrapOrchestrator.ts';
 import { runBootstrapWithEngines } from './runtime/bootstrapEngineIntegration.ts';
+// cycle-72 P0-BOOTSTRAP-STEP-TIMEOUT：每步默认预算的唯一事实源（两个入口共用，
+// 不再各写一份字面量）。描述文本也由常量插值，模型可见值与实际预算不可能分叉。
+import { BOOTSTRAP_STEP_TIMEOUT_MS, resolveBootstrapStepTimeout } from './runtime/bootstrapBudget.ts';
 import {
   bootstrapCyclePresentCall,
   bootstrapAnalyzePresentCall,
@@ -36,7 +39,7 @@ export function registerBootstrapGatewayTools(
       properties: {
         workspace: { type: 'string', description: 'Target project directory' },
         maxRounds: { type: 'number', description: 'Maximum bootstrap rounds (default 3, max 10)' },
-        timeout: { type: 'number', description: 'Per-step timeout ms (default 60000)' },
+        timeout: { type: 'number', description: `Per-step timeout ms (default ${BOOTSTRAP_STEP_TIMEOUT_MS}; matches the full test pyramid)` },
       },
     },
     presentCall: bootstrapCyclePresentCall,
@@ -46,7 +49,7 @@ export function registerBootstrapGatewayTools(
       if (!ws) return { error: 'no workspace' };
       if (ws.includes('..')) return { error: 'path traversal not allowed' };
       const maxRounds = Math.min(Math.max(typeof args.maxRounds === 'number' ? args.maxRounds : 3, 1), 10);
-      const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
+      const timeout = resolveBootstrapStepTimeout(args.timeout);
 
       // P1-EVENT-LOOP：自举循环可能跑数分钟——异步版 + signal（轮边界协作取消）。
       const result = await runSelfBootstrapCycleAsync(ws, maxRounds, timeout, { signal: exec?.signal });
@@ -87,7 +90,7 @@ export function registerBootstrapGatewayTools(
       properties: {
         workspace: { type: 'string', description: 'Target project directory' },
         maxRounds: { type: 'number', description: 'Maximum bootstrap rounds (default 3, max 10)' },
-        timeout: { type: 'number', description: 'Per-step timeout ms (default 60000)' },
+        timeout: { type: 'number', description: `Per-step timeout ms (default ${BOOTSTRAP_STEP_TIMEOUT_MS}; matches the full test pyramid)` },
       },
     },
     presentCall: bootstrapAnalyzePresentCall,
@@ -97,7 +100,7 @@ export function registerBootstrapGatewayTools(
       if (!ws) return { error: 'no workspace' };
       if (ws.includes('..')) return { error: 'path traversal not allowed' };
       const maxRounds = Math.min(Math.max(typeof args.maxRounds === 'number' ? args.maxRounds : 3, 1), 10);
-      const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
+      const timeout = resolveBootstrapStepTimeout(args.timeout);
 
       const { cycle, insights } = runBootstrapWithEngines(ws, maxRounds, timeout);
       return {

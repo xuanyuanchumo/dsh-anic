@@ -22,6 +22,7 @@ import {
   loadBootstrapState,
   saveBootstrapState,
   advanceBootstrap,
+  extractFailureReasons,
 } from '../selfBootstrap.ts';
 import { loadFlowTracker, startFlow, finishFlow } from './flowTracker.ts';
 import { parseEvalScore, parseGateVerdict, parseFixApplied } from './scriptParsers.ts';
@@ -91,6 +92,7 @@ export async function runSelfBootstrapCycleAsync(
     // 却在返回体里不可见——大模型审计时只能看到「跑过一次 eval」，看不到
     // 「门禁查了两次（首次 + 复检）」，恰好抹掉 cycle-38 修好的那次真实复检。
     let verifyFlowId: string | undefined;
+    let verifyRunResult: Awaited<ReturnType<typeof invokeSkillScriptAsync>> | undefined;
     if (!gateVerdictPassed(gateVerdict) && !signal?.aborted) {
       state = enterPhase(cyclesDir, state, 'gate-fail'); // 相位 2：FIXING
       const fixRun = await runStep('auto-fix-loop', []);
@@ -99,6 +101,7 @@ export async function runSelfBootstrapCycleAsync(
       state = enterPhase(cyclesDir, state, 'fix-done'); // 相位 3：VERIFYING（真实复检）
       const verifyRun = await runStep('gate-check', GATE_CHECK_ARGS);
       verifyFlowId = verifyRun.flowId;
+      verifyRunResult = verifyRun.result;
       if (verifyRun.result) {
         const reVerdict = parseGateVerdict(verifyRun.result);
         if (gateVerdictPassed(reVerdict)) {
@@ -109,7 +112,14 @@ export async function runSelfBootstrapCycleAsync(
       }
     }
 
-    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied);
+    // 根因如实落盘（cycle-72 P0-BOOTSTRAP-NO-ROOTCAUSE）：与同步版同口径、同一提取器——
+    // 两版语义不得分叉（本文件头即声明「同一解析器、同一状态机」）。
+    const failureReasons = [
+      ...extractFailureReasons(gateRun.result),
+      ...extractFailureReasons(verifyRunResult),
+      ...extractFailureReasons(evalRun.result),
+    ];
+    state = advanceBootstrap(state, evalScore, gateVerdict, fixApplied, failureReasons);
     saveBootstrapState(cyclesDir, state);
 
     rounds.push({

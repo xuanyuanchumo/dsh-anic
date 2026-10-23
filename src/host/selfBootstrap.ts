@@ -29,6 +29,9 @@
  */
 import { join } from 'node:path';
 import { atomicWriteFileSync, safeReadFileSync } from '../shared/fs-safe.ts';
+// 失败根因域（含类型与提取器）——本文件只保留 re-export，避免自举状态机文件越 250 行。
+import { type BootstrapFailure } from './bootstrapFailure.ts';
+export { extractFailureReasons, hasFailureReasons, type BootstrapFailure } from './bootstrapFailure.ts';
 
 export type BootstrapStatus =
   | 'IDLE'
@@ -92,6 +95,7 @@ export interface BootstrapHistoryEntry {
   timestamp: string;
 }
 
+
 export interface BootstrapState {
   status: BootstrapStatus;
   round: number;
@@ -99,6 +103,8 @@ export interface BootstrapState {
   lastEvalScore: number | null;
   lastGateVerdict: string | null;
   history: BootstrapHistoryEntry[];
+  /** 未收敛根因（收敛后清除；缺省 = 从未失败过）。见 BootstrapFailure。 */
+  lastFailure?: BootstrapFailure;
 }
 
 const STATE_FILE = 'self-bootstrap.json';
@@ -133,6 +139,11 @@ export function loadBootstrapState(cyclesDir: string): BootstrapState {
         lastEvalScore: typeof parsed.lastEvalScore === 'number' ? parsed.lastEvalScore : null,
         lastGateVerdict: typeof parsed.lastGateVerdict === 'string' ? parsed.lastGateVerdict : null,
         history: Array.isArray(parsed.history) ? parsed.history : [],
+        // 坏形状回落 undefined（不采信坏数据，也不伪造根因）——与其它字段同一口径。
+        lastFailure:
+          parsed.lastFailure && typeof parsed.lastFailure.round === 'number' && Array.isArray(parsed.lastFailure.reasons)
+            ? parsed.lastFailure
+            : undefined,
       } as BootstrapState;
     }
   } catch { /* corrupt → reset */ }
@@ -200,6 +211,7 @@ export function advanceBootstrap(
   evalScore: number,
   gateVerdict: string,
   fixApplied: string | null,
+  failureReasons: string[] = [],
 ): BootstrapState {
   const newRound = state.round + 1;
   const passed = gateVerdict === 'PASS' || gateVerdict === 'approve';
@@ -219,6 +231,11 @@ export function advanceBootstrap(
   // 表里 settle-* 全是通配边，任何起点都合法；若未来收紧到拒绝，则原样返回旧态
   // 而不是伪造一个终态 —— 宁可停在原地，不可宣称收敛。
   const next = moved.ok ? moved.state : state;
+  // 根因如实落盘：通过则**清除**旧根因（避免陈旧失败理由被当成当前状态读取），
+  // 未通过则记录本轮理由——空数组表示「脚本没给出可识别理由」，仍是事实而非猜测。
+  const lastFailure: BootstrapFailure | undefined = passed
+    ? undefined
+    : { round: newRound, evalScore, gateVerdict, reasons: failureReasons, timestamp: entry.timestamp };
   return {
     status: next.status,
     round: newRound,
@@ -226,5 +243,7 @@ export function advanceBootstrap(
     lastEvalScore: evalScore,
     lastGateVerdict: gateVerdict,
     history: [...state.history, entry],
+    lastFailure,
   };
-}
+};
+
