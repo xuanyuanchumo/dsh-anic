@@ -8,7 +8,7 @@
  * 「真机 indexed 下 scope 视图确实收缩」属真机验收（A3/A4），**本轮未验证**。SKIP ≠ PASS。
  */
 import { describe, it, expect } from 'vitest';
-import { applyDisclosureToScope, wireToolDisclosure } from '../../src/host/toolDisclosureWiring.ts';
+import { applyDisclosureToScope, wireToolDisclosure, rootOfAgent } from '../../src/host/toolDisclosureWiring.ts';
 import { captureRegisteredFaces } from '../../src/host/toolsFaceCapture.ts';
 import type { CapabilityIndexInjectable } from '../../src/host/capabilityIndex.ts';
 
@@ -89,5 +89,86 @@ describe('cycle-74 T-7406 按需加载接线契约', () => {
     // 反证：人为构造违规集合，检查判据确实能抓
     const bad = [...(calls.deny ?? []), 'anic_tool_detail'];
     expect(['anic_tool_detail', 'anic_tools_search'].filter((l) => bad.includes(l)).length).toBeGreaterThan(0);
+  });
+});
+describe('cycle-74 T-7408 per-agent 解析（修多工作区错配）', () => {
+  /** 受控 host 桩：捕获 agent/created 处理器，供手工投递。 */
+  function hostStub() {
+    let handler: ((p: { agent?: unknown }) => void) | null = null;
+    return {
+      host: { on: (_n: string, h: (p: { agent?: unknown }) => void) => { handler = h; return undefined; } },
+      emit: (agent: unknown) => handler?.({ agent }),
+      isRegistered: () => handler !== null,
+    };
+  }
+  /** 造一个「带 cwd 的 agent」：会话头 cwd 即其工作区。 */
+  function agentWithCwd(cwd: string | null) {
+    const calls: { deny?: string[]; section?: string } = {};
+    return {
+      calls,
+      agent: {
+        session: cwd ? { header: { cwd } } : { header: {} },
+        ctx: {
+          tools: { restrict: (f: { deny: string[] }) => { calls.deny = f.deny; return () => undefined; } },
+          systemPrompt: { section: (s: { name: string; text: string }) => { calls.section = s.text; return undefined; } },
+        },
+      },
+    };
+  }
+
+  it('rootOfAgent：只认字符串 cwd，否则 null（宁缺勿猜）', () => {
+    expect(rootOfAgent(agentWithCwd('D:/p/a').agent)).toBe('D:/p/a');
+    expect(rootOfAgent(agentWithCwd(null).agent)).toBeNull();
+    expect(rootOfAgent({})).toBeNull();
+    expect(rootOfAgent({ session: { header: { cwd: 123 } } })).toBeNull();
+  });
+
+  it('多工作区不错配：A=indexed / B=full ⇒ 各自按其解析结果施加', () => {
+    const h = hostStub();
+    const byRoot = new Map([['D:/p/a', 'indexed'], ['D:/p/b', 'full']]);
+    const out = wireToolDisclosure(h.host, {
+      mode: 'full',
+      index: null,
+      allToolIds: ids,
+      resolveForAgent: (agent) => {
+        const root = rootOfAgent(agent) ?? '';
+        return byRoot.get(root) === 'indexed' ? { mode: 'indexed', index } : { mode: 'full', index: null };
+      },
+    });
+    expect(out.wired).toBe(true);
+    expect(h.isRegistered()).toBe(true);
+
+    const a = agentWithCwd('D:/p/a');
+    h.emit(a.agent);
+    expect(a.calls.deny, 'A 项目应被激活').toBeDefined();
+    expect(a.calls.section, 'A 项目应注入索引').toBeDefined();
+
+    const b = agentWithCwd('D:/p/b');
+    h.emit(b.agent);
+    expect(b.calls.deny, 'B 项目必须**不**被激活（否则是错配）').toBeUndefined();
+    expect(b.calls.section).toBeUndefined();
+  });
+
+  it('agent 无 cwd ⇒ 回落 full（不猜工作区）', () => {
+    const h = hostStub();
+    wireToolDisclosure(h.host, { mode: 'full', index: null, allToolIds: ids, resolveForAgent: (a) => (rootOfAgent(a) ? { mode: 'indexed', index } : { mode: 'full', index: null }) });
+    const n = agentWithCwd(null);
+    h.emit(n.agent);
+    expect(n.calls.deny).toBeUndefined();
+  });
+
+  it('有 per-agent 解析器时必须注册监听器（即便全局 mode=full）', () => {
+    const h = hostStub();
+    const out = wireToolDisclosure(h.host, { mode: 'full', index: null, allToolIds: ids, resolveForAgent: () => ({ mode: 'full', index: null }) });
+    expect(out.wired).toBe(true);
+    expect(h.isRegistered()).toBe(true);
+  });
+
+  it('indexed 但索引缺失 ⇒ 该 agent 保持 full（不猜索引）', () => {
+    const h = hostStub();
+    wireToolDisclosure(h.host, { mode: 'full', index: null, allToolIds: ids, resolveForAgent: () => ({ mode: 'indexed', index: null }) });
+    const a = agentWithCwd('D:/p/a');
+    h.emit(a.agent);
+    expect(a.calls.deny).toBeUndefined();
   });
 });
