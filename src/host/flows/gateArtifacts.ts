@@ -15,8 +15,11 @@ import type { TaskRow, TestSummary, QualityRow } from './gateTypes.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** 任务行状态值（lib/tasks.mjs:10 同源）。 */
-export const TASK_STATUS_RE = /^(待办|进行中|完成)$/;
+/** 任务行状态值（lib/tasks.mjs 同源；cycle-72 与脚本同步扩表）。
+ *  封闭三值白名单会让「部分完成」被静默丢弃 → G1 假 PASS（见技能包 tasks.mjs 文件头）。 */
+export const TASK_STATUS_VALUES = ['待办', '进行中', '部分完成', '未完成', '未开始', '阻塞', '完成'];
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const TASK_STATUS_RE = new RegExp(`^(${TASK_STATUS_VALUES.map(escapeRe).join('|')})$`);
 
 /** G1：P0-P3 任务表行解析（lib/tasks.mjs:12-25 逐字移植）。 */
 export function parseTaskRows(content: string): TaskRow[] {

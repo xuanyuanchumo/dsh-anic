@@ -125,7 +125,8 @@ describe('checkG2（测试报告 §2 汇总表契约）', () => {
   });
   it('失败/错误计数 >0 → FAIL: N failures, M errors', () => {
     writeCycle({ 'test-reports/test-report.md': '| 结果 | 数量 |\n| --- | --- |\n| 通过 | 8 |\n| 失败 | 2 |\n| 错误 | 1 |' });
-    expect(checkG2(tmp).detail).toBe('2 failures, 1 errors');
+    // cycle-72：detail 必须回显致证报告名（正典选择可审计）
+    expect(checkG2(tmp).detail).toBe('2 failures, 1 errors (test-report.md)');
   });
   it('零失败零错误 → PASS', () => {
     writeCycle({ 'test-reports/test-report.md': TEST_SUMMARY });

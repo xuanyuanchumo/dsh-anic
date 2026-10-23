@@ -80,7 +80,7 @@ export function checkG1(workspaceRoot: string): GateCheckResult {
   return { pass: true, detail: `All ${rows.length} tasks completed` };
 }
 
-/** G2（gate-check.mjs:82-117 同构：mtime 最新报告 + §2 汇总表格式契约）。 */
+/** G2（gate-check.mjs 同构：正典报告优先 + §2 汇总表格式契约；cycle-72 与脚本逐字对齐）。 */
 export function checkG2(workspaceRoot: string, configContent: string | null = null): GateCheckResult {
   const latest = latestCycle(workspaceRoot);
   if (!latest) return { pass: false, detail: 'No cycle workspace' };
@@ -88,24 +88,36 @@ export function checkG2(workspaceRoot: string, configContent: string | null = nu
   if (!existsSync(testReportsDir)) return { pass: false, detail: 'No test reports directory' };
   const reports = readdirSync(testReportsDir).filter((e) => e.endsWith('.md'));
   if (reports.length === 0) return { pass: false, detail: 'No test reports' };
-  const latestReport = reports
-    .map((f) => ({ f, m: statSync(join(testReportsDir, f)).mtimeMs }))
-    .sort((a, b) => b.m - a.m)[0]?.f ?? '';
+  // cycle-72 与技能脚本逐字对齐（R3 双真相源禁令）：正典名优先，派生报告永不致证，
+  // 仅当正典名不存在时才回退 mtime 最新；选中结果与被忽略的更晚非正典报告都必须回显。
+  const CANONICAL_REPORTS = ['测试报告.md', 'test-report.md'];
+  const DERIVED_REPORTS = ['auto-fix-report.md'];
+  const mtimeOf = (f: string): number => statSync(join(testReportsDir, f)).mtimeMs;
+  const canonical = CANONICAL_REPORTS.find((f) => reports.includes(f)) ?? null;
+  const eligible = reports.filter((f) => !DERIVED_REPORTS.includes(f));
+  const byMtime = eligible.map((f) => ({ f, m: mtimeOf(f) })).sort((a, b) => b.m - a.m);
+  const latestReport = canonical ?? (byMtime[0]?.f ?? reports[0] ?? '');
+  const newerNonCanonical = canonical
+    ? eligible.filter((f) => f !== canonical && mtimeOf(f) > mtimeOf(canonical))
+    : [];
+  const ignoredNote = newerNonCanonical.length > 0
+    ? ` [ignored newer non-canonical: ${newerNonCanonical.join(', ')}]`
+    : '';
   const content = readFileSync(join(testReportsDir, latestReport), 'utf-8');
   const summary = parseTestSummary(content);
   if (!summary.recognized) {
-    return { pass: false, detail: `Test report summary not recognized: ${latestReport} has no 通过/失败 rows (expected the §2 汇总 table)` };
+    return { pass: false, detail: `Test report summary not recognized: ${latestReport} has no 通过/失败 rows (expected the §2 汇总 table)${ignoredNote}` };
   }
   if (summary.failures > 0 || summary.errors > 0) {
-    return { pass: false, detail: `${summary.failures} failures, ${summary.errors} errors` };
+    return { pass: false, detail: `${summary.failures} failures, ${summary.errors} errors (${latestReport})${ignoredNote}` };
   }
   // cycle-39 T-3903：journey_coverage（双侧同构，差分契约钉死）
   const journeyCoverage = readYamlNestedBoolean(configContent, 'gates', 'G2', 'journey_coverage');
   if (journeyCoverage) {
     const j = checkJourneyCoverage(workspaceRoot, configContent);
-    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})` };
+    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})${ignoredNote}` };
   }
-  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})` };
+  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})${ignoredNote}` };
 }
 
 /** G3（gate-check.mjs:119-131 同构：build_cmd 走 shell，timeout 120s）。 */

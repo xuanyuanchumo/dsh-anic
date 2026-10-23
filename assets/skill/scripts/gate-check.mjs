@@ -134,17 +134,37 @@ function checkG2(projectDir, configContent) {
   if (reports.length === 0) return { pass: false, detail: 'No test reports' };
 
   // 修字典序（v1.8.0）：按修改时间取最新报告（原 .sort().pop() 字典序在
-  // test-report-10 vs test-report-9 这类文件名上会选错"最新"）
-  const latestReport = reports
-    .map(f => ({ f, m: statSync(join(testReportsDir, f)).mtimeMs }))
-    .sort((a, b) => b.m - a.m)[0].f;
+  // test-report-10 vs test-report-9 这类文件名上会选错"最新"）。
+  //
+  // cycle-72 修「派生报告顶替正典报告」（Lead 实测：同一缺陷连续触发三条假 FAIL 入账）：
+  //   旧实现无差别取 mtime 最新 *.md，于是 test-reports/ 下**任何**新增 .md 都能顶替
+  //   致证报告——`auto-fix-report.md`（auto-fix-loop 每次必产出的机器报告，无 §2 汇总表）
+  //   与证据册/审计册（本就不该作为测试证据）都会让 G2 判 FAIL，且该 FAIL 经 --record
+  //   写进**不可变**哈希链账本（假 FAIL 永久留痕）。
+  //   修法：**正典命名优先**（测试报告.md / test-report.md），仅当正典名不存在时才回退
+  //   到 mtime 最新；派生报告（auto-fix-report.md）永不作为致证。选中结果**必须回显**，
+  //   并如实标注被忽略的更晚非正典报告（可审计：读的人要知道 G2 判的是哪一份）。
+  const CANONICAL_REPORTS = ['测试报告.md', 'test-report.md'];
+  const DERIVED_REPORTS = ['auto-fix-report.md'];
+  const mtimeOf = (f) => statSync(join(testReportsDir, f)).mtimeMs;
+  const canonical = CANONICAL_REPORTS.find(f => reports.includes(f)) ?? null;
+  const eligible = reports.filter(f => !DERIVED_REPORTS.includes(f));
+  const byMtime = eligible.map(f => ({ f, m: mtimeOf(f) })).sort((a, b) => b.m - a.m);
+  const latestReport = canonical ?? (byMtime[0]?.f ?? reports[0]);
+  // 被忽略的更晚非正典报告（如实回显，不静默）
+  const newerNonCanonical = canonical
+    ? eligible.filter(f => f !== canonical && mtimeOf(f) > mtimeOf(canonical))
+    : [];
+  const ignoredNote = newerNonCanonical.length > 0
+    ? ` [ignored newer non-canonical: ${newerNonCanonical.join(', ')}]`
+    : '';
   const content = readFileSync(join(testReportsDir, latestReport), 'utf-8');
 
   // 修 iteration-5：报告格式本身是契约（assets/templates/test-report.md §2 汇总表）。
   // 原先"失败/错误 行都不存在"会被解析成 0/0 并判 PASS——自由文本或残缺报告
   // 因此可以关掉 G2。格式无法识别 = 没有证据 = FAIL（不是 0 个失败）。
   if (!/^\|\s*(通过|失败|错误)\s*\|/m.test(content)) {
-    return { pass: false, detail: `Test report summary not recognized: ${latestReport} has no 通过/失败 rows (expected the §2 汇总 table)` };
+    return { pass: false, detail: `Test report summary not recognized: ${latestReport} has no 通过/失败 rows (expected the §2 汇总 table)${ignoredNote}` };
   }
 
   const failMatch = content.match(/\|\s*失败\s*\|\s*(\d+)\s*\|/);
@@ -154,16 +174,16 @@ function checkG2(projectDir, configContent) {
   const errors = errorMatch ? parseInt(errorMatch[1], 10) : 0;
 
   if (failures > 0 || errors > 0) {
-    return { pass: false, detail: `${failures} failures, ${errors} errors` };
+    return { pass: false, detail: `${failures} failures, ${errors} errors (${latestReport})${ignoredNote}` };
   }
 
   // cycle-39 T-3903：journey_coverage 检查（config gates.G2.journey_coverage: true 时启用）
   const journeyCoverage = getYamlNestedBoolean(configContent, 'gates', 'G2', 'journey_coverage');
   if (journeyCoverage) {
     const j = checkJourneyCoverage(projectDir, configContent);
-    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})` };
+    if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})${ignoredNote}` };
   }
-  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})` };
+  return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})${ignoredNote}` };
 }
 
 function checkG3(projectDir, configContent) {
