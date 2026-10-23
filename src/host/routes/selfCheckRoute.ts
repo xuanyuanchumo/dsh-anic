@@ -23,6 +23,7 @@ import { loadWorkspaceConfig } from '../config.ts';
 import { loadAgentCards } from '../agents.ts';
 import { checkIndexDrift, loadInjectedIndex } from '../capabilityIndexRuntime.ts';
 import { resolveDisclosureMode } from '../toolDisclosure.ts';
+import { activationReady, planActivation } from '../indexActivation.ts';
 import { captureRegisteredFaces } from '../toolsFaceCapture.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
@@ -118,10 +119,18 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
     const mode = resolveDisclosureMode(input.toolDisclosure);
     const idx = loadInjectedIndex(input.indexDir);
     const bytes = idx ? Buffer.byteLength(JSON.stringify(idx), 'utf8') : 0;
+    // 激活逻辑的**运行时消费者**（cycle-74）：算 deny 集合 + 自锁判定。
+    // 不接这段，indexActivation.ts 就只剩「纯函数 + 测试」——又是「产物没人读」。
+    // 未接线到 agent 生命周期时，indexed 必然报「缺加载器」（自锁防护如实生效）。
+    const faces = captureRegisteredFaces();
+    const ids = faces.map((f) => f.name);
+    const plan = planActivation(mode, ids, ids);
+    const ready = activationReady(mode, ids);
+    const gate = plan ? `deny=${String(plan.deny.length)}` : `blocked: ${ready.reason}`;
     checks.push({
       id: 'P8-tool-disclosure-mode',
       ok: true,
-      detail: `mode=${mode} (default full, zero behavior change); index=${String(bytes)}B`,
+      detail: `mode=${mode} (default full, zero behavior change); index=${String(bytes)}B; ${gate}`,
     });
   } catch (e) {
     checks.push({ id: 'P8-tool-disclosure-mode', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });
