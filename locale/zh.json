@@ -295,7 +295,8 @@
     "ledger": "门禁账本事件流",
     "hitl": "HITL 审计队列",
     "budget": "治理预算",
-    "techdebt": "技术债务"
+    "techdebt": "技术债务",
+    "closure": "闭环体检"
   },
   "techdebt": {
     "title": "技术债务队列：",
@@ -307,5 +308,26 @@
     "proposedAction": "→ {action}",
     "ageToday": "今天",
     "ageDays": "{days} 天前"
+  },
+  "closure": {
+    "title": "闭环体检（注册↔生产↔消费）",
+    "registered": "登记 {n}",
+    "consumed": "有消费 {n}（生产代码 {code}）",
+    "unconsumed": "未消费 {n}",
+    "ghost": "幽灵消费 {n}",
+    "tableUnconsumed": "未消费清单（{n} 项）：登记了但本仓内无人读",
+    "noneUnconsumed": "零未消费——全部登记资产都有读取方。",
+    "tableGhost": "幽灵消费清单（{n} 项）：有人在读但注册表里没有",
+    "noneGhost": "零幽灵消费——所有引用都能在注册表里找到来源。",
+    "ghostHint": "引用了但未注册（注册表删了消费者还在）",
+    "evidenceOf": "证据：{kind}",
+    "notesTitle": "判定口径：",
+    "generatedAt": "体检时刻：{generatedAt}",
+    "unavailable": "闭环体检数据不可用（路由未注册或扫描失败）。",
+    "cluster": {
+      "tools": "工具",
+      "i18n": "词表",
+      "routes": "端点"
+    }
   }
 }

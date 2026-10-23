@@ -28,7 +28,7 @@
  *   ③ 锚点 DOM 断言：store 驱动 renderToStaticMarkup 直出后逐分区核实。
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -39,18 +39,47 @@ import {
   CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection,
   TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection,
 } from '../../src/client/components/panelSections.ts';
+// cycle-72：closure 分区组件已拆至其特性域（T3 250 行纪律）；腿3 装配序列仍从面板入口导入。
+import { ClosureSection } from '../../src/client/features/closure/ClosureSection.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SECTIONS_REL = join('src', 'client', 'components', 'panelSections.ts');
+const CLIENT_DIR = join(PLUGIN_ROOT, 'src', 'client');
 const PANEL_REL = join('src', 'client', 'WorkflowGraphPanel.ts');
 const ZH_REL = join('locale', 'zh.json');
+
+/*
+ * 腿 1 扫描域（cycle-72 修正）：由「panelSections.ts 单文件」扩到 **src/client 全量**。
+ *
+ * 被守卫缺陷（真实形态）：T3（单文件 ≤250 行）拆分把 closure 分区的 renderFoldableSection
+ * 调用搬到了 features/closure/ClosureSection.ts，而本守卫仍只看 panelSections.ts ⇒ 腿1 少一项
+ * ⇒ 与 locale 的 closure 键集合比较判不等。**拆分本身正确，是守卫的扫描域与源码结构脱钩了。**
+ * 与本仓既有先例同族（truthAudit T4 已从单文件 tools.ts 改为 tools*.ts 全域扫描：
+ * 「工具拆分后单文件计数漏报」）。同时补扫描文件数下限——防止未来再拆走分区时静默漏扫。
+ */
+function collectClientSources(dir: string): { src: string; files: number } {
+  let src = '';
+  let files = 0;
+  const walk = (d: string): void => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx')) continue;
+      src += readFileSync(full, 'utf8') + '\n';
+      files += 1;
+    }
+  };
+  walk(dir);
+  return { src, files };
+}
+const clientScan = collectClientSources(CLIENT_DIR);
+const clientFileCount = clientScan.files;
+const panelSrc = readFileSync(join(PLUGIN_ROOT, PANEL_REL), 'utf8');
 
 /** 已知 id→键形态映射（T-6902 成文）：驼峰 id `techDebt` ⇄ 小写键 `techdebt`，其余同形。 */
 const ID_TO_LOCALE_KEY: Record<string, string> = { techDebt: 'techdebt' };
 
-const sectionsSrc = readFileSync(join(PLUGIN_ROOT, SECTIONS_REL), 'utf8');
-const panelSrc = readFileSync(join(PLUGIN_ROOT, PANEL_REL), 'utf8');
+// 腿1 源 = src/client 全量（见 collectClientSources 头注），不再只读 panelSections.ts。
 const zh = JSON.parse(readFileSync(join(PLUGIN_ROOT, ZH_REL), 'utf8')) as { fold: Record<string, string> };
 
 /** 腿 1 扫描器：panelSections.ts 里 renderFoldableSection({ id: '…' }) 的 id 集。 */
@@ -69,7 +98,7 @@ function setsEqual(a: string[], b: string[]): boolean {
   return [...sa].every((x) => sb.has(x)) && [...sb].every((x) => sa.has(x));
 }
 
-const sectionIds = scanSectionIds(sectionsSrc);
+const sectionIds = scanSectionIds(clientScan.src);
 const localeFoldKeys = Object.keys(zh.fold);
 const localeKeysById = sectionIds.map((id) => ID_TO_LOCALE_KEY[id] ?? id);
 const assemblyComponents = scanAssemblyComponents(panelSrc);
@@ -77,6 +106,8 @@ const assemblyComponents = scanAssemblyComponents(panelSrc);
 describe('cycle-69 T-6901 面板分区装配契约', () => {
   it('扫描集非空下限：三分区集各 ≥10（空集恒绿=假守卫，直接 FAIL）', () => {
     expect(sectionIds.length).toBeGreaterThanOrEqual(10);
+    // 腿1 扫描域下限：src/client 源文件数必须真实可观（防拆分成空扫描）
+    expect(clientFileCount).toBeGreaterThanOrEqual(20);
     expect(localeFoldKeys.length).toBeGreaterThanOrEqual(10);
     expect(assemblyComponents.length).toBeGreaterThanOrEqual(10);
     // 守卫自身有效性：扫描器样例拼接自证（纪律 ② 的变体——样例必须能被扫到）
@@ -116,6 +147,7 @@ describe('cycle-69 T-6901 面板分区装配契约', () => {
       createElement(LedgerSection, { store, onShowMore: () => {} }),
       createElement(HitlSection, { store, enabled: true }),
       createElement(BudgetSection, { store }),
+      createElement(ClosureSection, { store }),
     ));
     for (const id of sectionIds) {
       expect(html).toContain(`data-anic-fold="${id}"`);

@@ -2,7 +2,7 @@
  * 路由聚合器（纯组合层，130 行）。
  *
  * 六域分区（doc 14 §4）：
- *  data      snapshot + step-trace + self-check + self-init
+ *  data      snapshot + step-trace + self-check + self-init + closure-audit
  *  cycle     cycle + ledger + stack-probe + seg-ledger
  *  review    review（条件性 LLM）
  *  evolution trust + autonomy + breakers + tech-debt
@@ -32,6 +32,8 @@ import { registerDualBootstrapRoute } from './dualBootstrapRoute.ts';
 import { registerTruthAuditRoute } from './truthAuditRoute.ts';
 import { registerInvocationRoute } from './invocationRoute.ts';
 import { registerFlowsRoute } from './flowsRoute.ts';
+// cycle-72 T-7207：闭环体检（注册↔生产↔消费 三态矩阵）只读查询面。
+import { registerClosureAuditRoute } from './closureAuditRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
@@ -67,6 +69,9 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
     registerSelfInitRoute(ctx, { send, getWorkspaceRoot, loadFlows }),
     // 动态白盒数据面（cycle-97）：无工作区依赖，feed 缺失时显式 500。
     registerInvocationRoute(ctx, { send, feed: options.invocationFeed ?? null }),
+    // 闭环体检（cycle-72 T-7207）：无工作区依赖（体检根是插件自身），
+    // 与快照/自检同属 data 域观测面；未消费/幽灵清单的白盒数据源。
+    ...registerClosureAuditRoute(c, { send }),
   );
 
   // ── cycle 域 ──

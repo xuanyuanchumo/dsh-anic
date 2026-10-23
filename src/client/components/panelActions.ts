@@ -31,6 +31,7 @@ import type { HitlAuditJson } from '../features/hitl/renderHitl.ts';
 import type { BudgetJson } from '../features/budget/renderBudget.ts';
 import type { SkillHealthJson } from '../features/skillhealth/renderSkillHealth.ts';
 import type { TechDebtListingJson } from '../features/techdebt/renderTechDebt.ts';
+import type { ClosureView } from '../features/closure/renderClosure.ts';
 import type { InvocationsJson } from '../features/live/renderInvocations.ts';
 import type { FetchFailure } from './usePanelFetch.ts';
 import type { PanelDataStore, FetchSource } from '../panelState.ts';
@@ -72,6 +73,8 @@ export interface PanelActions {
   setCycleState(v: CycleStateJson): void;
   setSkillHealth(v: SkillHealthJson): void;
   setTechDebt(v: TechDebtListingJson): void;
+  /** 闭环体检落地（一次性档；失败经 markFetchFailure('closure') 如实呈现）。 */
+  setClosure(v: ClosureView): void;
   setBudget(v: BudgetJson): void;
   setLedgerList(v: LedgerListJson): void;
   setLedgerVerify(v: LedgerVerifyJson): void;
@@ -123,6 +126,7 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     setCycleState: (v) => { store.setState({ cycleState: v }); },
     setSkillHealth: (v) => { store.setState({ skillHealth: v }); },
     setTechDebt: (v) => { store.setState({ techDebt: v }); },
+    setClosure: (v) => { store.setState({ closure: v }); },
     setBudget: (v) => { store.setState({ budget: v }); },
     setLedgerList: (v) => { store.setState({ ledgerList: v }); },
     setLedgerVerify: (v) => { store.setState({ ledgerVerify: v }); },

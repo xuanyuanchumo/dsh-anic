@@ -22,6 +22,9 @@ import { createPanelStore } from './components/panelStore.ts';
 import { bindPanelActions } from './components/panelActions.ts';
 import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
 import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
+// cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵白盒面）+ 其数据腿 target。
+import { ClosureSection } from './features/closure/ClosureSection.ts';
+import { closureTarget } from './features/closure/closureTarget.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
@@ -95,14 +98,16 @@ export function WorkflowGraphPanel(): ReactElement {
   // cycle-46（T-4601 写侧收口）：内联 setter 闭包清零——写路径全部走
   // bindPanelActions 动作层（setGraph/setFetchLine/setTrace/setCheck），
   // learnWorkspace/workspaceKnown 两 ref 通道保留在调用点（非 store 写）。
-  usePanelFetch(panelLiveTargets({
+  // cycle-72：闭环体检数据腿并入同一 pollMs=0 档（见 closureTarget 头注——
+  // 不接则该分区有壳无表体；全仓扫描 ~7s 故不与轻量档混轮询）。
+  usePanelFetch([...panelLiveTargets({
     setData: bindPanelActions(store).setGraph,
     setFetchLine: bindPanelActions(store).setFetchLine,
     setTrace: bindPanelActions(store).setTrace,
     setCheck: bindPanelActions(store).setCheck,
     learnWorkspace: (root) => { workspaceRef.current = root; },
     workspaceKnown: () => workspaceRef.current,
-  }), 0, reloadKey, wsHeaders);
+  }), ...closureTarget(bindPanelActions(store))], 0, reloadKey, wsHeaders);
 
   const resolved = resolveFlows({ user: parseRawPrefs(readPrefsRaw()).prefs.flows });
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
@@ -232,6 +237,9 @@ export function WorkflowGraphPanel(): ReactElement {
     // cycle-24（P3 治理预算）：预算余量条 + 大文件榜——治理证据簇收尾
     //（「留了什么痕」之后呈现「这些痕占了多少空间」）。
     createElement(BudgetSection, { store }),
+    // cycle-72 T-7207：闭环体检（注册↔生产↔消费）——治理证据簇之后回答
+    //「注册了的东西到底有没有被生产、被消费」（未消费清单 + 幽灵消费两表）。
+    createElement(ClosureSection, { store }),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

@@ -19,7 +19,7 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
 - 19 个 `anic_*` LLM 工具（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复）
-- 62 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展）
+- 63 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit`）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。

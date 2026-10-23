@@ -30,6 +30,8 @@ import { renderOrgStatus } from '../features/org/renderOrgStatus.ts';
 import { renderAutonomyGauge } from '../features/autonomy/renderAutonomyGauge.ts';
 import { renderSkillHealth } from '../features/skillhealth/renderSkillHealth.ts';
 import { renderTechDebt } from '../features/techdebt/renderTechDebt.ts';
+// cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵的白盒面）。
+import { renderClosure } from '../features/closure/renderClosure.ts';
 import { renderFlows } from '../features/flows/renderFlows.ts';
 import { renderCyclesTimeline } from '../features/cycles/renderCyclesTimeline.ts';
 import { renderLedger } from '../features/ledger/renderLedger.ts';
@@ -65,14 +67,14 @@ const selInvocationsAnnounce = (s: PanelState) => s.invocationsAnnounce;
  * 用户要求：面板默认**只**展开「最近一次已完成调用 + 运行时调用可视化」，
  * 静态产物分区默认收纳。live 分区不是 renderFoldableSection 体系（自带
  * turn 组 details），故此处只给静态分区定默认态——
- *   - 其余九个静态分区默认 false（收纳）；
+ *   - 其余九个静态分区默认 false（收纳）；closure（cycle-72 闭环体检）例外为 true——
  *   - diagnostics 与 hitl 例外保留 true，两者都是**兜底观测面**：
  *     diagnostics 是运行时自检（不展开就看不到失败项，问题被收纳静默），
  *     hitl 是关闭形态可观测兜底（flow.approvals 关闭时那一行如实说明必须
  *     可见，否则「关了什么」本身也被折叠）。用户在抽屉/折叠交互里显式折叠
  *     后，记忆生效（本默认只在无记忆时适用）。
  */
-const DEFAULT_OPEN_SECTIONS: ReadonlySet<string> = new Set(['diagnostics', 'hitl']);
+const DEFAULT_OPEN_SECTIONS: ReadonlySet<string> = new Set(['diagnostics', 'hitl', 'closure']);
 
 /** 分区默认展开态（仅上述两个兜底分区为 true）。 */
 function defaultOpenOf(id: string): boolean {
@@ -181,6 +183,12 @@ function TechDebtSectionImpl({ store }: SectionProps): ReactElement {
   return renderFoldableSection({ id: 'techDebt', title: t('fold.techdebt'), defaultOpen: defaultOpenOf('techDebt'), children: body });
 }
 export const TechDebtSection = memo(TechDebtSectionImpl);
+
+// ── 闭环体检（cycle-72 T-7207 · 一次性档：全仓扫描 ~7s，刻意不进 4s 轮询）─────
+// 用户的「白盒透明化」诉求落点：未消费清单（注册了但没人读）与幽灵消费清单
+// （有人在读但没注册）两张表。默认**展开**——与 diagnostics/hitl 同为兜底观测面：
+// 收纳一张「有哪些资产没人消费」的表，等于把缺口藏起来（本分区存在的意义就是可见）。
+export { ClosureSection } from '../features/closure/ClosureSection.ts';
 
 function FlowsSectionImpl({ store, enabled }: GatedSectionProps): ReactElement {
   const flowsStatus = usePanelSlice(store, selFlowsStatus);

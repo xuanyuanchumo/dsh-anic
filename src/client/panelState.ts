@@ -22,6 +22,9 @@ import type { HitlAuditJson } from './features/hitl/renderHitl.ts';
 import type { BudgetJson } from './features/budget/renderBudget.ts';
 import type { SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
 import type { TechDebtListingJson } from './features/techdebt/renderTechDebt.ts';
+// cycle-72 T-7207：闭环体检（注册↔生产↔消费 三态矩阵）——— 一次性拉取切片
+// （全仓扫描 ~7s，刻意不进 4s 轮询档；见 panelLiveTargets 的 closure target 注释）。
+import type { ClosureView } from './features/closure/renderClosure.ts';
 import type { InvocationsJson } from './features/live/renderInvocations.ts';
 import type { PanelStore } from './components/panelStore.ts';
 
@@ -57,6 +60,8 @@ export interface PanelState {
   skillHealth: SkillHealthJson | null;
   /** tech-debt 队列（cycle-54 T-5401——4s 档治理证据簇扩展）。 */
   techDebt: TechDebtListingJson | null;
+  /** 闭环体检视图（未拉取 / 路由缺失 / 扫描失败 → null，分区如实说明）。 */
+  closure: ClosureView | null;
   invocations: InvocationsJson | null;
   invocationsError: string | null;
   invocationsAnnounce: string;
@@ -100,6 +105,7 @@ export function createInitialPanelState(): PanelState {
     budget: null,
     skillHealth: null,
     techDebt: null,
+    closure: null,
     invocations: null,
     invocationsError: null,
     invocationsAnnounce: '',

@@ -295,7 +295,8 @@
     "ledger": "Gate ledger events",
     "hitl": "HITL audit queue",
     "budget": "Governance budget",
-    "techdebt": "Tech debt"
+    "techdebt": "Tech debt",
+    "closure": "Closure audit"
   },
   "techdebt": {
     "title": "Tech-debt queue: ",
@@ -307,5 +308,26 @@
     "proposedAction": "→ {action}",
     "ageToday": "today",
     "ageDays": "{days} day(s) ago"
+  },
+  "closure": {
+    "title": "Closure audit (register ↔ produce ↔ consume)",
+    "registered": "registered {n}",
+    "consumed": "consumed {n} (code {code})",
+    "unconsumed": "unconsumed {n}",
+    "ghost": "ghost {n}",
+    "tableUnconsumed": "Unconsumed ({n}): registered but nobody reads it in this repo",
+    "noneUnconsumed": "No unconsumed — every registered asset has a reader.",
+    "tableGhost": "Ghost consumers ({n}): referenced but not registered",
+    "noneGhost": "No ghost consumption — every reference resolves to a registry entry.",
+    "ghostHint": "referenced but unregistered (consumer outlived the registry entry)",
+    "evidenceOf": "evidence: {kind}",
+    "notesTitle": "Judgement rules:",
+    "generatedAt": "audited at: {generatedAt}",
+    "unavailable": "Closure audit data unavailable (route missing or scan failed).",
+    "cluster": {
+      "tools": "tools",
+      "i18n": "locale keys",
+      "routes": "endpoints"
+    }
   }
 }

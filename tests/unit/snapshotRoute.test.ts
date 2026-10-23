@@ -326,11 +326,13 @@ describe('X-ANIC-Workspace 请求头（P2 桌面多会话纠偏）', () => {
 });
 
 describe('宿主入口 apply', () => {
-  /** 全部路由（M1 四条 + M2-a 九条 + M2-b 四条 + M4 一条 + M5 四条 + M5-a 四条 + M7 四条 + M8 四条 + cycle-97 一条）。 */
+  /** 全部路由（M1 四条 + M2-a 九条 + M2-b 四条 + M4 一条 + M5 四条 + M5-a 四条 + M7 四条 + M8 四条 + cycle-97 一条 + cycle-72 闭环体检一条）。 */
   const ALL_ROUTES = [
     SNAPSHOT_ROUTE, STEP_TRACE_ROUTE, SELF_CHECK_ROUTE, SELF_INIT_ROUTE,
     // cycle-97 动态白盒数据面
     '/anic/api/invocations/live',
+    // cycle-72 T-7207 闭环体检（注册↔生产↔消费 三态矩阵）只读面
+    '/anic/api/closure-audit',
     '/anic/cycle/init', '/anic/cycle/advance', '/anic/cycle/close', '/anic/cycle/state', '/anic/cycle/list',
     '/anic/api/ledger', '/anic/api/ledger/append', '/anic/api/ledger/verify',
     '/anic/api/stack-probe',
