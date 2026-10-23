@@ -18,7 +18,7 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildCapabilityIndex } from '../src/host/capabilityIndex.ts';
+import { buildCapabilityIndex, indexContentDrift } from '../src/host/capabilityIndex.ts';
 import { captureRegisteredFaces } from '../src/host/toolsFaceCapture.ts';
 import { listSkillScripts } from '../src/host/skillInvoker.ts';
 
@@ -50,14 +50,20 @@ console.log('[capability-index] tools=' + String(faces.length) + ' scripts=' + S
 console.log('[capability-index] injected bytes=' + String(build.injectedBytes));
 
 if (check) {
-  let ok = true;
-  for (const pair of [[indexPath, idxJson], [hashesPath, hashJson]]) {
-    const [p, expected] = pair;
-    if (!existsSync(p)) { console.log('[capability-index] MISSING ' + p); ok = false; continue; }
-    if (readFileSync(p, 'utf8') !== expected) { console.log('[capability-index] STALE ' + p); ok = false; }
+  // 判定口径（cycle-73 实测更正）：比较**内容**（id 集 / schema 哈希 / 脚本清单），
+  // **不**比较 commit —— commit 是出处标注；让它参与判定会使索引每次提交都假性失效
+  //（实证：仅新增一个测试文件的提交即触发 STALE，而工具注册面一字未动）。
+  let diskInjectable = null;
+  let diskHashes = null;
+  try { diskInjectable = JSON.parse(readFileSync(indexPath, 'utf8')); } catch (e) { diskInjectable = null; }
+  try { diskHashes = JSON.parse(readFileSync(hashesPath, 'utf8')).hashes ?? null; } catch (e) { diskHashes = null; }
+  const drift = indexContentDrift(diskInjectable, diskHashes, faces, scripts);
+  if (drift.length > 0) {
+    for (const d of drift) console.error('[capability-index] DRIFT ' + d);
+    console.error('[capability-index] 索引与注册面内容不一致——跑 node scripts/generate-capability-index.mjs 重建');
+    process.exit(1);
   }
-  if (!ok) { console.error('[capability-index] 索引与注册面不一致——跑 node scripts/generate-capability-index.mjs 重建'); process.exit(1); }
-  console.log('[capability-index] OK（索引与注册面一致）');
+  console.log('[capability-index] OK（内容一致；commit 仅作出处标注，不参与判定）');
   process.exit(0);
 }
 

@@ -160,3 +160,53 @@ export function summaryIssues(tools: ToolFace[]): string[] {
   }
   return issues;
 }
+
+/**
+ * 索引**内容**漂移判定（纯函数；**不比较 commit 字段**）。
+ *
+ * 为什么把 commit 排除在判定外（cycle-73 **实测更正** design §3.3-2）：
+ * 原设计让 `commit` 参与失效判定（「与 HEAD 不符 → stale」）。实测证明这会把索引变成
+ * **每次提交都自动失效**的制品——仅新增一个测试文件的提交（未触碰任何工具注册面）
+ * 就让 `--check` 报 STALE。那种守卫检测的是「提交发生了」而不是「注册面变了」，
+ * 运维必然忽略其告警（本仓既有教训：**告警级守卫等于没有守卫**）。
+ *
+ * 正确语义：**索引只在注册面（id 集 / schema / 脚本清单）变化时才失效**；
+ * `commit` 降级为**出处标注**（内容最后一次重建时的 HEAD），不参与判定。
+ *
+ * @param diskScripts 省略时跳过脚本清单比对（运行时探针不持有该面；生成器传 listSkillScripts()）。
+ */
+export function indexContentDrift(
+  diskInjectable: { tools?: Array<[string, string]>; scripts?: string[] } | null,
+  diskHashes: Record<string, string> | null,
+  tools: ToolFace[],
+  diskScripts?: string[],
+): string[] {
+  if (diskInjectable === null) return ['capability-index.json 缺失或不可解析'];
+  const issues: string[] = [];
+  const pairs = Array.isArray(diskInjectable.tools) ? diskInjectable.tools : [];
+  const fromIndex = pairs.map((p) => p[0]).sort();
+  const fromReg = tools.map((f) => f.name).sort();
+  const missing = fromReg.filter((id) => !fromIndex.includes(id));
+  const fabricated = fromIndex.filter((id) => !fromReg.includes(id));
+  if (missing.length > 0) issues.push('索引缺工具: ' + missing.join(', '));
+  if (fabricated.length > 0) issues.push('索引臆造工具: ' + fabricated.join(', '));
+
+  if (diskScripts !== undefined) {
+    const idxScripts = [...(diskInjectable.scripts ?? [])].sort();
+    const regScripts = [...diskScripts].sort();
+    if (idxScripts.join(',') !== regScripts.join(',')) {
+      issues.push('脚本清单不一致: 索引=[' + idxScripts.join(',') + '] 注册面=[' + regScripts.join(',') + ']');
+    }
+  }
+
+  if (diskHashes === null) {
+    issues.push('capability-hashes.json 缺失或不可解析');
+  } else {
+    const stale = tools.filter((f) => diskHashes[f.name] !== schemaHash(f)).map((f) => f.name);
+    if (stale.length > 0) issues.push('schema 已改而索引未重建: ' + stale.join(', '));
+    const extra = Object.keys(diskHashes).filter((k) => !fromReg.includes(k));
+    if (extra.length > 0) issues.push('哈希面有多余条目: ' + extra.join(', '));
+  }
+  return issues;
+}
+

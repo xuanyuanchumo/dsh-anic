@@ -14,7 +14,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SUMMARY_MAX_CHARS, TOOL_SUMMARIES, schemaHash, type ToolFace } from './capabilityIndex.ts';
+import { SUMMARY_MAX_CHARS, TOOL_SUMMARIES, indexContentDrift, type ToolFace } from './capabilityIndex.ts';
 
 /** 索引漂移判定结果（供探针渲染）。 */
 export interface IndexDriftReport {
@@ -58,33 +58,19 @@ export function loadIndexHashes(indexDir: string): Record<string, string> | null
  *   ④ 摘要策展表齐全且 ≤ 上限。
  */
 export function checkIndexDrift(indexDir: string, faces: ToolFace[]): IndexDriftReport {
-  const issues: string[] = [];
   const idx = loadInjectedIndex(indexDir);
   if (idx === null) {
     return { ok: false, detail: 'capability-index.json 缺失或不可解析（运行 npm run index 重建）', issues: ['index-missing'] };
   }
+  // 判定走**共享实现**（capabilityIndex.indexContentDrift）——与生成器同一口径，
+  // 杜绝「生成器说一致、探针说漂移」的双真相源分叉。
+  const issues = indexContentDrift(idx, loadIndexHashes(indexDir), faces);
   const pairs = Array.isArray(idx.tools) ? (idx.tools as Array<[string, string]>) : [];
-  const fromIndex = pairs.map((p) => p[0]).sort();
-  const fromReg = faces.map((f) => f.name).sort();
-  const missing = fromReg.filter((id) => !fromIndex.includes(id));
-  const fabricated = fromIndex.filter((id) => !fromReg.includes(id));
-  if (missing.length > 0) issues.push('索引缺工具: ' + missing.join(', '));
-  if (fabricated.length > 0) issues.push('索引臆造工具: ' + fabricated.join(', '));
-
-  const hashes = loadIndexHashes(indexDir);
-  if (hashes === null) {
-    issues.push('capability-hashes.json 缺失或不可解析');
-  } else {
-    const stale = faces.filter((f) => hashes[f.name] !== schemaHash(f)).map((f) => f.name);
-    if (stale.length > 0) issues.push('schema 已改而索引未重建: ' + stale.join(', '));
-  }
-
   for (const f of faces) {
     const s = TOOL_SUMMARIES[f.name] ?? pairs.find((p) => p[0] === f.name)?.[1];
     if (!s) issues.push('缺摘要: ' + f.name);
     else if (s.length > SUMMARY_MAX_CHARS) issues.push('摘要超长: ' + f.name);
   }
-
   return {
     ok: issues.length === 0,
     detail: issues.length === 0

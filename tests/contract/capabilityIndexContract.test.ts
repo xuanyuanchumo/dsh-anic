@@ -28,6 +28,7 @@ import {
   TOOL_SUMMARIES,
   SUMMARY_MAX_CHARS,
   buildCapabilityIndex,
+  indexContentDrift,
   schemaHash,
   summaryIssues,
   type ToolFace,
@@ -127,5 +128,44 @@ describe('cycle-73 T-7301 能力索引契约（注册面 ⇄ 索引）', () => {
     // 缺摘要的工具必须被点名（fail-closed，不是静默跳过）
     expect(summaryIssues([{ name: 'anic_no_such', description: 'x', parameters: {} }]).length).toBeGreaterThan(0);
     void corrupted;
+  });
+});
+
+describe('cycle-73 实测更正：commit 不参与失效判定（防「每次提交都假性 stale」）', () => {
+  it('同内容不同 commit → 无漂移（索引不因提交而失效）', () => {
+    // 复现本次真实缺陷：仅新增一个测试文件的提交（注册面一字未动）
+    // 曾让 --check 报 STALE —— 根因是 commit 参与了失效判定。
+    const idx = {
+      v: 1,
+      commit: 'deadbee',
+      tools: faces.map((f) => [f.name, TOOL_SUMMARIES[f.name] as string] as [string, string]),
+      scripts: [...scripts],
+    };
+    const hashes = Object.fromEntries(faces.map((f) => [f.name, schemaHash(f)]));
+    expect(indexContentDrift(idx, hashes, faces, scripts)).toEqual([]);
+  });
+
+  it('实例级复现：盘上真实制品与注册面内容一致（--check 语义的纯函数版）', () => {
+    expect(indexContentDrift(readInjectable(), readHashes().hashes, faces, scripts)).toEqual([]);
+  });
+
+  it('反向自检：注册面改一个工具的 schema → 漂移必须被报出（防恒真）', () => {
+    const mutated = faces.map((f, i) => (i === 0 ? { ...f, description: f.description + ' (mutated)' } : f));
+    const drift = indexContentDrift(readInjectable(), readHashes().hashes, mutated, scripts);
+    expect(drift.length).toBeGreaterThan(0);
+    expect(drift.some((d) => d.includes('schema 已改'))).toBe(true);
+  });
+
+  it('反向自检：脚本清单增减必须被报出', () => {
+    expect(indexContentDrift(readInjectable(), readHashes().hashes, faces, [...scripts, 'phantom-script']).length).toBeGreaterThan(0);
+  });
+
+  it('反向自检：索引缺工具 / 臆造工具必须被报出', () => {
+    const idx = readInjectable();
+    const hashes = readHashes().hashes;
+    const short = { ...idx, tools: idx.tools.slice(1) };
+    expect(indexContentDrift(short, hashes, faces, scripts).some((d) => d.includes('索引缺工具'))).toBe(true);
+    const extra = { ...idx, tools: [...idx.tools, ['anic_phantom', 'x'] as [string, string]] };
+    expect(indexContentDrift(extra, hashes, faces, scripts).some((d) => d.includes('臆造'))).toBe(true);
   });
 });
