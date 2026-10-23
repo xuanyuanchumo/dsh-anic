@@ -127,6 +127,19 @@ export interface ToolRegistration {
    * 写侧工具（install/advance/archive…）与 anic_skill（写 FlowTracker）保持省略。
    */
   isConcurrencySafe?: (args: unknown) => boolean;
+  /**
+   * cycle-74：**宿主原生**渐进式披露开关（`ToolSchema.deferLoading`）。
+   *
+   * 官方语义（`dsh-llm` ToolSchema 注释逐字）：「Requests deferred loading of the tool
+   * definition into model context... Uses Anthropic's **defer_loading** terminology.」
+   * 即：置 true 时宿主把该工具定义**延迟加载**进模型上下文（模型仍可经索引发现并按需激活），
+   * 这是 Anthropic 工具检索/渐进式披露的标准机制，**不需要**插件自造 restrict + loader 工具。
+   *
+   * 实测接收面（app.asar dsh-tools/lib/index.js `register`）：宿主注册时只校验 `output`
+   * 与 `timeoutMs`，其余字段**原样收下**；投影时 `schemaOf` 解构 `{name,description,parameters,
+   * deferLoading}` 并在 `deferLoading === true` 时才把它放进模型 schema。
+   */
+  deferLoading?: true;
 }
 
 /**
