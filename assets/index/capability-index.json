@@ -1,0 +1,99 @@
+{
+  "v": 1,
+  "commit": "b5fcdb4",
+  "tools": [
+    [
+      "anic_evaluate",
+      "跑 E1-E8/Q1-Q8 评估并写评估报告"
+    ],
+    [
+      "anic_iterate",
+      "评估 + 门禁 微迭代（跨项目）"
+    ],
+    [
+      "anic_gate_check",
+      "门禁判定并写入哈希链账本"
+    ],
+    [
+      "anic_bootstrap",
+      "插件自举：评估自身并产出改进提案"
+    ],
+    [
+      "anic_snapshot",
+      "取工作流快照（图数据 + 计数）"
+    ],
+    [
+      "anic_self_check",
+      "插件自检：工件与账本一致性"
+    ],
+    [
+      "anic_hitl",
+      "人工门禁审计队列（待裁决项）"
+    ],
+    [
+      "anic_autonomy_downgrade",
+      "降级自主级别（熔断回退路径）"
+    ],
+    [
+      "anic_flows_gate_check",
+      "跑 G0-G3 收敛门禁判定"
+    ],
+    [
+      "anic_flows_advance",
+      "推进流程状态机到下一状态"
+    ],
+    [
+      "anic_flows_archive",
+      "归档已完成的循环工作区"
+    ],
+    [
+      "anic_flows_hitl",
+      "H1-H4 人工门禁自动审计"
+    ],
+    [
+      "anic_flows_auto_fix",
+      "自动修复循环：失败→根因→重试"
+    ],
+    [
+      "anic_status",
+      "插件运行状态、调用流与技能健康"
+    ],
+    [
+      "anic_install",
+      "把技能安装到目标工作区"
+    ],
+    [
+      "anic_skill_repair",
+      "修复技能安装副本与内联版本的差异"
+    ],
+    [
+      "anic_skill",
+      "按白名单直调技能脚本（唯一全量可见通道）"
+    ],
+    [
+      "anic_bootstrap_cycle",
+      "自举链：评估→门禁→修复 自动驱动循环"
+    ],
+    [
+      "anic_bootstrap_analyze",
+      "自举编排 + 模块引擎深度分析"
+    ]
+  ],
+  "scripts": [
+    "init-workflow",
+    "init-cycle",
+    "eval-runner",
+    "gate-check",
+    "auto-fix-loop",
+    "multi-agent-gate",
+    "hitl-audit",
+    "band-detector",
+    "gate-ledger",
+    "workflow-state",
+    "org-status",
+    "quick-validate",
+    "fact-base-verify",
+    "plan-sync-check",
+    "archive-cycle"
+  ]
+}

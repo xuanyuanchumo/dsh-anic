@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "commit": "b5fcdb4",
+  "hashes": {
+    "anic_evaluate": "sha256:4da859c8705e2a72c576d7572c79af2262ccd133613e64ce518e53fb5d9cbc08",
+    "anic_iterate": "sha256:f1dd1ce6883d04c5c8140d88f06d692ff1068d882af52dcb7a545cf80c42f70e",
+    "anic_gate_check": "sha256:e046408539d17d1d80c43a6a325061339033ecb80a077d46522f5747f9975276",
+    "anic_bootstrap": "sha256:92f0e49b862fa962807fdac562ba104972f02dd9b1f821774ae25e3aa3bfd696",
+    "anic_snapshot": "sha256:0d00b229c3c9e00c1188bc67e51a288eb17337b74437a22fd15e58759b2ca352",
+    "anic_self_check": "sha256:f02ee523a4043fe0c13b1ba1f0652ecd2eebebbba9be6c7ccc0dd2e88a8e0a0a",
+    "anic_hitl": "sha256:05cb49126e6b5c64de5c231778c31bfd721c67b388e0fff4dd966982a4428ec0",
+    "anic_autonomy_downgrade": "sha256:3b3a16aad9786691c23f1a10c65fcae9cdd79391e6bcf16ca7cdbe2c40450361",
+    "anic_flows_gate_check": "sha256:1ba0694d7c5561b8589695f4181ae8429b0b6b79b5bf4066e0abe66a3b76d442",
+    "anic_flows_advance": "sha256:9a3270409a9602a9c53d802af64a25712a61fa74a0e55aaaefc80d65bbab4ab0",
+    "anic_flows_archive": "sha256:dd00592167cbe44ec5f268047bb9abb7ad46c5c3806588539ea691b811a59232",
+    "anic_flows_hitl": "sha256:162c5846cd154cf87e7f9c54084769ee94b6aab26d75f166bcf50babd39889a1",
+    "anic_flows_auto_fix": "sha256:e2eb80fabe0e6b999d19737a36ec8df18ebad01375d04914cf634b0933ec4bec",
+    "anic_status": "sha256:ae3eecc122c663e91929de9e2a718ea0ca29f0ef6b49c32d4453c03aa3c393b4",
+    "anic_install": "sha256:520cc3d7ad8f012f44b58a629304103b0c39fc70f240ab7885c64eff6d84f98f",
+    "anic_skill_repair": "sha256:c19c84d9e94b6c3e0357e1b4006d64444620da468c5112e2d7d8004979fc839b",
+    "anic_skill": "sha256:3c2bf92022ee3a953d85b9ea2382631543e752702e46289f6e5395191e0290da",
+    "anic_bootstrap_cycle": "sha256:e97818bc0d890a399986466e3d063d649eededeb88ab6301d6d333e685f38097",
+    "anic_bootstrap_analyze": "sha256:51b7a5f2c62e4b9ae8f0f9909dc38532a9c5fe91b687fd2931d64120d88c0963"
+  }
+}

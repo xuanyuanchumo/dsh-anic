@@ -52,6 +52,11 @@ function defaultAgentCardsDir(): string {
   try { return pluginAssetDir('agents'); } catch { return ''; }
 }
 
+/** 能力索引目录（插件 assets/index）——cycle-73 P7 探针的运行时读取面。 */
+function defaultIndexDir(): string {
+  try { return pluginAssetDir('index'); } catch { return ''; }
+}
+
 /** 注册全部 ANIC 路由（六域分区聚合）。 */
 export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions = {}): (() => void) | null {
   const c = ctx as SnapshotCtx;
@@ -65,7 +70,7 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
   disposers.push(
     registerSnapshotRoute(ctx),
     registerStepTraceRoute(ctx),
-    registerSelfCheckRoute(ctx, { send, getWorkspaceRoot, agentCardsDir }),
+    registerSelfCheckRoute(ctx, { send, getWorkspaceRoot, agentCardsDir, indexDir: defaultIndexDir() }),
     registerSelfInitRoute(ctx, { send, getWorkspaceRoot, loadFlows }),
     // 动态白盒数据面（cycle-97）：无工作区依赖，feed 缺失时显式 500。
     registerInvocationRoute(ctx, { send, feed: options.invocationFeed ?? null }),

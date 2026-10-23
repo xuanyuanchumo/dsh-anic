@@ -63,11 +63,11 @@ export function resolvePluginRoot(startUrl?: string): string {
 /**
  * 插件 assets 子目录（assets/skill、assets/agents）。
  *
- * @param asset 'skill' | 'agents'
+ * @param asset 'skill' | 'agents' | 'index'
  * @returns 目录绝对路径；根未解析时返回 ''（与旧 defaultAgentCardsDir 缺省语义一致：
  *   调用方以 falsy 跳过注册）
  */
-export function pluginAssetDir(asset: 'skill' | 'agents', startUrl?: string): string {
+export function pluginAssetDir(asset: 'skill' | 'agents' | 'index', startUrl?: string): string {
   const root = resolvePluginRoot(startUrl);
   return root ? join(root, 'assets', asset) : '';
 }

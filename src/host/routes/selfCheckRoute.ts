@@ -21,6 +21,8 @@ import { buildWorkflowSnapshot } from '../../shared/snapshotCore.ts';
 import { buildStepTrace } from '../../shared/stepTrace.ts';
 import { loadWorkspaceConfig } from '../config.ts';
 import { loadAgentCards } from '../agents.ts';
+import { checkIndexDrift } from '../capabilityIndexRuntime.ts';
+import { captureRegisteredFaces } from '../toolsFaceCapture.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 
@@ -38,6 +40,8 @@ export interface SelfCheckInput {
   workspaceRoot: string;
   /** 出厂 agent 卡目录（Junction 安装下即插件 assets/agents） */
   agentCardsDir: string;
+  /** 能力索引目录（插件 assets/index；cycle-73 P7 探针读取） */
+  indexDir: string;
 }
 
 /** 运行六项运行时不变量探针并返回逐项结果。 */
@@ -105,13 +109,23 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
   // P6 INV-26 形态声明（运行时无副作用：本端点零写路径；源码守卫 tests/contract/independenceGuard.test.ts 常驻）
   checks.push({ id: 'P6-diagnostics-domain-isolation', inv: 'INV-26', ok: true, detail: 'self-check is read-only by construction (no write path in this module)' });
 
+  // P7 能力索引 ⇄ 注册面（cycle-73 T-7301）：索引制品的**运行时消费者**。
+  // 不接这一段，索引就只剩「制品 + 测试」——正是本轮反复收口的「产物生成了但没人读」。
+  // 判据与 capabilityIndexContract 同源（共用 capabilityIndex.ts / Runtime），不写第二套。
+  try {
+    const drift = checkIndexDrift(input.indexDir, captureRegisteredFaces());
+    checks.push({ id: 'P7-capability-index-sync', ok: drift.ok, detail: drift.detail });
+  } catch (e) {
+    checks.push({ id: 'P7-capability-index-sync', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });
+  }
+
   const allOk = checks.every((c) => c.ok);
   log[allOk ? 'info' : 'warn'](`self-check ${allOk ? 'all green' : 'has failures'} (${checks.filter((c) => c.ok).length}/${checks.length})`, requestId);
   return { checks, allOk, requestId };
 }
 
 /** HTTP 注册（GET /anic/api/self-check）。deps 注入与 selfInit 同形态；只读。 */
-export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown, status: number, body: unknown, requestId?: string) => void; getWorkspaceRoot: (req?: unknown) => string | null; agentCardsDir: string }): (() => void) | null {
+export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown, status: number, body: unknown, requestId?: string) => void; getWorkspaceRoot: (req?: unknown) => string | null; agentCardsDir: string; indexDir: string }): (() => void) | null {
   const c = ctx as SnapshotCtx;
   const webServer = c.webServer;
   if (!webServer || typeof webServer.register !== 'function') return null;
@@ -125,7 +139,7 @@ export function registerSelfCheckRoute(ctx: unknown, deps: { send: (res: unknown
         return;
       }
       try {
-        const result = runSelfChecks({ workspaceRoot: root, agentCardsDir: deps.agentCardsDir });
+        const result = runSelfChecks({ workspaceRoot: root, agentCardsDir: deps.agentCardsDir, indexDir: deps.indexDir });
         deps.send(res, 200, result, result.requestId);
       } catch (e) {
         deps.send(res, 500, { error: e instanceof Error ? e.message : String(e) });

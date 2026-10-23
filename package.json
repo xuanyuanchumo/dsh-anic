@@ -13,6 +13,7 @@
   "files": [
     "dist/",
     "assets/skill/",
+    "assets/index/",
     "bin/",
     "locale/",
     "icon.svg",
@@ -64,6 +65,8 @@
   },
   "scripts": {
     "snapshot": "node scripts/generate-snapshot.mjs",
+    "index": "node scripts/generate-capability-index.mjs",
+    "index:check": "node scripts/generate-capability-index.mjs --check",
     "build": "node scripts/build-client.mjs",
     "build:watch": "node scripts/build-client.mjs --watch",
     "typecheck": "node scripts/typecheck.mjs",

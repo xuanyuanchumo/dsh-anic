@@ -56,7 +56,7 @@ function probeMap(checks: ProbeResult[]): Map<string, ProbeResult> {
 describe('runSelfChecks（纯函数，六探针语义）', () => {
   it('无 .cycles → P1/P2/P5 vacuous ok（空转是合法事实，不是失败）', () => {
     const root = tmpWorkspace(); // 无 .cycles
-    const { checks, allOk } = runSelfChecks({ workspaceRoot: root, agentCardsDir: '' });
+    const { checks, allOk } = runSelfChecks({ workspaceRoot: root, agentCardsDir: '', indexDir: join(process.cwd(), 'assets', 'index') });
     const m = probeMap(checks);
     expect(m.get('P1-snapshot-deterministic')?.ok).toBe(true);
     expect(m.get('P1-snapshot-deterministic')?.detail).toContain('absent');
@@ -77,6 +77,8 @@ describe('runSelfChecks（纯函数，六探针语义）', () => {
       workspaceRoot: root,
       // 本仓库出厂卡目录（ Junction 安装与测试同形状）
       agentCardsDir: join(process.cwd(), 'assets', 'agents'),
+      // cycle-73：能力索引目录（P7 探针的运行时读取面）
+      indexDir: join(process.cwd(), 'assets', 'index'),
     });
     const m = probeMap(checks);
     expect(m.get('P1-snapshot-deterministic')?.ok).toBe(true);
@@ -90,6 +92,9 @@ describe('runSelfChecks（纯函数，六探针语义）', () => {
     expect(m.get('P5-steptrace-reproducible')?.ok).toBe(true);
     expect(m.get('P5-steptrace-reproducible')?.detail).toContain('trace stable');
     expect(m.get('P6-diagnostics-domain-isolation')?.ok).toBe(true);
+    // cycle-73 P7：能力索引 ⇄ 注册面（索引制品的运行时消费者）
+    expect(m.get('P7-capability-index-sync')?.ok).toBe(true);
+    expect(m.get('P7-capability-index-sync')?.detail).toContain('index in sync');
     expect(allOk).toBe(true);
   });
 
@@ -102,7 +107,7 @@ describe('runSelfChecks（纯函数，六探针语义）', () => {
     // 但 node() 恒加 wf: 前缀，所以最终 id 恒 wf:*，P2 对 macro 图不可能为假。
     // 真正的非结构化 id 来源不存在于快照构建路径（这正是 INV-21 的保证）。
     // 本用例改为钉住「wf: 前缀恒加」这一构造性保证：
-    const { checks } = runSelfChecks({ workspaceRoot: root, agentCardsDir: join(process.cwd(), 'assets', 'agents') });
+    const { checks } = runSelfChecks({ workspaceRoot: root, agentCardsDir: join(process.cwd(), 'assets', 'agents'), indexDir: join(process.cwd(), 'assets', 'index') });
     const p2 = probeMap(checks).get('P2-structured-identity');
     expect(p2?.ok).toBe(true);
     expect(p2?.detail).toContain('2 node ids are structured');
@@ -111,7 +116,7 @@ describe('runSelfChecks（纯函数，六探针语义）', () => {
   it('P4：agent 卡目录指向空目录 → ok:false（错误形态不吞）', () => {
     const root = greenWorkspace();
     const emptyAgents = tmpWorkspace(); // 空目录：无 agent 卡文件
-    const { checks } = runSelfChecks({ workspaceRoot: root, agentCardsDir: emptyAgents });
+    const { checks } = runSelfChecks({ workspaceRoot: root, agentCardsDir: emptyAgents, indexDir: join(process.cwd(), 'assets', 'index') });
     const p4 = probeMap(checks).get('P4-agent-cards');
     expect(p4?.ok).toBe(false);
   });
@@ -129,6 +134,7 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
       },
       getWorkspaceRoot: (): string | null => root,
       agentCardsDir: join(process.cwd(), 'assets', 'agents'),
+      indexDir: join(process.cwd(), 'assets', 'index'),
     });
     expect(typeof disposer).toBe('function');
     expect(registered).toHaveLength(1);
@@ -144,7 +150,7 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
   }
 
   it('无 webServer → null（多代宿主安全降级）', () => {
-    expect(registerSelfCheckRoute({}, { send: (): void => {}, getWorkspaceRoot: (): string | null => null, agentCardsDir: '' })).toBeNull();
+    expect(registerSelfCheckRoute({}, { send: (): void => {}, getWorkspaceRoot: (): string | null => null, agentCardsDir: '', indexDir: '' })).toBeNull();
   });
 
   it('无可解析工作区 → 404（错误码可 grep）', () => {
@@ -155,13 +161,30 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
     expect(body).toContain('ANIC_ROUTE_SELF_CHECK_NO_WORKSPACE');
   });
 
-  it('绿工作区 → 200 {checks:6, allOk:true, requestId}（探针失败不抛异常——诊断端点诚实形态）', () => {
+  it('绿工作区 → 200 {checks:7, allOk:true, requestId}（探针失败不抛异常——诊断端点诚实形态）', () => {
     const h = makeHarness(greenWorkspace());
     const cap = h.call({ method: 'GET' });
     expect(cap.status).toBe(200);
     const body = cap.body as { checks: ProbeResult[]; allOk: boolean; requestId: string };
-    expect(body.checks).toHaveLength(6);
+    expect(body.checks).toHaveLength(7);
     expect(body.allOk).toBe(true);
     expect(body.requestId).toBeTruthy();
+  });
+  it('P7：索引与注册面一致 → ok:true；索引缺失 → ok:false（不是静默放行）', () => {
+    const root = greenWorkspace();
+    // 正：真索引目录（本仓库 assets/index 已由生成器产出）
+    const okRun = runSelfChecks({
+      workspaceRoot: root,
+      agentCardsDir: join(process.cwd(), 'assets', 'agents'),
+      indexDir: join(process.cwd(), 'assets', 'index'),
+    });
+    const p7 = probeMap(okRun.checks).get('P7-capability-index-sync');
+    expect(p7?.ok).toBe(true);
+    expect(p7?.detail).toContain('index in sync');
+    // 反：索引目录不存在 → 必须 ok:false 且理由可读（「索引悄悄失效」正是要消灭的形态）
+    const badRun = runSelfChecks({ workspaceRoot: root, agentCardsDir: join(process.cwd(), 'assets', 'agents'), indexDir: tmpWorkspace() });
+    const bad = probeMap(badRun.checks).get('P7-capability-index-sync');
+    expect(bad?.ok).toBe(false);
+    expect(String(bad?.detail)).toContain('capability-index.json');
   });
 });
