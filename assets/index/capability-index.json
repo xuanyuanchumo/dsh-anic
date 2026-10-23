@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "b5fcdb4",
+  "commit": "bffe374",
   "tools": [
     [
       "anic_evaluate",
@@ -57,6 +57,14 @@
     [
       "anic_status",
       "插件运行状态、调用流与技能健康"
+    ],
+    [
+      "anic_tools_search",
+      "按关键词在工具索引里检索能力"
+    ],
+    [
+      "anic_tool_detail",
+      "取某工具的完整参数 schema（索引模式必需）"
     ],
     [
       "anic_install",

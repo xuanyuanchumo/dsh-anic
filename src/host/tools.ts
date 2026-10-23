@@ -7,7 +7,9 @@ import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
 import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
 import { registerStatusTool } from './toolsStatusGateway.ts';
+import { registerIndexLoaderTools } from './toolsIndexLoaderGateway.ts';
 import type { ToolsSlot } from './toolsSlot.ts';
+import { createFaceRecorder } from './toolFaceRecorder.ts';
 import { resolveSkillScriptsDir, invokeSkillScriptAsync, validateWorkspace } from './skillInvoker.ts';
 import { join } from 'node:path';
 import {
@@ -45,6 +47,11 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   const disposers: Array<(() => void) | null> = [];
 
+  // cycle-74：注册面记录器（边注册边记，供披露加载器读取）。
+  // 它解的是**真实运行时环** tools.ts → toolsIndexLoaderGateway → toolsFaceCapture → tools.ts；
+  // 详见 toolFaceRecorder.ts 头注（依赖倒置，不是绕过检测）。
+  const { reg, faces: registeredFaces } = createFaceRecorder(tools);
+
   const getRoot = (): string | null => {
     try {
       return resolveWorkspaceRoots(c as SnapshotCtx);
@@ -54,7 +61,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   };
 
   // Tool: anic_evaluate — evaluate a project
-  disposers.push(tools.register({
+  disposers.push(reg({
     name: 'anic_evaluate',
     // SDO 纪律（superpowers writing-skills）：description 只写触发条件与症状，不总结工作流，
     // 防 agent 抄 description 捷径而不读工具/技能正文。触发词双语覆盖中英文查询。
@@ -95,7 +102,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   }) ?? null);
 
   // Tool: anic_iterate — run one iteration cycle on a project
-  disposers.push(tools.register({
+  disposers.push(reg({
     name: 'anic_iterate',
     // SDO：触发条件 = 已有基线、要走一轮完整迭代；症状 = 用户说「跑一轮迭代/一轮循环」。
     description: 'Use when an ANIC-managed project should run one full iteration round (evaluation + gate check together). '
@@ -136,7 +143,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   }) ?? null);
 
   // Tool: anic_gate_check — run gate checks on a project
-  disposers.push(tools.register({
+  disposers.push(reg({
     name: 'anic_gate_check',
     // SDO：触发条件 = 需要收敛门判定/判定已产出（进阶段、发版、登记账本）。
     description: 'Use when convergence-gate verdicts are needed for an ANIC-managed project — before advancing a phase, '
@@ -174,7 +181,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   }) ?? null);
 
   // Tool: anic_bootstrap — self-bootstrap (evaluate dsh-anic itself)
-  disposers.push(tools.register({
+  disposers.push(reg({
     name: 'anic_bootstrap',
     // SDO：触发条件 = 评估 dsh-anic 插件自身（自举）；症状 = 用户问「插件自己健康吗/自举一次」。
     description: 'Use when the dsh-anic plugin ITSELF needs evaluation (self-bootstrap) — checking plugin health, '
@@ -208,29 +215,31 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   }) ?? null);
 
   // 指针型工具（anic_snapshot/anic_self_check/anic_hitl）拆分至 toolsPointerGateway.ts
-  disposers.push(...registerPointerTools((tool) => tools.register!(tool), getRoot));
+  disposers.push(...registerPointerTools(reg, getRoot));
 
   // 进化域工具（anic_autonomy_downgrade）拆分至 toolsEvolutionGateway.ts
-  disposers.push(...registerEvolutionTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  disposers.push(...registerEvolutionTools(tools, { getRoot, register: reg }));
 
   // Flows 域工具（anic_flows_gate_check，R3 阶段 2）拆分至 toolsFlowsGateway.ts
-  disposers.push(...registerFlowsTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  disposers.push(...registerFlowsTools(tools, { getRoot, register: reg }));
 
   // HITL 三段修复工具（anic_flows_hitl，R3 阶段 4）拆分至 toolsHitlGateway.ts
-  disposers.push(...registerHitlTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  disposers.push(...registerHitlTools(tools, { getRoot, register: reg }));
 
   // 自动修复循环工具（anic_flows_auto_fix，R3 阶段 5）拆分至 toolsAutoFixGateway.ts
-  disposers.push(...registerAutoFixTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  disposers.push(...registerAutoFixTools(tools, { getRoot, register: reg }));
 
   // 状态全景工具（anic_status）拆分至 toolsStatusGateway.ts（cycle-39 T3：
   // presentCall 补齐后 tools.ts 264 行超限——一域一文件纪律，聚合面不变）
-  disposers.push(...registerStatusTool((tool) => tools.register!(tool), getRoot));
+  disposers.push(...registerStatusTool(reg, getRoot));
 
   // 技能调用域工具（anic_install + anic_skill 通用网关）拆分至 toolsSkillGateway.ts；
   // 自举域工具（anic_bootstrap_cycle + anic_bootstrap_analyze）拆分至 toolsBootstrapGateway.ts
   // （T3 ≤250 行模块化纪律，cycle-16）；disposer 一并纳入本聚合器的清理面。
-  disposers.push(...registerSkillGatewayTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
-  disposers.push(...registerBootstrapGatewayTools(tools, { getRoot, register: (tool) => tools.register!(tool) }));
+  // cycle-74：加载器**注入**「已注册面」读取闭包（不自行 import 捕获模块——那会成真实环）。
+  disposers.push(...registerIndexLoaderTools(reg, registeredFaces));
+  disposers.push(...registerSkillGatewayTools(tools, { getRoot, register: reg }));
+  disposers.push(...registerBootstrapGatewayTools(tools, { getRoot, register: reg }));
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;

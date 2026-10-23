@@ -54,6 +54,8 @@ export const TOOL_SUMMARIES: Record<string, string> = {
   anic_skill_repair: '修复技能安装副本与内联版本的差异',
   anic_snapshot: '取工作流快照（图数据 + 计数）',
   anic_status: '插件运行状态、调用流与技能健康',
+  anic_tool_detail: '取某工具的完整参数 schema（索引模式必需）',
+  anic_tools_search: '按关键词在工具索引里检索能力',
 };
 
 /** 注册面的一条工具（只取索引与校验需要的三字段）。 */

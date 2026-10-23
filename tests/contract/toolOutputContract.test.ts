@@ -123,7 +123,7 @@ describe('cycle-39 T-3907/T-3914：19/19 presentCall 完备 + TerminalCallView �
       workspaceRegistry: { list: () => [] },
     };
     registerAnicTools(ctx);
-    expect(registered.length).toBe(19); // toolIds.ts 双向集合比对同源
+    expect(registered.length).toBe(21); // toolIds.ts 双向集合比对同源（cycle-74: 19→21 加入两个披露加载器）
     const missing = registered.filter((t) => typeof t.presentCall !== 'function' || typeof t.presentResult !== 'function');
     expect(missing.map((t) => t.name), '缺 presentCall/presentResult 的工具（动态白盒卡片缺口）').toEqual([]);
   });

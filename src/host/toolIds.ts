@@ -20,7 +20,10 @@
  *   被允许调用它」——授权判定是 `autonomyBand` 与调用点的职责，本表不做。
  */
 
-/** 本插件注册的全部 DSH 工具 id（19 个，字典序）。 */
+/** 本插件注册的全部 DSH 工具 id（21 个，字典序）。
+ *
+ * cycle-74：19 → 21 —— 新增两个**渐进式披露加载器**（anic_tool_detail / anic_tools_search）。
+ * 它们是 indexed 模式下模型取回 schema 的唯一通道，缺则自锁（见 indexActivation.activationReady）。 */
 export const ANIC_TOOL_IDS: readonly string[] = [
   'anic_autonomy_downgrade',
   'anic_bootstrap',
@@ -41,6 +44,8 @@ export const ANIC_TOOL_IDS: readonly string[] = [
   'anic_skill_repair',
   'anic_snapshot',
   'anic_status',
+  'anic_tool_detail',
+  'anic_tools_search',
 ];
 
 const KNOWN = new Set(ANIC_TOOL_IDS);

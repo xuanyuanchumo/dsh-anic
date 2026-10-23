@@ -280,15 +280,38 @@
       "query": "这个算法的时间复杂度帮我分析一下，是不是 O(n²)，有没有优化空间",
       "expectedTool": null,
       "rationale": "负例（cycle-35 新增，shouldTriggerNone）：「评估」词面与 anic_evaluate 直接相撞，但实际是算法复杂度分析（数学/代码任务）——检验评估触发词在非 ANIC 语境的误触面"
+    },
+    {
+      "id": "pos-20",
+      "split": "train",
+      "query": "索引模式下请做一次能力检索：按关键词列出可用的 anic 工具清单",
+      "expectedTool": "anic_tools_search",
+      "rationale": "正例：索引模式下的能力检索——要求列出 anic 工具清单，指向 anic_tools_search"
+    },
+    {
+      "id": "pos-21",
+      "split": "test",
+      "query": "索引模式下我需要某个 anic 工具的完整定义，请用 tool detail 取回它的工具参数",
+      "expectedTool": "anic_tool_detail",
+      "rationale": "正例：按需取回工具完整定义（参数）——anic_tool_detail 的正典场景"
     }
   ],
   "_stats": {
-    "total": 38,
-    "positiveIds": 19,
+    "total": 40,
+    "positiveIds": 21,
     "negativeIds": 19,
-    "negativeBreakdown": { "shouldTriggerNone": 14, "shouldTriggerOtherTool": 5 },
-    "scoringCounts": { "positives": 24, "negatives": 14 },
-    "splitBreakdown": { "train": 20, "test": 18 },
+    "negativeBreakdown": {
+      "shouldTriggerNone": 14,
+      "shouldTriggerOtherTool": 5
+    },
+    "scoringCounts": {
+      "positives": 26,
+      "negatives": 14
+    },
+    "splitBreakdown": {
+      "train": 21,
+      "test": 19
+    },
     "positiveToolsCovered": [
       "anic_evaluate",
       "anic_install",
@@ -308,7 +331,9 @@
       "anic_autonomy_downgrade",
       "anic_self_check",
       "anic_hitl",
-      "anic_skill_repair"
+      "anic_skill_repair",
+      "anic_tools_search",
+      "anic_tool_detail"
     ],
     "distinguishingPairsExercised": [
       "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08 + pos-11/pos-12）",

@@ -70,7 +70,7 @@ function countRegisteredRoutes(): number {
 }
 
 describe('README 数字契约（活真相源不漂移）', () => {
-  it('README「19 个 anic_* LLM 工具」== tools*.ts 源码注册计数', () => {
+  it('README「21 个 anic_* LLM 工具」== tools*.ts 源码注册计数', () => {
     const declared = /(\d+) 个 `anic_\*` LLM 工具/.exec(README)?.[1];
     expect(declared, 'README 需声明「N 个 anic_* LLM 工具」（找不到该句式 = 契约句被删）').toBeDefined();
     expect(Number(declared)).toBe(countRegisteredTools());
@@ -88,6 +88,6 @@ describe('README 数字契约（活真相源不漂移）', () => {
   });
 
   it('反向自检：工具计数器能数到 19（扫描器哑掉时本断言红）', () => {
-    expect(countRegisteredTools()).toBe(19);
+    expect(countRegisteredTools()).toBe(21);
   });
 });

@@ -28,8 +28,10 @@ describe('cycle-74 T-7402 按需激活机制契约（纯逻辑）', () => {
 
   it('约束② indexed 模式 deny 全部已知工具减去加载器', () => {
     const deny = computeDeny('indexed', ALL);
-    // 当前 19 工具里没有加载器 ⇒ deny 应等于全部 19
-    expect(deny.sort()).toEqual([...ALL].sort());
+    // cycle-74：加载器现已注册 ⇒ deny = 21 − 2 = 19（其余全部被遮）
+    const expectDeny = ALL.filter((id) => !(INDEX_LOADER_TOOLS as readonly string[]).includes(id));
+    expect(deny).toHaveLength(expectDeny.length);
+    expect([...deny].sort()).toEqual([...expectDeny].sort());
     // 一旦加载器注册，它必须**不在** deny 里（否则模型取不回 schema）
     for (const loader of INDEX_LOADER_TOOLS) expect(deny).not.toContain(loader);
   });
@@ -39,14 +41,27 @@ describe('cycle-74 T-7402 按需激活机制契约（纯逻辑）', () => {
     const deny = computeDeny('indexed', withPhantom);
     expect(deny).not.toContain('anic_phantom_tool');
     expect(deny).not.toContain('not_anic');
-    expect(deny.sort()).toEqual([...ALL].sort());
+    const expectDeny = ALL.filter((id) => !(INDEX_LOADER_TOOLS as readonly string[]).includes(id));
+    expect([...deny].sort()).toEqual([...expectDeny].sort());
   });
 
-  it('自锁防护：加载器未注册时 indexed **不可落地**（拒绝切档，保持 full）', () => {
-    const r = activationReady('indexed', ALL); // ALL 不含加载器（当前 19 工具）
+  it('自锁防护：**加载器缺失**时 indexed 不可落地（拒绝切档，保持 full）', () => {
+    // 现实（cycle-74）：加载器已注册 ⇒ ALL 含它们。故构造「加载器缺失」的夹具验证防护本身。
+    const withoutLoaders = ALL.filter((id) => !(INDEX_LOADER_TOOLS as readonly string[]).includes(id));
+    expect(withoutLoaders.length).toBe(ALL.length - 2);
+    const r = activationReady('indexed', withoutLoaders);
     expect(r.ready).toBe(false);
     expect(r.reason).toContain('缺加载器');
-    expect(planActivation('indexed', ALL, ALL)).toBeNull();
+    expect(planActivation('indexed', withoutLoaders, withoutLoaders)).toBeNull();
+  });
+
+  it('现实（cycle-74）：加载器已注册 ⇒ indexed **可落地**，且 deny 不含加载器', () => {
+    const ready = activationReady('indexed', ALL);
+    expect(ready.ready).toBe(true);
+    const plan = planActivation('indexed', ALL, ALL);
+    expect(plan).not.toBeNull();
+    expect(plan?.deny).toHaveLength(ALL.length - INDEX_LOADER_TOOLS.length);
+    for (const l of INDEX_LOADER_TOOLS) expect(plan?.deny).not.toContain(l);
   });
 
   it('加载器齐备后可落地，且 plan 的 deny 不含加载器', () => {
