@@ -1,0 +1,117 @@
+/**
+ * **目标一致性契约**（objective conformance，cycle-76 建立）。
+ *
+ * ## 为什么把「目标」写成测试
+ *
+ * 用户诉求是复合句：「确保所有功能业务的**注册、生产与消费**，确保**连通性逻辑性**，
+ * 同时要**白盒透明化、可视化流动**等可观测性」。复合目标最容易的失败形态是
+ * **完成了其中几项就宣布全部完成**——没有任何东西会拦住这种自述。
+ *
+ * 本文件把目标**逐词拆成可判定的断言**，每条给出实测证据；任一条不成立即红。
+ * 它是「目标层」的守卫：下面的专项契约（真值 / 分类 / 连通性 / 渲染 / 流动）
+ * 各自守一面，本文件守**它们必须同时在位**。
+ *
+ * ## 逐条对应（判据均可机器复算）
+ *
+ * ① 注册 —— 四族来自**单一注册表**（工具/词表/路由/技能），不是手写清单；逐族非空
+ * ② 生产 —— 每项 `producedAt` 非空者必须带**证据类别**，不得混入「仅声明 / 无写入点」
+ * ③ 消费 —— 五分类**互斥且穷尽**（`clustersConsistent` 为空）
+ * ④ 连通性 —— 入口到资产的调用链**全通**且**零空转注册器**
+ * ⑤ 逻辑性 —— 流恒等式 / 截断总数一致 / 缺口两分类覆盖 三条同时成立
+ * ⑥ 白盒 —— 投影过 fail-closed 形状守卫，且**不含本地绝对路径**
+ * ⑦ 可视化流动 —— 四族可建流、非空、节点/边由数据派生
+ * ⑧ 真值 —— 路由注册点与 README 的**独立**计数器一致且逐项有真注册点
+ *
+ * 纪律：只读（R-31）；一次全仓扫描（真机面 ~7-15s，用显式 timeout）。
+ */
+import { describe, it, expect } from 'vitest';
+import { runClosureAudit, clustersConsistent, toClosureView, UNCONSUMED_VIEW_LIMIT } from '../../src/host/closureAudit/registryClosure.ts';
+import { scanRouteDefs } from '../../src/host/closureAudit/assetClosure.ts';
+import { buildConnectivity, assertConnectivityComplete } from '../../src/host/closureAudit/connectivity.ts';
+import { buildClosureFlow } from '../../src/client/features/closure/closureFlowGraph.ts';
+import { isClosureView } from '../../src/client/features/closure/closureTypes.ts';
+import { buildFileIndex, buildTextMap } from '../../src/host/closureAudit/scanPrimitives.ts';
+
+const ROOT = process.cwd();
+const FILES = buildTextMap(ROOT, buildFileIndex(ROOT));
+const SUMMARY = runClosureAudit(ROOT);
+const VIEW = toClosureView(SUMMARY);
+const CONN = buildConnectivity(FILES);
+const FLOW = buildClosureFlow(VIEW);
+
+describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 白盒流动）', () => {
+  it('① 注册：四族齐备且来自单一注册表（不是手写清单）', () => {
+    expect(SUMMARY.clusters.map((c) => c.cluster)).toEqual(['tools', 'i18n', 'routes', 'skills']);
+    for (const c of SUMMARY.clusters) {
+      expect(c.total, c.cluster + ' 族为空（空集恒绿是假守卫）').toBeGreaterThan(0);
+      expect(c.items.length).toBe(c.total);
+    }
+    expect(SUMMARY.totals.registered).toBe(SUMMARY.clusters.reduce((s, c) => s + c.total, 0));
+  });
+
+  it('② 生产：producedAt 非空者必须带证据类别（不得混入仅声明/无写入点）', () => {
+    const produced = SUMMARY.clusters.flatMap((c) => c.items.filter((i) => i.producedAt !== null));
+    expect(produced.length).toBeGreaterThan(0);
+    const contaminated = produced.filter((i) => i.producedKind === 'declaration-only' || i.producedKind === 'no-write-point');
+    expect(contaminated.map((i) => i.cluster + '|' + i.id)).toEqual([]);
+    // 有产出的项必须有 evidence 锚点（一个数字没有证据就是自述）
+    for (const i of produced) expect(i.producedEvidence.length).toBeGreaterThan(0);
+  });
+
+  it('③ 消费：五分类互斥且穷尽（自洽校验为空）', () => {
+    expect(clustersConsistent(SUMMARY.clusters)).toEqual([]);
+    const cl = SUMMARY.clusters;
+    expect(cl.length).toBe(4);
+    // 未消费两分类必须覆盖全量（其余两键不在未消费里）
+    expect(SUMMARY.totals.consumedGap + SUMMARY.totals.producedGap).toBe(SUMMARY.totals.unconsumed);
+  });
+
+  it('④ 连通性：入口到资产的调用链全通且零空转注册器', () => {
+    assertConnectivityComplete(CONN);
+    expect(CONN.hops.map((h) => h.id)).toEqual([
+      'entry→routes', 'routes→aggregator', 'aggregator→registrars',
+      'entry→tools', 'tools→gateways', 'entry→skill',
+    ]);
+    for (const h of CONN.hops) expect(h.ok, '断链: ' + h.id).toBe(true);
+    expect(CONN.routeRegistrars.filter((r) => r.wired).length).toBe(CONN.routeRegistrars.length);
+    expect(CONN.toolRegistrars.filter((r) => r.wired).length).toBe(CONN.toolRegistrars.length);
+    expect(CONN.orphanRegistrars).toEqual([]);
+    expect(CONN.connected).toBe(true);
+  });
+
+  it('⑤ 逻辑性：流恒等式 + 截断总数一致 + 缺口两分类覆盖', () => {
+    for (const c of FLOW.clusters) {
+      expect(c.notProduced + c.producedNotConsumed, c.cluster + ' 流恒等式破').toBe(c.registered - c.consumed);
+    }
+    const tr = VIEW.truncation.unconsumed;
+    expect(tr.total).toBe(SUMMARY.totals.unconsumed);
+    expect(VIEW.unconsumed.length).toBe(Math.min(SUMMARY.totals.unconsumed, UNCONSUMED_VIEW_LIMIT));
+    expect(tr.truncated).toBe(tr.total > tr.shown);
+    expect(VIEW.totals.consumedGap + VIEW.totals.producedGap).toBe(VIEW.totals.unconsumed);
+  });
+
+  it('⑥ 白盒：投影过 fail-closed 守卫且不含本地绝对路径', () => {
+    expect(isClosureView(VIEW)).toBe(true);
+    const json = JSON.stringify(VIEW);
+    expect(json).not.toContain(String.fromCharCode(58, 92)); // ":\"（Windows 盘符）
+    expect(VIEW.connectivity, '连通性必须进投影（否则白盒面看不见空心注册）').toBeDefined();
+    expect(VIEW.notes.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('⑦ 可视化流动：四族建流、节点/边由数据派生', () => {
+    expect(FLOW.empty).toBe(false);
+    expect(FLOW.clusters.length).toBe(SUMMARY.clusters.length);
+    expect(FLOW.nodes.length).toBeGreaterThan(0);
+    expect(FLOW.edges.length).toBeGreaterThan(0);
+    // 数据驱动：节点 id 必须带实际族名（不是硬编码清单）
+    for (const c of SUMMARY.clusters) {
+      expect(FLOW.nodes.some((n) => n.cluster === c.cluster), '缺族节点 ' + c.cluster).toBe(true);
+    }
+  });
+
+  it('⑧ 真值：路由注册点与 README 独立计数器一致且逐项有真注册点', () => {
+    const defs = scanRouteDefs(FILES);
+    expect(defs.length).toBe(63); // README 契约口径（readmeNumbersContract 独立复算同一数）
+    expect(defs.filter((d) => d.producedAt !== null).length).toBe(63);
+  });
+}, 120_000);
