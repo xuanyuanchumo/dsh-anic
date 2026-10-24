@@ -38,6 +38,22 @@ export interface ClosureView {
   }>;
   ghost: Array<{ cluster: string; id: string }>;
   notes: string[];
+  /**
+   * ★cycle-76：**连通性**投影（注册 → 生产 → 运行时可达）。
+   *
+   * 只暴露**判定结论与链跳状态**，不暴露注册器文件清单（体积 + 客户端用不上）；
+   * `orphanRegistrars` 是名字（非路径），与 `definedAt` 同级的仓内相对标识。
+   */
+  connectivity: {
+    connected: boolean;
+    hopCount: number;
+    hops: Array<{ id: string; ok: boolean; at: string | null }>;
+    orphanRegistrars: string[];
+    routeWired: number;
+    routeTotal: number;
+    toolWired: number;
+    toolTotal: number;
+  };
   /** ★cycle-75：明细截断如实上报（**总数永不截断**——只有明细数组受限）。 */
   truncation: { unconsumed: { shown: number; total: number; truncated: boolean } };
 }
@@ -97,6 +113,17 @@ export function toClosureView(summary: ClosureSummary): ClosureView {
     })),
     ghost: summary.ghost.map((g) => ({ cluster: g.cluster, id: g.id })),
     notes: summary.notes,
+    // cycle-76：连通性投影（结论 + 逐跳状态；不暴露注册器文件清单——客户端用不上且增体积）。
+    connectivity: {
+      connected: summary.connectivity.connected,
+      hopCount: summary.connectivity.hopCount,
+      hops: summary.connectivity.hops.map((h) => ({ id: h.id, ok: h.ok, at: h.at })),
+      orphanRegistrars: [...summary.connectivity.orphanRegistrars],
+      routeWired: summary.connectivity.routeRegistrars.filter((r) => r.wired).length,
+      routeTotal: summary.connectivity.routeRegistrars.length,
+      toolWired: summary.connectivity.toolRegistrars.filter((r) => r.wired).length,
+      toolTotal: summary.connectivity.toolRegistrars.length,
+    },
     truncation: {
       unconsumed: {
         // shown = 明细数组长度；total = **服务端未消费总数**（永不截断）

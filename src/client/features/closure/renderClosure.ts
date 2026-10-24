@@ -171,6 +171,35 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
       )
     : null;
 
+  /**
+   * ★cycle-76 连通性行：注册 → 生产 → **运行时可达**。
+   *
+   * 为什么必须同屏：一个**空心注册**（注册器存在、reg() 也在、但聚合器没调）在三态
+   * 矩阵上显示为**完全健康**。这一行是唯一能让它现形的地方。
+   * `connectivity` 缺席（旧服务端）⇒ 不渲染（向前兼容，不是失败）。
+   */
+  const conn = view.connectivity === undefined
+    ? null
+    : createElement('div', {
+        'data-anic-closure-connectivity': view.connectivity.connected ? 'ok' : 'broken',
+        'data-anic-conn-hops': String(view.connectivity.hopCount),
+        'data-anic-conn-orphans': String(view.connectivity.orphanRegistrars.length),
+        style: { ...ROW, color: view.connectivity.connected ? token('anic-pass') : token('anic-fail'), fontWeight: 600 },
+      },
+        createElement('span', {}, view.connectivity.connected
+          ? t('closure.conn.ok', { hops: String(view.connectivity.hopCount) })
+          : t('closure.conn.broken', { broken: String(view.connectivity.hops.filter((h) => !h.ok).length) })),
+        createElement('span', { style: { fontWeight: 400, color: token('anic-text-dim') } },
+          t('closure.conn.wired', {
+            rw: String(view.connectivity.routeWired), rt: String(view.connectivity.routeTotal),
+            tw: String(view.connectivity.toolWired), tt: String(view.connectivity.toolTotal),
+          })),
+        view.connectivity.orphanRegistrars.length > 0
+          ? createElement('span', { 'data-anic-conn-orphan-list': view.connectivity.orphanRegistrars.join(',') },
+              t('closure.conn.orphans', { list: view.connectivity.orphanRegistrars.join(', ') }))
+          : null,
+      );
+
   // ② 截断如实上报（静默截断 = 隐藏缺口）；未截断时不渲染 N/M 行。
   const truncation = tr.truncated
     ? createElement('div', { 'data-anic-closure-truncation': 'shown=' + String(tr.shown) + ' total=' + String(tr.total), style: { ...ROW, color: token('anic-warn-text') } },
@@ -206,6 +235,8 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
 
   const body = createElement('div', { 'data-anic-closure': 'section', style: { borderTop: '1px solid ' + token('anic-border') } },
     summary,
+    // cycle-76：连通性（注册 → 生产 → 运行时可达）——三态矩阵看不见的那一维。
+    conn,
     // cycle-75 T4「可视化流动」：注册 → 生产 → 消费 的流向（缺口发生在哪一段一眼可见）。
     // 数据由纯函数 buildClosureFlow 派生（同一投影、无第二真相源）；渲染同为纯函数。
     renderClosureFlow(buildClosureFlow(view)),

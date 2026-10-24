@@ -1,19 +1,16 @@
 /**
- * 闭环体检客户端形状契约（cycle-75 T3 · docs/agents/闭环三态真值契约.md §2）。
+ * 闭环体检客户端形状契约（cycle-75 T3 · docs/agents/闭环三态真值契约.md §2；cycle-76 拆出连通性）。
  *
  * 为什么单独一文件：形状守卫是**数据腿的守门人**——`usePanelFetch` 在 `guard`
- * 返回 false 时走 `onFail`（失败记端点键 'closure'，分区渲染可见失败行）。
- * 半截响应**不进渲染**，也绝不冒充「零缺口」。守卫与呈现同域但不同职责，
- * 拆开同时避免 renderClosure 越过 250 行纪律线（truthAudit T3）。
+ * 返回 false 时走 `onFail`（记端点键 'closure'，分区渲染可见失败行）；
+ * 半截响应**不进渲染**，也绝不冒充「零缺口」。
  *
  * 硬约束（契约 §2）：**不得** import host 侧模块——宿主侧同名投影
- * （src/host/closureAudit/closureView.ts 的 ClosureView）与本文件是各自持有的
- * 两份声明；host/client 编译隔离 + G-IND 独立性守卫。「server/client 各一份，
- * 不得互相 import」= 本文件不得出现 `../host` 路径。
+ * （src/host/closureAudit/closureView.ts）与本文件是**各自持有的两份声明**
+ * （host/client 编译隔离 + G-IND）；本文件不得出现 `../host` 路径。
  *
- * 守卫纪律：**fail-closed，逐字段**。任一字段（cycle-75 新增的 produced /
- * producedKind / dynamic / evidence / producedByKind / truncation / 计数键）
- * 缺失或类型不符 ⇒ isClosureView 返回 false ⇒ 该响应不进渲染面。
+ * 守卫纪律：**fail-closed，逐字段**。任一字段缺失或类型不符 ⇒ isClosureView 返回 false
+ * ⇒ 该响应不进渲染面。
  *
  * **fail-closed 的边界（刻意的）**：只对**本客户端真正渲染的字段**严格。
  * 两类东西不判假：
@@ -103,6 +100,14 @@ export interface ClosureUnconsumedView {
 
 export interface ClosureGhostView { cluster: string; id: string; }
 
+// ★cycle-76 连通性形状与守卫已拆至 closureConnectivityTypes.ts（T3 ≤250 行）；
+// 此处**再导出**保消费者 import 路径零变更。
+// 注意：`export … from` 不引入本模块作用域，故另用 import 把本文件用到的名字引进来。
+export type { ClosureConnectivityView } from './closureConnectivityTypes.ts';
+export { isConnectivity } from './closureConnectivityTypes.ts';
+import type { ClosureConnectivityView } from './closureConnectivityTypes.ts';
+import { isConnectivity } from './closureConnectivityTypes.ts';
+
 export interface ClosureTruncation {
   /** 明细截断如实上报（**总数永不截断**——只有明细数组受限）。 */
   unconsumed: { shown: number; total: number; truncated: boolean };
@@ -116,6 +121,11 @@ export interface ClosureView {
   ghost: ClosureGhostView[];
   notes: string[];
   truncation: ClosureTruncation;
+  /**
+   * ★cycle-76：连通性。**可选**——旧服务端无此块时旧客户端仍须可用
+   * （向前兼容：新增观测面不得把既有面板打瞎）。渲染层缺省不显示该行。
+   */
+  connectivity?: ClosureConnectivityView;
 }
 
 /* ── 谓词原语（fail-closed 的积木；新鲜度：NaN/Infinity 不是合法计数）────── */
@@ -205,6 +215,8 @@ function isTruncation(v: unknown): v is ClosureTruncation {
  * 调用点最小纪律（clientRenderContract 同族）：`guard` 返回 false 时
  * `usePanelFetch` 记 `onFail({kind:'malformed'})` ⇒ 分区走失败行，
  * **旧数据不被污染、空表体不会冒充「零缺口」**。
+ *
+ * 连通性子守卫（cycle-76）已拆至 closureConnectivityTypes.ts 并在此再导出。
  */
 export function isClosureView(v: unknown): v is ClosureView {
   if (!isObj(v)) return false;
@@ -216,6 +228,8 @@ export function isClosureView(v: unknown): v is ClosureView {
   for (const g of v.ghost) { if (!isObj(g) || !isStr(g.cluster) || !isStr(g.id)) return false; }
   if (!isStrArray(v.notes)) return false;
   if (!isTruncation(v.truncation)) return false;
+  // ★cycle-76：连通性**在场则严格校验，缺席则放行**（向前兼容旧服务端）。
+  if (v.connectivity !== undefined && !isConnectivity(v.connectivity)) return false;
   const tot = v.totals as ClosureTotals;
   const tr = (v.truncation as ClosureTruncation).unconsumed;
   // 真值自洽①：总数永不截断（契约 §1.4）——两侧不等 = 投影在隐藏缺口

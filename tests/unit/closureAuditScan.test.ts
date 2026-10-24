@@ -98,8 +98,9 @@ describe('cycle-72 T-7207 闭环体检（可复算出口）', () => {
     const view = toClosureView(summary);
     expect(JSON.stringify(view)).not.toContain(':\\');
     // 精确键集：这是「rootDir 不出服务端」的核心安全断言，**不得删除**。
-    // cycle-75 additive 变更：新增 truncation（明细截断如实上报）——同步加入而非放宽。
-    expect(Object.keys(view).sort()).toEqual(['clusters', 'generatedAt', 'ghost', 'notes', 'totals', 'truncation', 'unconsumed']);
+    // cycle-75 additive：+truncation（明细截断如实上报）；
+    // cycle-76 additive：+connectivity（连通性：注册→生产→运行时可达）——同步加入而非放宽。
+    expect(Object.keys(view).sort()).toEqual(['clusters', 'connectivity', 'generatedAt', 'ghost', 'notes', 'totals', 'truncation', 'unconsumed']);
     expect(view.notes.length).toBeGreaterThanOrEqual(4);
   });
 

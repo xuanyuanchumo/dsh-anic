@@ -27,6 +27,8 @@ import { assertScanNonEmpty, buildFileIndex, buildTextMap, tallyProduced, toolCl
 import { i18nClosure, i18nGhosts, routeClosure, routeGhosts } from './assetClosure.ts';
 // cycle-75 T6：第四族（技能脚本 + MCP 传输层）——此前该面零覆盖。
 import { SKILL_CLOSURE_NOTES, skillClosure } from './skillClosure.ts';
+// cycle-76：连通性（注册 → 生产 → **运行时可达**）——三态矩阵答不了「那段代码会不会被执行」。
+import { assertConnectivityComplete, buildConnectivity } from './connectivity.ts';
 import type { ClosureTotals } from './closureTotalsTypes.ts';
 import type { ClosureSummary } from './closureSummary.ts';
 import type { ClosureBucket } from './closureBuckets.ts';
@@ -42,6 +44,9 @@ export type { ClosureTotals } from './closureTotalsTypes.ts';
 export type { ClosureSummary } from './closureSummary.ts';
 export type { ClosureView } from './closureView.ts';
 export { UNCONSUMED_VIEW_LIMIT, orderUnconsumed, toClosureView } from './closureView.ts';
+// cycle-76：连通性（report 类型 + 两态断言原语）。
+export type { ChainHop, ConnectivityReport, RegistrarState } from './connectivity.ts';
+export { assertConnectivityComplete, buildConnectivity, callLine } from './connectivity.ts';
 
 /* ── 生产锚点判定（cycle-75：判据已下移到各族扫描器，此处不再各自重算）── */
 
@@ -124,6 +129,11 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   const produced = clusters.reduce((sum, c) => sum + producedCount(c.cluster, files, c.items), 0);
   const buckets = bucketsOf(clusters.flatMap((c) => c.items));
 
+  // cycle-76：连通性（注册 → 生产 → 运行时可达）。扫描集为空即**响亮抛错**
+  // （空集恒绿是假守卫；连通性面尤其如此——链全断时「无孤儿」也是空的）。
+  const connectivity = buildConnectivity(files);
+  assertConnectivityComplete(connectivity);
+
   const totals: ClosureTotals = {
     registered, produced, consumed, codeConsumed,
     unconsumed: registered - consumed,
@@ -143,6 +153,7 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
     unconsumed,
     ghost: ghosts,
     notes: [...NOTES],
+    connectivity,
   };
 }
 

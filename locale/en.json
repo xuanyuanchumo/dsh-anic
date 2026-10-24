@@ -362,6 +362,12 @@
       "tierCode": "production code {n}",
       "tierDynamic": "computed key claimed {n}",
       "tierChannel": "channel-only {n}"
+    },
+    "conn": {
+      "ok": "connected: all {hops} chain hops reachable",
+      "broken": "broken chain: {broken} hop(s) unreachable (registered but never runs)",
+      "wired": "wired routes {rw}/{rt} · tools {tw}/{tt}",
+      "orphans": "idle registrars: {list}"
     }
   }
 }

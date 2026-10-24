@@ -362,6 +362,12 @@
       "tierCode": "生产代码 {n}",
       "tierDynamic": "计算键认领 {n}",
       "tierChannel": "仅通道引用 {n}"
+    },
+    "conn": {
+      "ok": "连通：{hops} 跳调用链全通",
+      "broken": "断链：{broken} 跳不通（注册了但运行时到不了）",
+      "wired": "已接线 路由 {rw}/{rt} · 工具 {tw}/{tt}",
+      "orphans": "空转注册器：{list}"
     }
   }
 }

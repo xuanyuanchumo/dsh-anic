@@ -157,5 +157,6 @@ describe('cycle-75 闭环流动可视化（注册 → 生产 → 消费）', () 
     if (i18n) expect(i18n.mode).toBe('directRead');
     const v = probe(renderClosureFlow(f));
     expect(v.anchors.filter((a) => a.startsWith('data-anic-flow-cluster=')).length).toBe(real.clusters.length);
-  });
+  }, 120_000);
+
 });

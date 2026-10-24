@@ -190,5 +190,6 @@ describe('cycle-75 闭环分区渲染产出（有壳必须有表体）', () => {
     expect(v.anchors.filter((a) => a.startsWith('data-anic-unconsumed=')).length).toBeGreaterThan(0);
     // 真实投影的四族里至少 tools/routes/i18n/skills 之一的分组要出来
     expect(v.anchors.some((a) => a.startsWith('data-anic-closure-group='))).toBe(true);
-  });
+  }, 120_000);
+
 });

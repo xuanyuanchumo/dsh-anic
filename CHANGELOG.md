@@ -1,5 +1,79 @@
 # dsh-anic CHANGELOG
 
+## v0.42.0 — 2026-10-25（cycle-76：**连通性**维度——注册 → 生产 → **运行时可达**）
+
+> 主题（用户诉求新增限定）：「确保**连通性逻辑性**」。cycle-75 把 `produced` 修正为
+> 「存在**真注册调用点**」，但那仍只证明「某处写了 `reg({path})`」——**不证明那段代码会被执行**。
+
+### ① 被补的盲区：空心注册（静态全绿、运行时永不达）
+
+一个注册器若**没被聚合器调用**，里面所有 `reg()` 都是空心注册：**注册了、生产了、甚至有消费方**，
+三态矩阵**全绿**，运行时却到不了。与本仓既有事故同族——`headless 下整条 fiber pending`
+是「注册了但没激活」，这条更隐蔽：**代码静态存在、测试全绿、面板显示完全健康**。
+
+### ② 判定链（6 跳，任一断即不可达）
+
+```
+src/index.ts apply
+  ├─ wireRoutes()  ──► anicRoutesPlugin ──► registerAnicRoutes()
+  │                                        └─ registerXxxRoute() ──► reg({path})
+  ├─ registerAnicTools() ──► tools.ts ──► registerXxxTools() ──► tools*.ts 网关
+  └─ registerRuntimeSkill()
+```
+
+- `wireRoutes` 的**两条路径都认**（cycle-74 P0 后优先走子 fiber `ctx.plugin(anicRoutesPlugin)`，
+  服务缺席回落直连）——只认一条会把正确实现判成孤儿。
+- `callLine()` **排除定义行**（`export function foo(` ≠ `foo(`）：否则「自己定义自己」
+  就成了「自己被接线」，正是假绿形态。
+- `callLine()` **自带去注释**（本契约 ② 实测抓到的形态：`// wireRoutes(ctx) 在注释里`
+  曾被判成真接线）。
+
+### ③ 真机结论（实测）
+
+```
+6 跳全通 · 路由注册器 19/19 接线 · 工具网关注册器 9/9 接线 · 孤儿 0 · connected = true
+```
+
+**今天是对的，但此前零守卫**——新加一个注册器忘了挂进聚合器，所有既有守卫仍全绿。
+
+### ④ 变异测试（证明守卫有牙，两态可分）
+
+| 变异 | 结果 |
+|---|---|
+| 注释掉聚合器里的 `registerClosureAuditRoute(c, { send })` | ❌ `orphanRegistrars = ["registerClosureAuditRoute"]` + 跳红 |
+| 注释掉入口 `wireRoutes(ctx, …)` | ❌ `entry→routes` 断 |
+| 注释掉工具 hub 的 `registerHitlTools(` | ❌ 孤儿 + `tools→gateways` 断 |
+| 注释掉入口 `registerRuntimeSkill(ctx)` | ❌ `entry→skill` 断 |
+
+变异**只在内存副本**上做（R-31 只读），且每条都断言「变异前绿 / 变异后红」。
+
+### ⑤ 白盒可见（不只是一个没人调的模块）
+
+- 投影新增 `connectivity`（结论 + 逐跳状态 + 孤儿名单 + 接线计数），
+  **不含本地绝对路径**（`hops[].at` 是仓内相对 file:line）。
+- 面板新增连通性行：`data-anic-closure-connectivity=ok|broken`；
+  断链时显示断几跳 + **点名空转注册器**。
+- 客户端守卫**在场则严格、缺席则放行**（向前兼容：新增观测面不得把既有面板打瞎）：
+  `hops` 非空（空链不许冒充全通）、`wired ≤ total`（超了即自相矛盾）。
+
+### 结构（T3 ≤250 行）
+
+新增 `closureAudit/connectivity.ts`(226)、`client/features/closure/closureConnectivityTypes.ts`(62)；
+`closureTypes.ts` 拆出连通性后 249；`renderClosure`(247)。**消费者 import 路径零变更**。
+
+### 守卫
+
+`closureConnectivityContract`（10 例）：真机全通 / `callLine` 不误判定义 / 空扫描集抛错 /
+**四处定向变异各自变红** / 投影无绝对路径 / 客户端守卫两态 / 渲染三态（ok·broken·缺席）。
+
+### 实测总账
+
+```
+测试 150 files / 1882 tests ALL GREEN · validate 12/12 · smoke ALL PASS · trigger 26/26 recall 0/14 FPR
+build OK（client.js 253,249 B）· typecheck OK · quick-validate 四锚一致 2.5.2
+连通性 6 跳全通 / 19+9 注册器全接线 / 孤儿 0
+```
+
 ## v0.41.0 — 2026-10-24（cycle-75：闭环体检从「自述」到「真值」+ 第四族 + 渲染腿收口）
 
 > 主题：用户诉求「**确保技能插件的所有功能业务的注册、生产与消费**，同时要**白盒透明化、
