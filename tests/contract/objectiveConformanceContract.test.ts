@@ -25,6 +25,9 @@
  * 纪律：只读（R-31）；一次全仓扫描（真机面 ~7-15s，用显式 timeout）。
  */
 import { describe, it, expect } from 'vitest';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { runClosureAudit, clustersConsistent, toClosureView, UNCONSUMED_VIEW_LIMIT } from '../../src/host/closureAudit/registryClosure.ts';
 import { scanRouteDefs } from '../../src/host/closureAudit/assetClosure.ts';
 import { buildConnectivity, assertConnectivityComplete } from '../../src/host/closureAudit/connectivity.ts';
@@ -33,6 +36,7 @@ import { isClosureView } from '../../src/client/features/closure/closureTypes.ts
 import { buildFileIndex, buildTextMap } from '../../src/host/closureAudit/scanPrimitives.ts';
 
 const ROOT = process.cwd();
+const SEP = String.fromCharCode(92);
 const FILES = buildTextMap(ROOT, buildFileIndex(ROOT));
 const SUMMARY = runClosureAudit(ROOT);
 const VIEW = toClosureView(SUMMARY);
@@ -113,5 +117,78 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
     const defs = scanRouteDefs(FILES);
     expect(defs.length).toBe(63); // README 契约口径（readmeNumbersContract 独立复算同一数）
     expect(defs.filter((d) => d.producedAt !== null).length).toBe(63);
+  });
+
+  /* ── 以下四条对应 objective 的**扩展限定**（质量属性与全生命周期评审体系）── */
+
+  it('⑨ 质量产物：测试报告 / 非功能验证报告 / 交付清单 三项证据齐备（Q2+Q8 的可判形式）', () => {
+    const cycles = join(ROOT, '.cycles', 'cycles');
+    const dirs = readdirSync(cycles).filter((d) => /^cycle-\d+$/.test(d))
+      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6)));
+    expect(dirs.length, '无循环工作区').toBeGreaterThan(0);
+    // 取**最新**循环（本轮产物所在）——旧循环不必回溯补齐
+    const latest = join(cycles, dirs[dirs.length - 1] as string);
+    const reports = join(latest, 'test-reports');
+    expect(existsSync(reports), '缺 test-reports 目录（Q2 判据）').toBe(true);
+    expect(readdirSync(reports).filter((f) => f.endsWith('.md')).length, 'Q2：测试报告为空').toBeGreaterThan(0);
+    expect(existsSync(join(latest, '非功能验证报告.md')), '缺非功能验证报告').toBe(true);
+    const checklist = join(latest, '交付清单.md');
+    expect(existsSync(checklist), '缺交付清单（Q8 判据）').toBe(true);
+    const text = readFileSync(checklist, 'utf8');
+    for (const item of ['最终测试报告', '非功能验证报告', '文档更新记录', '审计日志']) {
+      expect(text.includes(item), '交付清单缺项：' + item).toBe(true);
+    }
+  });
+
+  it('⑩ 中文注释：src/ 下**每个有注释的文件**都含中文注释（用户明确点名的工程化规范）', () => {
+    const CJK = /[\u4e00-\u9fff]/;
+    const pureEnglish: string[] = [];
+    let withComments = 0;
+    for (const [rel, raw] of FILES) {
+      if (!rel.startsWith('src/') || !rel.endsWith('.ts')) continue;
+      let commentLines = 0;
+      let hasCjk = false;
+      for (const line of raw.split('\n')) {
+        const t = line.trim();
+        const isComment = t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
+        if (!isComment) continue;
+        commentLines += 1;
+        if (CJK.test(line)) hasCjk = true;
+      }
+      if (commentLines === 0) continue;
+      withComments += 1;
+      if (!hasCjk) pureEnglish.push(rel + ' (' + String(commentLines) + ' 注释行)');
+    }
+    expect(withComments, '扫描集为空 = 假守卫').toBeGreaterThan(100);
+    expect(pureEnglish, '纯英文注释文件：' + pureEnglish.slice(0, 5).join(', ')).toEqual([]);
+  });
+
+  it('⑪ 模块化生产级架构：无超 250 行文件 + 无运行时 import 环', async () => {
+    // (a) 单文件上限（与 truthAudit T3 同口径，此处独立复算）
+    const oversized: string[] = [];
+    for (const [rel, raw] of FILES) {
+      if (!rel.startsWith('src/')) continue;
+      const n = raw.split('\n').length;
+      if (n > 250) oversized.push(rel + '=' + String(n));
+    }
+    expect(oversized, '超 250 行：' + oversized.join(', ')).toEqual([]);
+
+    // (b) 运行时 import 环 —— **复用技能包自带的分类器**（importGraph.mjs），
+    //     不在此重写一份：它会正确排除 re-export / type-only 边（本仓既有教训：
+    //     重写判定 = 两套口径漂移）。真实运行环才计入。
+    const { collectImportGraph, findCircularDeps } = await import(
+      pathToFileURL(join(ROOT, 'assets', 'skill', 'scripts', 'lib', 'importGraph.mjs')).href
+    ) as { collectImportGraph: (d: string) => unknown; findCircularDeps: (g: unknown) => string[][] };
+    const graph = collectImportGraph(ROOT);
+    const cycles = findCircularDeps(graph);
+    expect(cycles, '运行时 import 环：' + cycles.slice(0, 3).map((c) => c.join(' -> ')).join(' ; ')).toEqual([]);
+  });
+
+  it('⑫ 性能预算（棘轮）：全量体检必须 < 2500 ms —— 防回退到 7.9 s 的 O(项×全仓行) 实现', () => {
+    // 实测 453 ms（倒排索引）；留 5.5× 余量防抖动。回退到旧实现（7933 ms）必红。
+    const t0 = performance.now();
+    runClosureAudit(ROOT);
+    const elapsed = performance.now() - t0;
+    expect(elapsed, '全量体检耗时 ' + elapsed.toFixed(0) + ' ms 超预算——检查 evidenceIndex 是否被绕过').toBeLessThan(2500);
   });
 }, 120_000);
