@@ -13,6 +13,9 @@ import type { AssetDef, ClusterAudit, ClosureItem } from './scanPrimitives.ts';
 import { assertScanNonEmpty, boundaryContains, collectRefs, kindOf, quoteClasses, stripComments, tallyProduced } from './scanPrimitives.ts';
 // 机械部件（行号/正则/常量表/括号配平）拆至 routeScanPrimitives.ts（T3 ≤250 行）。
 import { NON_ROUTE_HELPERS, ROUTE_FILE, balancedBraces, constTable, lineAt, pathLiteralRe } from './routeScanPrimitives.ts';
+// cycle-76：倒排索引证据查询（O(1) 查表替代逐项全仓扫描）。
+import type { EvidenceIndex } from './evidenceIndex.ts';
+import { evidenceFor } from './evidenceIndex.ts';
 
 // 词表族（含 flattenKeys / keyAnchor：closureAuditScan.test.ts 直接消费）——再导出，路径零变更。
 export { dynamicKeyPrefixes, flattenKeys, keyAnchor, i18nClosure, i18nGhosts } from './i18nClosure.ts';
@@ -150,15 +153,21 @@ function routeConsumerUniverse(rel: string): boolean {
   return /^(src|scripts|bin)\//.test(rel);
 }
 
-export function routeClosure(files: Map<string, string>): ClusterAudit {
+/**
+ * 路由族闭环（cycle-76：支持传入**倒排索引**；缺省回落逐项全扫，外部行为不变）。
+ */
+export function routeClosure(files: Map<string, string>, index?: EvidenceIndex): ClusterAudit {
   const defs = scanRouteDefs(files);
   assertScanNonEmpty(defs.length, 'route-definitions');
   const sites = routeRegisterSites(files);
   const items: ClosureItem[] = defs.map((d) => {
     const defFile = (d.producedAt ?? d.declaredAt ?? '').split(':')[0] as string;
-    const evidence = collectRefs(files,
-      (line) => boundaryContains(line, d.id) && quoteClasses().split('').some((q) => line.indexOf(q) >= 0),
-      (rel) => rel !== defFile && routeConsumerUniverse(rel));
+    // 倒排表按「最大化取 token」建 ⇒ 按 id 精确查表与 boundaryContains 等价。
+    const evidence = index !== undefined
+      ? evidenceFor(index.route, d.id, (rel) => rel !== defFile && routeConsumerUniverse(rel))
+      : collectRefs(files,
+          (line) => boundaryContains(line, d.id) && quoteClasses().split('').some((q) => line.indexOf(q) >= 0),
+          (rel) => rel !== defFile && routeConsumerUniverse(rel));
     const produced = d.producedAt !== null;
     return {
       cluster: 'routes',

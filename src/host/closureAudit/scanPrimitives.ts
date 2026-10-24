@@ -36,6 +36,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AssetDef, ClusterAudit, ClosureItem } from './closureModel.ts';
 import { tallyProduced } from './closureModel.ts';
+// cycle-76：倒排索引证据查询（O(1) 查表替代逐项全仓扫描）。
+import { evidenceFor } from './evidenceIndex.ts';
+// cycle-76：文本原语下沉到 textScan.ts（破 scanPrimitives ↔ evidenceIndex 的 import 环）。
+export { quoteClasses, stripComments } from './textScan.ts';
+import { quoteClasses, stripComments } from './textScan.ts';
 
 // cycle-75 T3 拆分：数据模型下移到 closureModel.ts；此处**再导出**保消费者
 // import 路径零变更（registryClosure / assetClosure / i18nClosure / 契约测试）。
@@ -46,14 +51,7 @@ export { emptyProducedTallies, tallyProduced } from './closureModel.ts';
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cycles', 'test-results', 'coverage', '.dsh', '.codegraph-visualizer', 'artifacts']);
 const TEXT_EXT = /\.(ts|tsx|mjs|js|md|json)$/;
 const MAX_EVIDENCE = 3;
-const SQ = String.fromCharCode(39);
-const DQ = String.fromCharCode(34);
-const BACKTICK = String.fromCharCode(96);
 
-/** 三种引号字符（供 RegExp 构造使用——正则字面量里的引号会让 stripComments 失衡）。 */
-export function quoteClasses(): string {
-  return SQ + DQ + BACKTICK;
-}
 
 /** 扫描集非空下限（守卫纪律：空集恒绿是假守卫，响亮失败而不是静默）。 */
 export function assertScanNonEmpty(count: number, label: string): void {
@@ -89,38 +87,6 @@ export function buildTextMap(root: string, files: readonly string[]): Map<string
   return map;
 }
 
-/** 去注释但保留换行（行号必须与磁盘一致；与 panelLayoutContract 同款实现）。 */
-export function stripComments(text: string): string {
-  let out = '';
-  let i = 0;
-  let inBlock = false;
-  let inLine = false;
-  let inStr: string | null = null;
-  while (i < text.length) {
-    const c = text[i] as string;
-    const n = text[i + 1];
-    if (inLine) { if (c === '\n') { inLine = false; out += c; } else out += ' '; i += 1; continue; }
-    if (inBlock) {
-      if (c === '*' && n === '/') { inBlock = false; out += '  '; i += 2; continue; }
-      out += c === '\n' ? c : ' ';
-      i += 1;
-      continue;
-    }
-    if (inStr) {
-      out += c;
-      if (c === '\\') { out += text[i + 1] ?? ''; i += 2; continue; }
-      if (c === inStr) inStr = null;
-      i += 1;
-      continue;
-    }
-    if (c === '/' && n === '*') { inBlock = true; out += '  '; i += 2; continue; }
-    if (c === '/' && n === '/') { inLine = true; out += '  '; i += 2; continue; }
-    if (c === SQ || c === DQ || c === BACKTICK) { inStr = c; out += c; i += 1; continue; }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
 
 function escapeRe(s: string): string {
   return s.split('.').join('\\.');
@@ -151,7 +117,9 @@ export function collectRefs(
     const lines = raw.split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i] as string;
-      if (line.indexOf(SQ) < 0 && line.indexOf(DQ) < 0 && line.indexOf(BACKTICK) < 0) continue;
+      if (line.indexOf(quoteClasses().charAt(0)) < 0
+        && line.indexOf(quoteClasses().charAt(1)) < 0
+        && line.indexOf(quoteClasses().charAt(2)) < 0) continue;
       if (!match(line)) continue;
       hits.push(rel + ':' + String(i + 1));
       break;
@@ -194,12 +162,21 @@ function toolConsumerUniverse(rel: string): boolean {
   return /^(src|tests|scripts|bin|assets)\//.test(rel);
 }
 
-export function toolClosure(files: Map<string, string>): ClusterAudit {
+/**
+ * 工具族闭环（cycle-76：支持传入**倒排索引**，把 O(项 × 全仓行) 降为 O(1) 查表）。
+ *
+ * `index` 缺省时回落到 `collectRefs`（既有逐项全扫路径）——保证外部调用点与测试
+ * 行为不变；批量体检（runClosureAudit）统一传索引，全量耗时从 ~7.9s 降到亚秒级。
+ */
+export function toolClosure(files: Map<string, string>, index?: import('./evidenceIndex.ts').EvidenceIndex): ClusterAudit {
   const assets = scanToolAssets(files);
   assertScanNonEmpty(assets.length, 'tool-definitions');
   const items: ClosureItem[] = assets.map((a) => {
     const re = new RegExp('\\b' + a.id + '(?![A-Za-z0-9_])');
-    const evidence = collectRefs(files, (line) => re.test(line), toolConsumerUniverse);
+    // 倒排表是「最大化取 token」建的，故按 id 精确查表与 boundaryContains 等价。
+    const evidence = index !== undefined
+      ? evidenceFor(index.tool, a.id, toolConsumerUniverse)
+      : collectRefs(files, (line) => re.test(line), toolConsumerUniverse);
     // cycle-75：produced 证据 = **同文件内 execute: 实现**（定义处的注册里挂了 handler）。
     const defFile = a.definedAt.split(':')[0] as string;
     const hasHandler = /execute\s*:/.test(files.get(defFile) ?? '');

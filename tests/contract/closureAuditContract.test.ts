@@ -31,6 +31,8 @@ import {
   runClosureAudit,
   toClosureView,
 } from '../../src/host/closureAudit/registryClosure.ts';
+// 去注释判定原语（cycle-76 下沉到 textScan；scanPrimitives 再导出）。
+import { stripComments } from '../../src/host/closureAudit/scanPrimitives.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const summary = runClosureAudit(ROOT);
@@ -233,8 +235,20 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
    *
    * 为什么按**族**钉而非逐项：逐项清单会让每次新增工具/键都要改这一个大数组，
    * 易漏易冲突；分族计数是紧的上界且维护成本低，配合既有逐项基线已足够。
+   *
+   * ## cycle-76 调整（routes 44 → 46，i18n 42 → 39）——**不是放宽，是修正**
+   *
+   * 引入证据倒排索引后，路由/工具族的证据**开始统一去注释**（i18n 族一直是这么做的）。
+   * 复核旧 19 条「已消费」路由，其中 **2 条的唯一证据是注释行**：
+   *   · `/anic/self/evaluate` ← `selfBootstrapFlow.ts:4`（JSDoc 头注里的端点清单）
+   *   · `/anic/self/status`   ← `selfBootstrap.ts:12`（JSDoc 头注里的 `GET /anic/self/status`）
+   * 按判定纪律⑥「注释里的示例路径不是消费」，它们本就该是未消费 ⇒ routes 44 → 46 是**纠正**。
+   * i18n 42 → 39 则因 cycle-75/76 新增的 17 个键全部有消费方（渲染层在用）。
+   *
+   * 该结论有**独立守卫**兜住（下方「证据锚点不得落在注释行」用例）——若将来又有人把
+   * 注释当证据，那条会红，所以这里的上调不是「让套件变绿」的妥协。
    */
-  const BASELINE: Record<string, number> = { i18n: 42, routes: 44 };
+  const BASELINE: Record<string, number> = { i18n: 39, routes: 46 };
 
   /**
    * 棘轮判据（**抽成纯函数**，好让反向自检能对着同一判据证明它两态可分）。
@@ -255,9 +269,52 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
     }
   });
 
-  it('总量未消费数不得超过基线之和（89）', () => {
+  it('总量未消费数不得超过基线之和（85）', () => {
     const limit = Object.values(BASELINE).reduce((a, b) => a + b, 0);
     expect(summary.totals.unconsumed).toBeLessThanOrEqual(limit);
+  });
+
+  /**
+   * ★cycle-76 新增：**证据锚点不得来自注释**（判定纪律⑥的机器守卫）。
+   *
+   * 本轮实测抓到的真实假阳性来源：旧路由/工具族在**原始文本**上取证据，于是 JSDoc
+   * 头注里列举的端点被算成「有人消费」。该形态极隐蔽——注释是给**人**看的，
+   * 却被当成**调用方**；白盒面因此把未消费报成已消费（比漏报更危险：它让人放心）。
+   *
+   * 判据按**扫描器能保证的不变式**定义：该行**去注释后**仍含被引用的 token ⇒ 真消费；
+   * 去注释后 token 消失 ⇒ 它原本只在注释里 ⇒ 违规。
+   *
+   * ## 已知边界（诚实标注，不是放宽）
+   *
+   * `scripts/generate-snapshot.mjs` 在**模板字符串**里生成一段 JSDoc，其中提到
+   * `/anic/api/workflow-snapshot`。`stripComments` 正确地不去动字符串内容，故该 token
+   * 在去注释文本中仍存在、按本判据**合规**。但语义上它是「被生成的文档文本」而非调用方——
+   * 属**词法扫描无法区分**的一类（文档写进字符串）。已登记为已知限制（CHANGELOG 遗留段），
+   * 不在本守卫的判据范围内，也不因此放宽本判据。
+   */
+  it('证据锚点不得来自注释（去注释后 token 必须仍在）', () => {
+    const offenders: string[] = [];
+    for (const cl of summary.clusters) {
+      for (const it of cl.items) {
+        if (!it.consumed) continue;
+        // `dynamic=true` 是**计算键认领**：证据按设计指向**模板行**（如
+        // t(`budget.status_${x}`)），该行不含完整键名 —— 显式跳过（语义已由
+        // evidenceKind='code' + dynamic 标注，不是「注释造出来的消费」）。
+        if (it.dynamic) continue;
+        const token = it.id;
+        for (const at of it.evidence) {
+          const idx = at.lastIndexOf(':');
+          const rel = at.slice(0, idx);
+          const line = Number(at.slice(idx + 1));
+          const rawLine = (readFileSync(join(ROOT, rel), 'utf8').split('\n')[line - 1] ?? '');
+          // 去注释后仍在 ⇒ 证据真实存在（不是注释造出来的）
+          if (!stripComments(rawLine).includes(token)) {
+            offenders.push(it.cluster + '|' + it.id + ' ← ' + at);
+          }
+        }
+      }
+    }
+    expect(offenders, '注释被当成消费方：' + offenders.slice(0, 5).join(' ; ')).toEqual([]);
   });
 
   it('反向自检：同一判据能判「合规/违规」两态（不是恒真断言）', () => {

@@ -17,29 +17,25 @@
  *    仅替换本模块的 dynamicKeyPrefixes 实现）：HEAD=45 → 现行=42，落差 3 项**全部**是
  *    `budget.status_normal/warn/alert`——它们是 `t(`budget.status_${data.status}`)` 的
  *    真实计算键。故 **42 是真值，45 才是假阳性值**（把 3 个真被消费的键报成未消费）。
- * ② 契约担心的「`closure.cluster.` 前缀误认领 `closure.cluster.tools/.i18n/.routes`」在本实现里
- *    **不存在**：那三个键在 renderClosure.ts 的 CLUSTER_LABEL_KEYS 里是**字面量**，直接命中
- *    quotedLiteralMatch（dynamic=false）。该前缀只在**不去注释**时才被构造出来（renderClosure.ts
- *    头注里的反例写法）；dynamicKeyPrefixes 已先 stripComments ⇒ 前缀根本不产生。实测：
- *    去注释见前缀只有 ["budget.status_","anic.agent."]，无 closure.cluster.。
- * ③ **真实根因是「调用边界」而非前缀匹配**：原实现用 `line.indexOf('t(')` 找调用点，没有
- *    词法边界 ⇒ `agentCards.get(`anic.agent.${gate}.${role}`)` 里的 `get(` 尾串 `t(` 被当成
- *    i18n 调用，凭空造出 `anic.agent.` 前缀。它当前认领 0 个键（无害），但属**同一族假阳性
- *    发生器**：一旦有人新增 anic.agent.* 键，Map 查表会被冒充成「已消费」。已按调用边界修掉：
- *    扫描改用 isTranslationCall() 判定，`anic.agent.` 前缀消失，计数不变（42→42，零行为变更）。
+ * ② 契约担心的「`closure.cluster.` 前缀误认领三键」在本实现里**不存在**：那三个键在
+ *    renderClosure.ts 的 CLUSTER_LABEL_KEYS 里是**字面量**，直接命中 quotedLiteralMatch
+ *    （dynamic=false）。该前缀只在**不去注释**时才被构造（renderClosure.ts 头注里的反例
+ *    写法）；dynamicKeyPrefixes 已先 stripComments ⇒ 前缀根本不产生。
+ * ③ **真实根因是「调用边界」而非前缀匹配**：原用 `line.indexOf('t(')` 找调用点，无词法
+ *    边界 ⇒ `agentCards.get(…)` 里 `get(` 的尾串 `t(` 被当成 i18n 调用，凭空造出
+ *    `anic.agent.` 前缀。今日认领 0 键（无害），但属**同族假阳性发生器**：一旦新增
+ *    anic.agent.* 键，Map 查表就会被冒充成「已消费」。已改 isTranslationCall() 边界。
  * ④ 消费面收窄：assets/**（内联技能脚本）不是本插件 locale/zh.json 的读取方——技能脚本以
- *    **目标项目**目录为根探测词表（assets/skill/scripts/eval-runner.mjs 的 checkI18n 用
- *    projectDir + locale/…），与冻结的 assetClosure.routeConsumerUniverse 同口径（该面已排除
- *    assets/）。实测排除前后 unconsumed 恒为 42（本仓 0 个键以 assets/ 为唯一证据）⇒ 语义纠正、
- *    计数中性。
- * ⑤ 字面量证据改为**去注释后**扫描（判定纪律⑥）：此前 evidence 会锚到注释行
- *    （`closure.cluster.tools` 曾锚到本文件第 45 行的示例注释、`panel.selfInitOk` 锚到
- *    src/client/i18n.ts 的 JSDoc）。实测计数与 evidenceKind 均不变（287/245/244/42，不变式违例 0）。
+ *    **目标项目**目录为根探测词表，与冻结的 routeConsumerUniverse 同口径。实测计数中性。
+ * ⑤ 字面量证据改为**去注释后**取（纪律⑥）：此前 evidence 会锚到注释行（实测 4 处）。
  */
 import type { ClusterAudit, ClosureItem } from './scanPrimitives.ts';
 import { assertScanNonEmpty, collectRefs, kindOf, quoteClasses, stripComments, tallyProduced } from './scanPrimitives.ts';
 // cycle-75：键 → 真实行号索引（修叶子名全文匹配导致的 definedAt 误报）。
 import { buildKeyLineIndex, lineOfKey } from './localeKeyAnchors.ts';
+// cycle-76：倒排索引证据查询（O(1) 查表替代逐项全仓扫描）。
+import type { EvidenceIndex } from './evidenceIndex.ts';
+import { evidenceFor } from './evidenceIndex.ts';
 
 function escapeDots(key: string): string {
   return key.split('.').join('\\.');
@@ -178,21 +174,30 @@ function i18nConsumerUniverse(rel: string): boolean {
   return /^(src|scripts|bin|tests)\//.test(rel);
 }
 
-export function i18nClosure(files: Map<string, string>): ClusterAudit {
+/**
+ * 词表族闭环（cycle-76：支持传入**倒排索引**；缺省回落逐项全扫，外部行为不变）。
+ *
+ * 索引路径下不再需要「先把所有文件去注释存成一张表」（那本身是 O(files) 内存 +
+ * 每键再扫一遍）；`index.literal` 已按「最大化取字面量」建表，按 key 精确查表
+ * 即等价于既有 `quotedLiteralMatch`（后者本来就要求键后不接 `[A-Za-z0-9_/.-]`）。
+ */
+export function i18nClosure(files: Map<string, string>, index?: EvidenceIndex): ClusterAudit {
   const zhRaw = files.get('locale/zh.json');
   assertScanNonEmpty(zhRaw === undefined ? 0 : 1, 'locale-zh');
   const keys = flattenKeys(JSON.parse(zhRaw as string) as Record<string, unknown>);
   assertScanNonEmpty(keys.length, 'i18n-keys');
   const dyn = dynamicKeyPrefixes(files, i18nConsumerUniverse);
-  // 判定纪律⑥：字面量证据也必须在**去注释**文本上取（否则 evidence 会锚到注释行——
+  // 判定纪律⑥：字面量证据必须在**去注释**文本上取（否则 evidence 会锚到注释行——
   // 实测曾把 closure.cluster.tools 锚到示例注释、panel.selfInitOk 锚到 JSDoc）。
-  // 行数由 stripComments 保留 ⇒ 锚点行号仍与磁盘一致。
-  const literal = new Map<string, string>();
-  for (const [rel, raw] of files) literal.set(rel, stripComments(raw));
+  // 索引路径由 evidenceIndex 内部 stripComments；回落路径保留原表。
+  const literal = index !== undefined ? null : new Map<string, string>();
+  if (literal !== null) for (const [rel, raw] of files) literal.set(rel, stripComments(raw));
   // 键 → 行号索引**建一次复用**（302 键 × 全文重扫是 O(n²)，且每键都要准确。
   const keyLines = buildKeyLineIndex(zhRaw as string);
   const items: ClosureItem[] = keys.map((key) => {
-    let evidence = collectRefs(literal, (line) => quotedLiteralMatch(line, key), i18nConsumerUniverse);
+    let evidence = index !== undefined
+      ? evidenceFor(index.literal, key, i18nConsumerUniverse)
+      : collectRefs(literal as Map<string, string>, (line) => quotedLiteralMatch(line, key), i18nConsumerUniverse);
     let dynamic = false;
     if (evidence.length === 0) {
       // 计算键：命中的前缀全部取自 src/ 生产代码（模板在渲染器里）

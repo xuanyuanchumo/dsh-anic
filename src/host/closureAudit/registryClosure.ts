@@ -29,6 +29,8 @@ import { i18nClosure, i18nGhosts, routeClosure, routeGhosts } from './assetClosu
 import { SKILL_CLOSURE_NOTES, skillClosure } from './skillClosure.ts';
 // cycle-76：连通性（注册 → 生产 → **运行时可达**）——三态矩阵答不了「那段代码会不会被执行」。
 import { assertConnectivityComplete, buildConnectivity } from './connectivity.ts';
+// cycle-76：证据倒排索引（修 O(项 × 全仓行) 的性能缺口）。
+import { buildEvidenceIndex } from './evidenceIndex.ts';
 import type { ClosureTotals } from './closureTotalsTypes.ts';
 import type { ClosureSummary } from './closureSummary.ts';
 import type { ClosureBucket } from './closureBuckets.ts';
@@ -113,7 +115,16 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   const files = buildTextMap(rootDir, buildFileIndex(rootDir));
   assertScanNonEmpty(files.size, 'file-index');
 
-  const clusters: ClusterAudit[] = [toolClosure(files), i18nClosure(files), routeClosure(files), skillClosure(files)];
+  // cycle-76（性能）：**一次**建倒排索引，三族共用查表。
+  // 旧路径是「每项资产 × 每个文件每行」全扫（419 项 × 519 文件 ≈ 34M 次行判定，实测 7.9s）；
+  // 建索引一次后每项查询降为 O(1) 哈希查表。建索引涉及的全量文件数与扫描集同源。
+  const evidence = buildEvidenceIndex(files);
+  assertScanNonEmpty(evidence.fileCount, 'evidence-index');
+
+  const clusters: ClusterAudit[] = [
+    toolClosure(files, evidence), i18nClosure(files, evidence),
+    routeClosure(files, evidence), skillClosure(files),
+  ];
 
   const i18nDefined = clusters.find((c) => c.cluster === 'i18n')?.items.map((it) => it.id) ?? [];
   const routeDefined = clusters.find((c) => c.cluster === 'routes')?.items.map((it) => it.id) ?? [];
