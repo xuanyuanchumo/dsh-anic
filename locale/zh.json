@@ -347,6 +347,21 @@
       "i18n": "词表",
       "routes": "端点",
       "skills": "技能"
+    },
+    "flow": {
+      "title": "流动（注册 → 生产 → 消费）",
+      "empty": "无族可流（投影为空）——显式空态，不是空白。",
+      "registered": "注册 {n}",
+      "produced": "生产 {n}",
+      "consumed": "消费 {n}",
+      "notProduced": "无产出锚点 {n}",
+      "producedNotConsumed": "生产了没人读 {n}",
+      "noWritePoint": "无写入点·直接读取",
+      "gapUnread": "未读取 {n}",
+      "tiersTitle": "已消费按证据强弱：",
+      "tierCode": "生产代码 {n}",
+      "tierDynamic": "计算键认领 {n}",
+      "tierChannel": "仅通道引用 {n}"
     }
   }
 }

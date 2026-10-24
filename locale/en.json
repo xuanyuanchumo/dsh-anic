@@ -347,6 +347,21 @@
       "i18n": "locale keys",
       "routes": "endpoints",
       "skills": "skills"
+    },
+    "flow": {
+      "title": "Flow (registered → produced → consumed)",
+      "empty": "No family to flow (empty projection) — explicit empty state, not a blank.",
+      "registered": "registered {n}",
+      "produced": "produced {n}",
+      "consumed": "consumed {n}",
+      "notProduced": "no production anchor {n}",
+      "producedNotConsumed": "produced but unread {n}",
+      "noWritePoint": "no write point · read directly",
+      "gapUnread": "unread {n}",
+      "tiersTitle": "Consumed by evidence strength:",
+      "tierCode": "production code {n}",
+      "tierDynamic": "computed key claimed {n}",
+      "tierChannel": "channel-only {n}"
     }
   }
 }

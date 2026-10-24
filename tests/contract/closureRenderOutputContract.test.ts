@@ -108,6 +108,8 @@ describe('cycle-75 闭环分区渲染产出（有壳必须有表体）', () => {
   it('① 真实投影：摘要四计数 + 分组锚点 + 新族 skills + producedKind 标签在场', () => {
     const v = probe(renderClosure(view()));
     expect(v.anchors).toContain('data-anic-closure-summary=true');
+    // cycle-75 T4：流动可视化必须**真的挂在分区里**（不只是有个纯函数没人调）
+    expect(v.anchors).toContain('data-anic-closure-flow=true');
     // 四个总量计数各自带锚点与数值（白盒要的是可读的数字，不是装饰标题）
     for (const k of ['registered', 'consumed', 'unconsumed', 'ghost']) {
       expect(v.anchors.some((a) => a.startsWith('data-anic-closure-' + k + '=')), '缺计数锚点 ' + k).toBe(true);

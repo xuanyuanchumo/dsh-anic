@@ -116,18 +116,38 @@ i18n     unconsumed 45(HEAD) → 42（3 项为计算键真消费，非放宽判�
 view     31 KB → 17.9 KB（明细截断 80/86，总数完整）
 ```
 
+### ⑩ 「可视化流动」落地：注册 → 生产 → 消费 流向图
+
+白盒诉求里**唯一还缺的一块**。此前面板只有**静止矩阵**（一堆计数 + 未消费清单），
+看得出「有多少缺口」，但看不出**缺口发生在哪一段**——是登记了没生产？还是生产了没人读？
+两者补救动作完全不同（补接线 vs 接消费方）。
+
+- 新 `closureFlowGraph.ts`（纯函数 + 纯渲染，无第二真相源）：每族一条流，
+  **两种形态由数据自决、不硬编码族名**：
+  - `viaProduction`（有真产出锚点）：`registered → produced → consumed`，旁挂 `notProduced` / `producedNotConsumed`
+  - `directRead`（无独立写入点，如词表 `t()` 纯查找）：`registered → consumed`，
+    **如实跳过生产段**而不是编一个 0 产出节点
+- **恒等式钉死**：`notProduced + producedNotConsumed === registered − consumed`（逐族、含真机四族）
+  ——流不能凭空造缺口或吞缺口。
+- 已消费按**证据强弱**分层同屏：生产代码 / 计算键认领 / 仅通道引用。
+- 守卫 `closureFlowGraphContract`（7 例）：恒等式 / 两形态 / **数据驱动**（改簇名节点随变）/ 空输入显式空态 /
+  缺口段锚点 / 反向自检 / 真机端到端。渲染腿守卫追加「流向图**真的挂在分区里**」断言。
+
 ### 结构（模块纪律 T3：单文件 ≤250 行，本轮新增/拆分均达标）
 
 `closureAudit/`：`closureModel`(85) `closureBuckets`(61) `closureTotalsTypes`(32) `closureSummary`(25)
 `closureView`(109) `scanPrimitives`(222) `routeScanPrimitives`(78) `assetClosure`(204)
-`i18nClosure`(233) `skillClosure`(248) `registryClosure`(161，纯编排 + 再导出)。
+`i18nClosure`(233) `skillClosure`(248) `localeKeyAnchors`(约 110) `registryClosure`(161，纯编排 + 再导出)。
+`client/features/closure/`：`closureTypes`(235) `closureClassify`(85) `closureFlowGraph`(约 220) `renderClosure`(216)。
 **消费者 import 路径零变更**（全部经 `registryClosure` 再导出）。
 
 ### 守卫与证据
 
 - `closureAuditTruthContract`（24 例）：双向真值钉 / 幽灵为零 / produced 逐项证据 / 分类互斥穷尽 / 投影截断排序。
 - `closureAuditMutation`（14 例）：5 处定向变异**每处必须翻转判定**（含 M5 窗口缺陷），并自证只读。
-- `closureRenderOutputContract`（8 例）：渲染腿产出。
+- `closureRenderOutputContract`（8 例）：渲染腿产出（含流向图挂载）。
+- `closureFlowGraphContract`（7 例）：流向图恒等式 / 两形态 / 数据驱动 / 空态 / 端到端。
+- `closureEvidenceAnchorContract`（7 例）：`definedAt` 行号正确性 + 反向自检。
 - `closureAuditContract` 基线同步更新（**同步而非删除**）：i18n 棘轮 **42**（不是 45）、routes **44**。
 
 ### 已知遗留（如实登记，不在本轮 write_scope）
@@ -144,9 +164,8 @@ view     31 KB → 17.9 KB（明细截断 80/86，总数完整）
   302/302 叶子键全覆盖，未定位返回 `:0`（显式「未定位」，不猜行号）。
   另修一处 CRLF 陷阱：`.$` 不吃 `\r`，首版索引在此**零覆盖**（本仓工作区是 CRLF）。
   守卫：`closureEvidenceAnchorContract`（7 例，含「键移位后锚点必须跟随」的反向自检）。
-- **T4「可视化流动」（流向图）未落地**：接口已冻结（契约 §3），下轮可零上下文接手。
-  本轮「白盒透明化」已由分类分组 + 截断如实 + 失败行可见 + **渲染腿守卫**压实；
-  流向图是独立增量，**宁可如实标记未完成，也不塞未验证的图**。
+- ~~**T4「可视化流动」（流向图）未落地**~~ → **本轮已交付**（见 ⑩）。首版提交时如实标记未完成；
+  随后补做并以 `closureFlowGraphContract`（7 例）+ 渲染腿挂载断言收口。
 - **MCP 面在插件内不可达**：15 个 MCP 工具完全依赖使用者手写 `mcpServers` 配置，
   插件侧零接线/零探测。建议下一轮在 `anic_status` / `anic_install` 输出里探测并提示未配置。
 - 4/15 脚本**仅白名单可达**（`band-detector` / `fact-base-verify` / `multi-agent-gate` / `plan-sync-check`）：

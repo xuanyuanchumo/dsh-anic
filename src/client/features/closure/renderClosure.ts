@@ -33,6 +33,8 @@ import { t } from '../../i18n.ts';
 import { renderSectionFailure } from '../../components/sectionFailure.ts';
 import type { ClosureUnconsumedView, ClosureView } from './closureTypes.ts';
 import { CLOSURE_CLASSES, classifyItem, producedAnchorBreakdown, type ClosureClassName } from './closureClassify.ts';
+// cycle-75 T4：流动可视化（注册 → 生产 → 消费）。纯数据派生 + 纯渲染，无第二真相源。
+import { buildClosureFlow, renderClosureFlow } from './closureFlowGraph.ts';
 
 export type {
   ClosureView, ClosureTotals, ClosureClusterView, ClosureUnconsumedView,
@@ -203,7 +205,11 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
   );
 
   const body = createElement('div', { 'data-anic-closure': 'section', style: { borderTop: '1px solid ' + token('anic-border') } },
-    summary, buckets, weak, truncation, detail, notes);
+    summary,
+    // cycle-75 T4「可视化流动」：注册 → 生产 → 消费 的流向（缺口发生在哪一段一眼可见）。
+    // 数据由纯函数 buildClosureFlow 派生（同一投影、无第二真相源）；渲染同为纯函数。
+    renderClosureFlow(buildClosureFlow(view)),
+    buckets, weak, truncation, detail, notes);
   if (failure === null) return body;
   // 陈旧数据形态：数据 + 失败行（如实标注「以下为上次成功的数据」）。
   return createElement('div', { 'data-anic-closure-stale': 'true' }, body, renderClosureFailure(failure, true));
