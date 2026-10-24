@@ -324,10 +324,29 @@
     "notesTitle": "判定口径：",
     "generatedAt": "体检时刻：{generatedAt}",
     "unavailable": "闭环体检数据不可用（路由未注册或扫描失败）。",
+    "bucketsTitle": "全量计数（以下数字永不截断）：",
+    "weakTitle": "证据偏弱（已计入「有消费」、但不算生产代码消费）：",
+    "weakDynamic": "计算键认领 {n}（有前缀证据、无字面量消费方）",
+    "weakChannel": "仅通道引用 {n}（只在测试 / agent 卡里被读到）",
+    "truncated": "明细已显示 {shown} / 共 {total} 条（其余 {rest} 条只计入上方全量计数）。",
+    "declaredOnly": "产出锚点细分：无写入点 {nw} 项（词表键由 t() 纯查找）、仅声明未接线 {do} 项 —— 两类的补救动作不同。",
+    "group": {
+      "consumedGap": "真缺口 {n}：已注册/已产出，但本仓内无人读（对外消费者可能是宿主 agent，本仓看不见）",
+      "producedGap": "未读取 {n}：无写入点或未接线 —— 需接线，或删除",
+      "dynamicClaimed": "计算键认领 {n}：有计算键证据、无字面量消费方",
+      "channelOnly": "仅通道引用 {n}：只在测试 / agent 卡里被读到"
+    },
+    "kind": {
+      "registerCall": "真注册调用",
+      "handlerInFile": "同文件 handler",
+      "declarationOnly": "仅声明",
+      "noWritePoint": "无写入点"
+    },
     "cluster": {
       "tools": "工具",
       "i18n": "词表",
-      "routes": "端点"
+      "routes": "端点",
+      "skills": "技能"
     }
   }
 }

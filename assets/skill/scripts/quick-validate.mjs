@@ -102,12 +102,22 @@ function checkVersionConsistency(skillDir) {
   const serverV = serverSrc && serverSrc.match(/name:\s*"ai-native-iteration-cycle",\s*version:\s*"(\d+\.\d+\.\d+)"/);
   if (serverV) anchors.push({ file: 'scripts/mcp-server.mjs (Server version)', version: serverV[1] });
 
+  // iteration-6（cycle-75）：**第 4 版本位**——运行期横幅。
+  // 实测缺陷：三锚均为 2.5.2，而脚本打印的横幅停在 v1.6.0（落后 9 个次版本），
+  // 且**结构上不可见**——只要没人真跑起 MCP server 就永不暴露，升级 SOP 漏改
+  // 一处即可潜伏多轮。版本守卫必须覆盖**每一处会被人读到的版本字面量**，
+  // 否则「版本漂移」这个家族只是换了个藏身处。
+  const bannerV = serverSrc && serverSrc.match(/MCP Server v(\d+\.\d+\.\d+)/);
+  if (bannerV) anchors.push({ file: 'scripts/mcp-server.mjs (runtime banner)', version: bannerV[1] });
+
   const changelog = readIf('CHANGELOG.md');
   const clV = changelog && changelog.match(/^##\s+(\d+\.\d+\.\d+)/m);
   if (clV) anchors.push({ file: 'CHANGELOG.md (top entry)', version: clV[1] });
 
-  if (anchors.length < 3) {
-    errors.push(`Version guard anchors incomplete (${anchors.length}/3 found: ${anchors.map(a => a.file).join(', ') || 'none'}) — SKILL.md/MCP Tools(vX), mcp-server.mjs version, CHANGELOG.md top entry are all required`);
+  // 锚点下限随覆盖面上调：3 → 4（少一个锚点 = 守卫面出现缺口，必须报错而非静默收窄）。
+  const REQUIRED_ANCHORS = 4;
+  if (anchors.length < REQUIRED_ANCHORS) {
+    errors.push(`Version guard anchors incomplete (${anchors.length}/${REQUIRED_ANCHORS} found: ${anchors.map(a => a.file).join(', ') || 'none'}) — SKILL.md/MCP Tools(vX), mcp-server.mjs version, mcp-server.mjs runtime banner, CHANGELOG.md top entry are all required`);
   } else {
     const versions = new Set(anchors.map(a => a.version));
     if (versions.size > 1) {

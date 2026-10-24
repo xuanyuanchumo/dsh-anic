@@ -324,10 +324,29 @@
     "notesTitle": "Judgement rules:",
     "generatedAt": "audited at: {generatedAt}",
     "unavailable": "Closure audit data unavailable (route missing or scan failed).",
+    "bucketsTitle": "Full counts (these numbers are never truncated):",
+    "weakTitle": "Weak evidence (counted as consumed, but not production-code consumption):",
+    "weakDynamic": "dynamic-key claims {n} (prefix evidence, no literal consumer)",
+    "weakChannel": "channel-only {n} (read only by tests / agent cards)",
+    "truncated": "Detail shows {shown} of {total} (the other {rest} count only in the full totals above).",
+    "declaredOnly": "Production anchors: no write point {nw} (locale keys are pure t() lookups), declared-but-unwired {do} — the two need different fixes.",
+    "group": {
+      "consumedGap": "Real gaps {n}: registered/produced, but nobody reads it in this repo (external consumer may be a host agent, invisible here)",
+      "producedGap": "Never read {n}: no write point or no wiring — wire it, or delete it",
+      "dynamicClaimed": "Dynamic-key claims {n}: prefix evidence, no literal consumer",
+      "channelOnly": "Channel-only {n}: read only by tests / agent cards"
+    },
+    "kind": {
+      "registerCall": "real register call",
+      "handlerInFile": "handler in file",
+      "declarationOnly": "declaration only",
+      "noWritePoint": "no write point"
+    },
     "cluster": {
       "tools": "tools",
       "i18n": "locale keys",
-      "routes": "endpoints"
+      "routes": "endpoints",
+      "skills": "skills"
     }
   }
 }

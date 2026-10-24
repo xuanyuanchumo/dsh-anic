@@ -34,39 +34,14 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AssetDef, ClusterAudit, ClosureItem } from './closureModel.ts';
+import { tallyProduced } from './closureModel.ts';
 
-export interface ClosureItem {
-  cluster: string;
-  id: string;
-  /** 定义处 file:line（相对仓库根，/ 分隔）。 */
-  definedAt: string;
-  /** 生产锚点；词表条目为 null（无独立写入点）。 */
-  producedAt: string | null;
-  consumed: boolean;
-  /** 证据类别：code=生产代码引用；channel=测试/agent 卡/技能脚本引用；none=无。 */
-  evidenceKind: 'code' | 'channel' | 'none';
-  /**
-   * 证据来自**计算键**而非字面量（如 t(`budget.status_${data.status}`)，键的后缀由
-   * 运行期校验过的联合类型决定）。为真时 evidence 指向模板行 —— 判定为已消费，
-   * 但明确标注「不是逐字可 grep 的消费」，防读者把它当成字面量消费。
-   */
-  dynamic: boolean;
-  /** 消费证据（≤3 条 file:line）。空数组 = 未消费。 */
-  evidence: string[];
-}
-
-export interface ClusterAudit {
-  cluster: string;
-  unit: string;
-  total: number;
-  consumed: number;
-  unconsumed: number;
-  /** 其中证据类别为 code 的项数（生产代码内真消费）。 */
-  codeConsumed: number;
-  items: ClosureItem[];
-}
-
-export interface AssetDef { id: string; definedAt: string; }
+// cycle-75 T3 拆分：数据模型下移到 closureModel.ts；此处**再导出**保消费者
+// import 路径零变更（registryClosure / assetClosure / i18nClosure / 契约测试）。
+// 注意：`export … from` 不把名字引入本模块作用域，故上面另有一行 import type。
+export type { AssetDef, ClusterAudit, ClosureItem, ProducedKind } from './closureModel.ts';
+export { emptyProducedTallies, tallyProduced } from './closureModel.ts';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.cycles', 'test-results', 'coverage', '.dsh', '.codegraph-visualizer', 'artifacts']);
 const TEXT_EXT = /\.(ts|tsx|mjs|js|md|json)$/;
@@ -225,11 +200,16 @@ export function toolClosure(files: Map<string, string>): ClusterAudit {
   const items: ClosureItem[] = assets.map((a) => {
     const re = new RegExp('\\b' + a.id + '(?![A-Za-z0-9_])');
     const evidence = collectRefs(files, (line) => re.test(line), toolConsumerUniverse);
+    // cycle-75：produced 证据 = **同文件内 execute: 实现**（定义处的注册里挂了 handler）。
+    const defFile = a.definedAt.split(':')[0] as string;
+    const hasHandler = /execute\s*:/.test(files.get(defFile) ?? '');
     return {
       cluster: 'tools',
       id: a.id,
       definedAt: a.definedAt,
-      producedAt: a.definedAt,
+      producedAt: hasHandler ? a.definedAt : null,
+      producedKind: hasHandler ? 'handler-in-file' : 'declaration-only',
+      producedEvidence: hasHandler ? [a.definedAt] : [],
       consumed: evidence.length > 0,
       evidenceKind: kindOf(evidence),
       dynamic: false,
@@ -238,5 +218,5 @@ export function toolClosure(files: Map<string, string>): ClusterAudit {
   });
   const consumed = items.filter((it) => it.consumed).length;
   const codeConsumed = items.filter((it) => it.evidenceKind === 'code').length;
-  return { cluster: 'tools', unit: 'anic_* tool', total: items.length, consumed, codeConsumed, unconsumed: items.length - consumed, items };
+  return { cluster: 'tools', unit: 'anic_* tool', total: items.length, consumed, codeConsumed, producedByKind: tallyProduced(items), unconsumed: items.length - consumed, items };
 }

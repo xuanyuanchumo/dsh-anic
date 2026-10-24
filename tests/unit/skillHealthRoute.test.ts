@@ -16,17 +16,33 @@ import { join } from 'node:path';
 import { registerSkillHealthRoute, SKILL_HEALTH_ROUTE } from '../../src/host/routes/skillHealthRoute.ts';
 
 const CLEANUPS: string[] = [];
+/**
+ * 造工作区夹具（`withTracker` 时写 3 条 gate-check 流：2 DONE + 1 FAILED）。
+ *
+ * **时间戳必须相对 now 生成，不得硬编码绝对日期**（cycle-75 实测缺陷——本测试曾是
+ * 定时炸弹）：`analyzeSkillHealth` 的近期窗口是「最近 N 条**且**距 now ≤ 7 天」
+ * （`RECENT_MAX_AGE_MS`，continuousLearning.ts:36，cycle-53/57）。原夹具写死
+ * `2026-10-17`，当真实日期走过 7 天后（2026-10-24 起）窗口变空 ⇒
+ * `recentSuccessRate === undefined` ⇒ 分级**如实**落 `insufficient` 而非 `degraded`。
+ *
+ * 这是**夹具陈旧**，不是实现回归：同一夹具把日期改到「1 小时前」立刻判 `degraded`
+ * （两态已实测可分）。故修夹具而**不放宽断言**（R06 不降级 / R07 不条件通过）——
+ * 期望值本身是对的（2/3 成功率 < 0.8 ⇒ degraded），错的是拿一个会随时间失效的
+ * 绝对日期去表达「近期」。
+ */
 function workspace(withTracker: boolean): string {
   const root = mkdtempSync(join(tmpdir(), 'anic-health-'));
   if (withTracker) {
     mkdirSync(join(root, '.cycles'), { recursive: true });
-    // 三条 gate-check 流（2 DONE + 1 FAILED）→ degraded 建议面非空
+    // 三条 gate-check 流（2 DONE + 1 FAILED）→ 2/3 成功率 < 0.8 → degraded，建议面非空。
+    // 相对 now 分布（-3h / -2h / -1h）：稳定落在 7 天近期窗口内，永不时间炸弹。
+    const at = (hoursAgo: number): string => new Date(Date.now() - hoursAgo * 3600_000).toISOString();
     writeFileSync(join(root, '.cycles', 'flow-tracker.json'), JSON.stringify({
       counter: 3,
       flows: [
-        { flowId: 'gate-check-t1-1', script: 'gate-check', workspace: root, args: [], status: 'DONE', startedAt: '2026-10-17T01:00:00.000Z', endedAt: '2026-10-17T01:00:02.000Z', exitCode: 0, durationMs: 2000 },
-        { flowId: 'gate-check-t2-2', script: 'gate-check', workspace: root, args: [], status: 'FAILED', startedAt: '2026-10-17T02:00:00.000Z', endedAt: '2026-10-17T02:00:03.000Z', exitCode: 1, durationMs: 3000 },
-        { flowId: 'gate-check-t3-3', script: 'gate-check', workspace: root, args: [], status: 'DONE', startedAt: '2026-10-17T03:00:00.000Z', endedAt: '2026-10-17T03:00:01.000Z', exitCode: 0, durationMs: 1000 },
+        { flowId: 'gate-check-t1-1', script: 'gate-check', workspace: root, args: [], status: 'DONE', startedAt: at(3), endedAt: at(3), exitCode: 0, durationMs: 2000 },
+        { flowId: 'gate-check-t2-2', script: 'gate-check', workspace: root, args: [], status: 'FAILED', startedAt: at(2), endedAt: at(2), exitCode: 1, durationMs: 3000 },
+        { flowId: 'gate-check-t3-3', script: 'gate-check', workspace: root, args: [], status: 'DONE', startedAt: at(1), endedAt: at(1), exitCode: 0, durationMs: 1000 },
       ],
     }));
   }

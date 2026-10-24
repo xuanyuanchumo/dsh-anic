@@ -10,48 +10,130 @@
  * 路由族 produced 语义：注册行本身即生产锚点（注册即挂 handler，routeContext/send 在注册期接线）。
  */
 import type { AssetDef, ClusterAudit, ClosureItem } from './scanPrimitives.ts';
-import { assertScanNonEmpty, boundaryContains, collectRefs, kindOf, quoteClasses, stripComments } from './scanPrimitives.ts';
+import { assertScanNonEmpty, boundaryContains, collectRefs, kindOf, quoteClasses, stripComments, tallyProduced } from './scanPrimitives.ts';
+// 机械部件（行号/正则/常量表/括号配平）拆至 routeScanPrimitives.ts（T3 ≤250 行）。
+import { NON_ROUTE_HELPERS, ROUTE_FILE, balancedBraces, constTable, lineAt, pathLiteralRe } from './routeScanPrimitives.ts';
 
 // 词表族（含 flattenKeys / keyAnchor：closureAuditScan.test.ts 直接消费）——再导出，路径零变更。
 export { dynamicKeyPrefixes, flattenKeys, keyAnchor, i18nClosure, i18nGhosts } from './i18nClosure.ts';
 
-/* ── 族 3：路由（62 条，README 契约口径）────────────────────────────── */
+/* ── 族 3：路由（cycle-75 「真注册点」双向真值重写）──────────────────── */
 
-const SQ = String.fromCharCode(39);
-const DQ = String.fromCharCode(34);
-const BACKTICK = String.fromCharCode(96);
-
-const BS = String.fromCharCode(92);
-
-const ROUTE_FILE = /^src\/host\/(routes\/[A-Za-z0-9_]+\.ts|snapshotRoute\.ts)$/;
-const NON_ROUTE_HELPERS = new Set(['src/host/routes/routeContext.ts']);
-
-/** 该行是注册行吗（register(/reg(/path:/const X_ROUTE =）。 */
-export function isRegistrationLine(line: string): boolean {
-  return /register\(/.test(line) || /(^|[^A-Za-z0-9_])reg\(/.test(line) || /path\s*:/.test(line) || /^\s*(export\s+)?const\s+[A-Z_]+\s*=/.test(line);
+/**
+ * 路由**真值**双锚点（cycle-75 接口冻结 §1.2）。
+ *
+ * 上一版缺陷（Lead 实测）：把路由文件里**任意** `/anic/...` 字面量当注册——
+ * JSDoc 头注、错误消息、响应字段全被算成注册，一次报 63 条（真值 55，另 10 条
+ * 代码里根本不存在 = 幽灵注册）。而 produced 只看 `routes/index.ts` 是否含 id 子串，
+ * 真实注册发生在各路由文件**内部**（index.ts 只调注册器）⇒ produced 恒为 1/63。
+ * registered / produced / unconsumed 三个数没有一个可信。
+ *
+ * 本版判据（每条都能被反向自检证伪）：
+ *   declaredAt  该 path 在同文件里被 `const X = '/anic/...'` 声明过（可空）。
+ *   producedAt  **真注册调用点**，三种形态必须全覆盖（漏一种即漏报）：
+ *     A. `webServer.register({ kind, path: '<literal>' | IDENT, handler })`
+ *     B. `reg('<literal>', handler)` / `reg('GET', '<literal>', handler)`
+ *        —— `\breg\(` 天然不匹配 `register(`（其后是 i 不是 `(`）。
+ *     C. 孤立声明：`const X = '/anic/...'` 但本文件无注册调用 ⇒ producedAt=null。
+ *   path 为 IDENT 时回溯同文件 `const IDENT = '<literal>'`（snapshotRoute 形态）。
+ *
+ * `routes/index.ts` 是**聚合器**，不是生产点——注册在此判定的定义之外。
+ */
+export interface RouteDef {
+  id: string;
+  /** 声明处 file:line；无 = null。 */
+  declaredAt: string | null;
+  /** 真注册调用点 file:line；无 = null（声明了但没接线 ⇒ 产出缺口）。 */
+  producedAt: string | null;
 }
 
-/** 定义扫描：路由文件的注册行里的 /anic/... 字面量（注册代码即真相）。 */
-export function scanRouteAssets(files: Map<string, string>): AssetDef[] {
-  const seen = new Set<string>();
-  const out: AssetDef[] = [];
+/** 定义 + 生产扫描（单一实现）。 */
+export function scanRouteDefs(files: Map<string, string>): RouteDef[] {
+  const acc = new Map<string, RouteDef>();
+  /** 合并：声明处取首次非空，注册点取首次非空（一个 path 只应有一个真注册点）。 */
+  const put = (id: string, declaredAt: string | null, producedAt: string | null): void => {
+    const cur = acc.get(id);
+    if (!cur) { acc.set(id, { id, declaredAt, producedAt }); return; }
+    if (cur.declaredAt === null && declaredAt !== null) cur.declaredAt = declaredAt;
+    if (cur.producedAt === null && producedAt !== null) cur.producedAt = producedAt;
+  };
+
   for (const rel of [...files.keys()].sort()) {
     if (!ROUTE_FILE.test(rel) || NON_ROUTE_HELPERS.has(rel)) continue;
-    const lines = (files.get(rel) as string).split('\n');
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i] as string;
-      if (!isRegistrationLine(line)) continue;
-      const q = quoteClasses();
-      for (const m of line.matchAll(new RegExp('[' + q + '](/anic/[A-Za-z0-9_/.\\-]*)[\x60' + q + ']', 'g'))) {
-        const path = m[1];
-        if (!path || path === '/anic/') continue;
-        if (seen.has(path)) continue;
-        seen.add(path);
-        out.push({ id: path, definedAt: rel + ':' + String(i + 1) });
+    // 判定纪律⑥：去注释后再扫——注释里的示例路径不是注册，也不是消费。
+    const text = stripComments(files.get(rel) as string);
+    const consts = constTable(text);
+    const declAt = (id: string): string | null => {
+      for (const [name, val] of consts) {
+        if (val !== id) continue;
+        const at = text.indexOf('const ' + name);
+        if (at >= 0) return rel + ':' + String(lineAt(text, at));
       }
+      return null;
+    };
+
+    // ── 形态 A：webServer.register({ ... path: <literal|IDENT> ... }) ──
+    // 用**括号配平**取实参（不是固定窗口——见 balancedBraces 头注的实测缺陷）。
+    const regCallRe = /(?:webServer\s*\.\s*)?register\s*\(\s*\{/g;
+    for (const m of text.matchAll(regCallRe)) {
+      const at = m.index ?? 0;
+      const braceAt = at + m[0].length - 1; // 指向 '{'
+      const { body, from } = balancedBraces(text, braceAt);
+      const lit = pathLiteralRe().exec(body);
+      if (lit && lit[1]) {
+        put(lit[1], declAt(lit[1]), rel + ':' + String(lineAt(text, from + (lit.index ?? 0))));
+        continue;
+      }
+      const ident = /path\s*:\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(body);
+      const resolved = ident && ident[1] ? consts.get(ident[1]) : undefined;
+      if (resolved) put(resolved, declAt(resolved), rel + ':' + String(lineAt(text, from)));
     }
+
+    // ── 形态 B：reg/register('<verb>', <literal|IDENT>, handler) 或 reg(<literal>, handler) ──
+    // 覆盖两种帮助封装（本仓实测各一处）：
+    //   flowsRoute/evolutionRoute/nativeRoute/…：`reg('<path>', handler)` / `reg('GET','<path>',h)`
+    //   reviewRoute：`register('POST', REVIEW_ROUTE, handler)` ← 裸 register + 常量
+    // `[^)]` 窗口在 `handler` 参数列表处截断，但路径总在其之前，足够。
+    const regFnRe = /[\s,(;{=](?:reg|register)\s*\(([^)]{0,300}?)\)/g;
+    for (const m of text.matchAll(regFnRe)) {
+      const args = m[1];
+      // 形态 A 的 `register({ … })` 由上方分支处理；此处跳过对象形态防重复计数。
+      if (!args || args.includes('{')) continue;
+      const argStart = (m.index ?? 0) + m[0].lastIndexOf('(') + 1;
+      const lit = pathLiteralRe().exec(args);
+      if (lit && lit[1]) {
+        put(lit[1], declAt(lit[1]), rel + ':' + String(lineAt(text, argStart)));
+        continue;
+      }
+      const ident = /,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,/.exec(args);
+      const resolved = ident && ident[1] ? consts.get(ident[1]) : undefined;
+      if (resolved) put(resolved, declAt(resolved), rel + ':' + String(lineAt(text, argStart)));
+    }
+
+    // ── 形态 C：声明存在但本文件无注册调用（如实入账为产出缺口）──
+    for (const [, id] of consts) put(id, declAt(id), null);
+  }
+  return [...acc.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** 真注册点全表：id → 注册调用点 file:line（列表，供 produced 证据）。 */
+export function routeRegisterSites(files: Map<string, string>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const d of scanRouteDefs(files)) {
+    if (d.producedAt === null) continue;
+    const cur = out.get(d.id) ?? [];
+    cur.push(d.producedAt);
+    out.set(d.id, cur);
   }
   return out;
+}
+
+/**
+ * 兼容包装（既有消费者按 AssetDef 形态取用）：id 集与 scanRouteDefs **完全同源**
+ * （单一实现纪律 G-SINGLE），definedAt 取注册点优先、其次声明处。
+ */
+export function scanRouteAssets(files: Map<string, string>): AssetDef[] {
+  return scanRouteDefs(files).map((d) => ({ id: d.id, definedAt: d.producedAt ?? d.declaredAt ?? '?' }));
 }
 
 /**
@@ -69,18 +151,23 @@ function routeConsumerUniverse(rel: string): boolean {
 }
 
 export function routeClosure(files: Map<string, string>): ClusterAudit {
-  const assets = scanRouteAssets(files);
-  assertScanNonEmpty(assets.length, 'route-definitions');
-  const items: ClosureItem[] = assets.map((a) => {
-    const defFile = a.definedAt.split(':')[0] as string;
+  const defs = scanRouteDefs(files);
+  assertScanNonEmpty(defs.length, 'route-definitions');
+  const sites = routeRegisterSites(files);
+  const items: ClosureItem[] = defs.map((d) => {
+    const defFile = (d.producedAt ?? d.declaredAt ?? '').split(':')[0] as string;
     const evidence = collectRefs(files,
-      (line) => boundaryContains(line, a.id) && quoteClasses().split('').some((q) => line.indexOf(q) >= 0),
+      (line) => boundaryContains(line, d.id) && quoteClasses().split('').some((q) => line.indexOf(q) >= 0),
       (rel) => rel !== defFile && routeConsumerUniverse(rel));
+    const produced = d.producedAt !== null;
     return {
       cluster: 'routes',
-      id: a.id,
-      definedAt: a.definedAt,
-      producedAt: a.definedAt,
+      id: d.id,
+      // definedAt = 声明处优先（「这资产在哪定义的」），无声明则退注册点。
+      definedAt: d.declaredAt ?? d.producedAt ?? '?',
+      producedAt: d.producedAt,
+      producedKind: produced ? 'register-call' : 'declaration-only',
+      producedEvidence: produced ? (sites.get(d.id) ?? [d.producedAt as string]) : [],
       consumed: evidence.length > 0,
       evidenceKind: kindOf(evidence),
       dynamic: false,
@@ -89,7 +176,10 @@ export function routeClosure(files: Map<string, string>): ClusterAudit {
   });
   const consumed = items.filter((it) => it.consumed).length;
   const codeConsumed = items.filter((it) => it.evidenceKind === 'code').length;
-  return { cluster: 'routes', unit: 'anic http route', total: items.length, consumed, codeConsumed, unconsumed: items.length - consumed, items };
+  return {
+    cluster: 'routes', unit: 'anic http route', total: items.length, consumed, codeConsumed,
+    producedByKind: tallyProduced(items), unconsumed: items.length - consumed, items,
+  };
 }
 
 /** 幽灵端点消费：代码面引用了 /anic/... 但没有对应注册（路由删了消费者还在）。 */

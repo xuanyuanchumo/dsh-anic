@@ -25,7 +25,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runClosureAudit, clustersConsistent, toClosureView } from '../../src/host/closureAudit/registryClosure.ts';
+import {
+  assertClustersPresent,
+  clustersConsistent,
+  runClosureAudit,
+  toClosureView,
+} from '../../src/host/closureAudit/registryClosure.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const summary = runClosureAudit(ROOT);
@@ -49,13 +54,26 @@ function registeredToolIds(): string[] {
 const tcl = summary.clusters.find((x) => x.cluster === 'tools');
 const i18nCl = summary.clusters.find((x) => x.cluster === 'i18n');
 const routeCl = summary.clusters.find((x) => x.cluster === 'routes');
+/** cycle-75 第四族：技能脚本 + MCP 传输层（此前三族对该面零覆盖）。 */
+const skillCl = summary.clusters.find((x) => x.cluster === 'skills');
 
 describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () => {
-  it('纪律③ 扫描集非空下限：三族各 ≥10（空扫描 = 永久假绿，直接 FAIL）', () => {
+  it('纪律③ 扫描集非空下限：四族各 ≥10（空扫描 = 永久假绿，直接 FAIL）', () => {
     expect(tcl?.total ?? 0).toBeGreaterThanOrEqual(15);
     expect(i18nCl?.total ?? 0).toBeGreaterThanOrEqual(100);
     expect(routeCl?.total ?? 0).toBeGreaterThanOrEqual(40);
+    // cycle-75 接线第四族（skills/MCP）：此前该面零覆盖却不被任何断言发现。
+    expect(skillCl?.total ?? 0).toBeGreaterThanOrEqual(10);
     expect(summary.scannedFiles).toBeGreaterThanOrEqual(200);
+  });
+
+  it('四族齐备（cycle-75 新增 skills）：缺族由 assertClustersPresent 响亮抛错', () => {
+    // 反向自检：抹掉任一族都必须抛错（否则「族在场」是恒真装饰）
+    for (const missing of ['tools', 'i18n', 'routes', 'skills']) {
+      const subset = summary.clusters.filter((c) => c.cluster !== missing);
+      expect(() => assertClustersPresent(subset), '抹掉 ' + missing + ' 族后未抛错').toThrow();
+    }
+    expect(() => assertClustersPresent(summary.clusters)).not.toThrow();
   });
 
   it('断言① 工具域可完整枚举：体检枚举集 ⇄ tools*.ts 注册代码集 双向相等', () => {
@@ -72,7 +90,6 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
       'i18n|' + gk('techdebt', 'title'),
       'i18n|' + gk('panel', 'refreshing'),
       'i18n|' + gk('gate', 'PASS'),
-      'i18n|' + gk('budget', 'status_alert'),
       'i18n|' + gk('meta', 'description'),
       'routes|' + gr('/anic', 'flows', 'gate-check', 'run'),
       'routes|' + gr('/anic', 'self', 'gate-check'),
@@ -102,13 +119,20 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
     }
   });
 
-  it('工具消费面分级：13 项仅 channel 证据（测试/agent 卡），不冒充生产消费', () => {
+  it('工具消费面分级：全部 21 项为 code 级（生产代码内消费），channel-only 如实计数', () => {
     const channelOnly = (tcl?.items ?? []).filter((x) => x.evidenceKind === 'channel').map((x) => x.id).sort();
     const codeLevel = (tcl?.items ?? []).filter((x) => x.evidenceKind === 'code').length;
     console.log('CLOSURE_TOOL_EVIDENCE ' + JSON.stringify({ codeLevel, channelOnly: channelOnly.length }));
-    // 基线：code 级 >0（确有生产代码消费方）；channel-only 剩余项如实计数
+    // 基线：code 级 >0（确有生产代码消费方）；channel-only 如实计数。
+    // cycle-75 同步：旧标题「13 项仅 channel」是陈旧描述——实测 codeLevel=21 / channelOnly=0。
+    // 断言本体（分级不变量）未变，此处补齐逐项分级自洽。
     expect(codeLevel).toBeGreaterThan(0);
     expect(codeLevel + channelOnly.length).toBe(tcl?.total ?? 0);
+    for (const it2 of tcl?.items ?? []) {
+      // 分级自洽：code 项必有 src/ 证据；channel 项必无 src/ 证据（不许混同）
+      if (it2.evidenceKind === 'code') expect(it2.evidence.some((h) => h.startsWith('src/'))).toBe(true);
+      else if (it2.evidenceKind === 'channel') expect(it2.evidence.some((h) => h.startsWith('src/'))).toBe(false);
+    }
   });
 
   it('路由 → 客户端消费面在场：全部客户端 fetch 常量都能在注册表里找到（幽灵为 0 的另一半）', () => {
@@ -210,7 +234,7 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
    * 为什么按**族**钉而非逐项：逐项清单会让每次新增工具/键都要改这一个大数组，
    * 易漏易冲突；分族计数是紧的上界且维护成本低，配合既有逐项基线已足够。
    */
-  const BASELINE: Record<string, number> = { i18n: 45, routes: 44 };
+  const BASELINE: Record<string, number> = { i18n: 42, routes: 44 };
 
   /**
    * 棘轮判据（**抽成纯函数**，好让反向自检能对着同一判据证明它两态可分）。

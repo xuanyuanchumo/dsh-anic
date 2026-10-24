@@ -1,5 +1,160 @@
 # dsh-anic CHANGELOG
 
+## v0.41.0 — 2026-10-24（cycle-75：闭环体检从「自述」到「真值」+ 第四族 + 渲染腿收口）
+
+> 主题：用户诉求「**确保技能插件的所有功能业务的注册、生产与消费**，同时要**白盒透明化、
+> 可视化流动**等可观测性」。本轮不加新功能面，而是把已有的观测面**改成可信的**，
+> 并把用户点名的「技能 skill / MCP」维度补进矩阵。**不发布 npm**（发布边界留人工门）。
+
+### ① 硬缺陷：闭环体检的三个数**没有一个可信**（实测取证后重写）
+
+`registered / produced / unconsumed` 在路由族上同时失真，且**三处错误互相掩盖**：
+
+| 指标 | HEAD 实测 | 真值 | 根因 |
+|---|---|---|---|
+| registered | 63（其中 **10 条代码里根本不存在**＝幽灵注册） | **63**（逐条核验为真） | 扫描器把路由文件里**任意** `/anic/…` 字面量当注册——JSDoc 头注、错误消息、响应字段全被算进去 |
+| produced | **1 / 63** | **63 / 63** | 判据是「`routes/index.ts` 是否含该 id 子串」；真实注册在各路由文件**内部**，`index.ts` 只调注册器 ⇒ 恒为 1（唯一命中的那条还是**注释**里的路径） |
+| 未消费 | 44（含 10 条幽灵） | 44（逐条可核） | 由上面两个错数派生 |
+
+- **重写** `scanRouteDefs`：只认真注册调用；**四种形态全覆盖**（`webServer.register({path})`
+  ＋ 局部 `reg(path,h)` ＋ `reg('GET',path,h)` ＋ `register('POST',IDENT,h)`），`path: IDENT`
+  回溯同文件常量；**去注释后再扫**；`declaredAt` / `producedAt` 双锚点分开记。
+- **兼容包装** `scanRouteAssets()` 保留，id 集与 `scanRouteDefs` **完全同源**（单一实现）。
+- **双向交叉验证**：与本仓**另一套独立计数器**（`readmeNumbers.test.ts` 的 grep 版）逐 id 一致
+  ——两套实现互证比一套自证可信（README 的「63 条路由 / 21 个工具」确为真值）。
+
+### ② 硬缺陷：`produced` 无证据、无棘轮 ⇒ 换成**逐项可查的产出锚点**
+
+新增 `ProducedKind` 四态：`register-call` / `handler-in-file` / `declaration-only` / `no-write-point`，
+每项带 `producedAt` + `producedEvidence`（≤3 条 `file:line`）。**一个数字没有证据就是自述**。
+`producedByKind` 由**逐项单向派生**（`tallyProduced`），并断言「合计 = total」，防各构造点自报漂移。
+
+### ③ 未消费清单从「平铺」改成**五分类**（可行动）
+
+上一版把 86 条未消费平铺成一张表，读者无法据此行动（形式上白盒、语义上是噪声）。
+现按**互斥且穷尽**五类呈现，合计恒等于项数：
+
+| 类 | 判据 | 实测 |
+|---|---|---|
+| `code` | 生产代码内真消费 | 314 |
+| `dynamicClaimed` | 计算键认领（非字面量证据） | 3 |
+| `channelOnly` | **仅**测试/agent 卡引用（无生产消费者） | 2 |
+| `consumedGap` | 已生产但无人读 ⇒ **真缺口** | 44 |
+| `producedGap` | 只声明/无写入点 ⇒ 未读取 | 42 |
+
+**关键区分**：`dynamicClaimed` / `channelOnly` **不在未消费里**（它们已被计入 consumed）——
+四键并列会被误读成「未消费的四等分」（44+42+3+1=90 ≠ 86），故渲染层**分两层**呈现并各自标明语义。
+
+### ④ 新增**第四族**：技能脚本 + MCP 传输层（此前**零覆盖**）
+
+用户点名「技能 skill、mcp 等工具」，而闭环矩阵此前只扫 tools/i18n/routes 三族，
+`assets/skill/scripts/` 与 MCP 面**一条都没审**（实测 `capability-index.json` 提到 mcp **0 次**）。
+
+- 注册表 = **真实文件清单**（15 业务脚本 + 1 传输层），不是手写数组；白名单差集**恰为** `{mcp-server}` 并断言。
+- 实测 `skills: total=16 produced=16 consumed=16 unconsumed=0`。
+- **MCP 面专项结论**：15 个工具「清单 ⇄ 分发 ⇄ runScript」**三方成对**（15/15/15，无幽灵工具、无看得见调不动）；
+  但**本仓内没有任何代码启动它**——唯一引用是 `bin/anic-init.mjs:75` 的用户指引文本 ⇒
+  `consumed=true` 但 `evidenceKind=channel`（**通道级**，不是生产代码消费）。`mcpSurface()` 如实标注。
+- 剔除三类**假消费源**并逐条实测：`capability-index.json` 的 scripts 数组（**投影回声**：
+  生成器从 `listSkillScripts()` 抄出，零读取方据此调用）、`src/host/closureAudit/*`（**扫描器自指**）、
+  同名路由冒充（`/anic/org-status` 曾让 `org-status` 看起来被路由消费）。
+- `assertClustersPresent` 由三族扩到**四族**——缺族响亮抛错（技能面此前正是「零覆盖却不被任何断言发现」）。
+
+### ⑤ 词表族：一个**反的契约前提**被实测推翻
+
+我原以为「真实值 45 / 被误降到 42」，实测证明**反了**：A/B（同文件集只换实现）显示
+落差 3 项**全部**是 `budget.status_normal/_warn/_alert`，由 ``t(`budget.status_${data.status}`)``
+真实消费（`renderBudget.ts:122`）⇒ **42 是真值，45 才是假阳性值**。契约已按实测反向修正。
+
+- **死分支确证并修复**：原 `indexOf(BACKTICK + '${')` 搜「反引号紧接 `${`」——反引号在首位、
+  `${` 在中段 ⇒ 模板分支**恒不命中**（最小样例 `HEAD hits = 0` → `FIXED = 1`）。
+- **新根因**（契约原文未点名）：`indexOf('t(')` **无词法边界** ⇒ `agentCards.get(...)` 的 `get(`
+  尾串被当成 i18n 调用，凭空造出 `anic.agent.` 前缀。今日认领 0 键故无害，
+  但一旦新增 `anic.agent.*` 键，Map 查表就会被冒充成词表消费。已加 `isTranslationCall()` 边界。
+- `assets/**` 收窄为**假消费**（技能脚本以**目标项目**目录为根探测词表，不是本插件 `locale/zh.json` 的读取方）。
+- **注释证据**（判定纪律⑥）：`collectRefs` 此前在原始文本取证据 ⇒ evidence 锚到注释行（实测 4 处），已改在去注释文本上取。
+
+### ⑥ 扫描器**实测缺陷**（由「守卫有牙」反查出来，已修）
+
+T5 的变异测试 M5 抓到：形态 A 用 **600 字固定窗口** + `handler:` 截断定位 `path`。
+任何把 `path:` 推远的**无害重构**（长注释——`stripComments` 保留长度、参数增补、换行风格）
+都会让注册**静默漏报**，`registered/produced/unconsumed` 三数同时漂移。实测 path 推远 700 字后 produced 直接为空。
+- **改为括号配平取实参**（`balancedBraces`，带引号状态机保护）。六例回归：常规 / 推远 700 字 /
+  相邻两条不串台 / 嵌套对象 / 常量引用 / 字符串内花括号。
+
+### ⑦ 白盒渲染：补上「**渲染腿**」——有壳无表体的同一个洞
+
+既有三腿契约只覆盖「装配（被 createElement）+ 数据（切片→setter 接线）」，
+**没有任何一条断言 `renderClosure` 真的产出了内容**——若它返回空树/只有标题，
+三条腿**全绿**。新增 `closureRenderOutputContract`（8 例）**对着渲染树**取词：
+摘要四计数、四类分组锚点、逐项明细、新族 `skills` 标签、截断态**两个数**都在、
+零未消费显式空态、失败行可见（`data-anic-failed-closure`）、未知族/未知 kind **回落显示原 id**、
+无绝对 URL、**反向自检**（有内容命中 / 空树不命中，证明判据非恒真）、真机投影端到端可渲染。
+
+同时：投影**明细截断**（上限 80，**总数永不截断**）如实上报 `truncation{shown,total,truncated}`，
+并按「真缺口优先」排序——截断必须截掉最不需要立即行动的部分，否则等于把缺口藏起来。
+投影体积 31 KB → **17.9 KB**。
+
+### ⑧ 技能包：陈旧版本横幅（**守卫结构上看不见**）
+
+`mcp-server.mjs:449` 运行期横幅印 `v1.6.0`，而三处版本锚点均为 `2.5.2`（落后 9 个次版本）。
+`quick-validate` 的版本守卫只认 3 锚，**第 4 个版本位不在守卫面** ⇒ 不跑起 MCP server 永不暴露。
+- **先扩守卫**（新增 `MCP Server vX.Y.Z` 运行期横幅为第 4 锚，锚点下限 3→4，少一个即报错），
+  跑出 `[ERROR] Version drift: … (runtime banner)=1.6.0 …`（守卫**先红**，证明有牙）；
+- **再修横幅** → `[OK] Version consistent across 4 anchors: 2.5.2`、`VALIDATION PASSED`。
+
+### 实测总账（HEAD → 本轮）
+
+```
+totals   registered 371 → 402      produced 22 → 100      consumed 285 → 316
+         unconsumed 86 → 86（不变：没有靠改判据刷绿，只是把错的算对、把缺的补上）
+         ghost 0 → 0
+         新增分类 consumedGap 44 / producedGap 42 / dynamicClaimed 3 / channelOnly 2
+routes   produced 1/63 → 63/63（幽灵注册 10 → 0）
+skills   0（零覆盖）→ 16/16
+i18n     unconsumed 45(HEAD) → 42（3 项为计算键真消费，非放宽判据）
+view     31 KB → 17.9 KB（明细截断 80/86，总数完整）
+```
+
+### 结构（模块纪律 T3：单文件 ≤250 行，本轮新增/拆分均达标）
+
+`closureAudit/`：`closureModel`(85) `closureBuckets`(61) `closureTotalsTypes`(32) `closureSummary`(25)
+`closureView`(109) `scanPrimitives`(222) `routeScanPrimitives`(78) `assetClosure`(204)
+`i18nClosure`(233) `skillClosure`(248) `registryClosure`(161，纯编排 + 再导出)。
+**消费者 import 路径零变更**（全部经 `registryClosure` 再导出）。
+
+### 守卫与证据
+
+- `closureAuditTruthContract`（24 例）：双向真值钉 / 幽灵为零 / produced 逐项证据 / 分类互斥穷尽 / 投影截断排序。
+- `closureAuditMutation`（14 例）：5 处定向变异**每处必须翻转判定**（含 M5 窗口缺陷），并自证只读。
+- `closureRenderOutputContract`（8 例）：渲染腿产出。
+- `closureAuditContract` 基线同步更新（**同步而非删除**）：i18n 棘轮 **42**（不是 45）、routes **44**。
+
+### 已知遗留（如实登记，不在本轮 write_scope）
+
+- ~~`tests/unit/skillHealthRoute.test.ts` 第 6 例在 HEAD 即失败~~ → **本轮已修**。
+  根因是**夹具时间炸弹**（不是实现回归）：`analyzeSkillHealth` 的近期窗口是「最近 N 条
+  **且**距 now ≤ 7 天」（`RECENT_MAX_AGE_MS`），原夹具写死 `2026-10-17`；当真实日期走到
+  7 天后，窗口变空 ⇒ `recentSuccessRate === undefined` ⇒ 如实判 `insufficient`。
+  两态已实测可分（同一夹具改到「1 小时前」立刻判 `degraded`）⇒ 改**夹具**为相对 now，
+  **未放宽断言**（期望值本身是对的）。
+- ~~`keyAnchor()` 用叶子名全文匹配 ⇒ `definedAt` 行号误报~~ → **本轮已修**。
+  实测三例全错（`trace.statusDone` :79→**123**、`state.loading` :24→**60**、
+  `gate.pending` :75→**235**）；改为**完整键路径 → 行号**索引（缩进栈还原 JSON 路径），
+  302/302 叶子键全覆盖，未定位返回 `:0`（显式「未定位」，不猜行号）。
+  另修一处 CRLF 陷阱：`.$` 不吃 `\r`，首版索引在此**零覆盖**（本仓工作区是 CRLF）。
+  守卫：`closureEvidenceAnchorContract`（7 例，含「键移位后锚点必须跟随」的反向自检）。
+- **T4「可视化流动」（流向图）未落地**：接口已冻结（契约 §3），下轮可零上下文接手。
+  本轮「白盒透明化」已由分类分组 + 截断如实 + 失败行可见 + **渲染腿守卫**压实；
+  流向图是独立增量，**宁可如实标记未完成，也不塞未验证的图**。
+- **MCP 面在插件内不可达**：15 个 MCP 工具完全依赖使用者手写 `mcpServers` 配置，
+  插件侧零接线/零探测。建议下一轮在 `anic_status` / `anic_install` 输出里探测并提示未配置。
+- 4/15 脚本**仅白名单可达**（`band-detector` / `fact-base-verify` / `multi-agent-gate` / `plan-sync-check`）：
+  `consumed=16/16` 不应读成「16 个都有专线调用方」。
+- **循环号与工作区目录号长期不同步**（cycle-42 曾校正过一次，属复发）：`.cycles/cycles/`
+  只到 cycle-71，而 git 历史已有 cycle-73/74 产物；`init-cycle` 以 `max(目录号)+1` 计算，
+  与 commit 语义不同源。本轮按设计册口径统一用 cycle-75 并清理了空壳 cycle-72，**根因未修**。
+
 ## v0.40.0 — 2026-10-22（cycle-41..71；**cycle-71 补录**——此前 CHANGELOG 停在 v0.38.0）
 
 > **补录说明**：v0.39.0/v0.40.0 的版本号在 `package.json` 与 git commit 里早已生效

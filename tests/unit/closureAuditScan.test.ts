@@ -30,6 +30,7 @@ import {
   clustersConsistent,
   runClosureAudit,
   toClosureView,
+  UNCONSUMED_VIEW_LIMIT,
 } from '../../src/host/closureAudit/registryClosure.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -96,8 +97,29 @@ describe('cycle-72 T-7207 闭环体检（可复算出口）', () => {
   it('客户端投影不含本地绝对路径（rootDir 不出服务端）', () => {
     const view = toClosureView(summary);
     expect(JSON.stringify(view)).not.toContain(':\\');
-    expect(Object.keys(view).sort()).toEqual(['clusters', 'generatedAt', 'ghost', 'notes', 'totals', 'unconsumed']);
+    // 精确键集：这是「rootDir 不出服务端」的核心安全断言，**不得删除**。
+    // cycle-75 additive 变更：新增 truncation（明细截断如实上报）——同步加入而非放宽。
+    expect(Object.keys(view).sort()).toEqual(['clusters', 'generatedAt', 'ghost', 'notes', 'totals', 'truncation', 'unconsumed']);
     expect(view.notes.length).toBeGreaterThanOrEqual(4);
+  });
+
+  /*
+   * cycle-75 投影截断语义（「总数永不截断」的证据）。
+   *
+   * 语义要点（易错）：`truncation.total` = **服务端未消费总数**，
+   * 而 `view.unconsumed.length` = min(total, LIMIT)。故：
+   *   未截断 ⇒ 两者相等；
+   *   已截断 ⇒ 明细更短、且 truncated === true —— 计数仍然完整。
+   */
+  it('投影截断：总数永不截断，明细 ≤ 上限，且 truncated 与二者之差自洽', () => {
+    const view = toClosureView(summary);
+    const t = view.truncation.unconsumed;
+    expect(t.total).toBe(summary.unconsumed.length);
+    expect(t.shown).toBe(view.unconsumed.length);
+    expect(view.unconsumed.length).toBe(Math.min(t.total, UNCONSUMED_VIEW_LIMIT));
+    expect(t.truncated).toBe(t.total > t.shown);
+    if (t.truncated) expect(view.unconsumed.length).toBeLessThan(t.total);
+    else expect(view.unconsumed.length).toBe(t.total);
   });
 });
 

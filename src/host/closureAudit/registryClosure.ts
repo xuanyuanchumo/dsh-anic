@@ -1,11 +1,18 @@
 /**
- * 闭环体检编排器（cycle-72 · T-7207 首片）。
+ * 闭环体检编排器（cycle-72 · T-7207 首片；cycle-75 拆分与真值重写）。
  *
  * 输入：仓库文本索引（单一注册表扫描面）；输出：三态矩阵 + 未消费清单 +
- * 幽灵清单（consumed=true 但 registered=false）。
+ * 幽灵清单（consumed=true 但 registered=false）+ 分类计数。
  *
- * 三族（工具 / 词表 / 路由）各自的定义扫描与消费判定在 scanPrimitives.ts 与
- * assetClosure.ts；本文件只负责编排、口径校验与汇总——一域一文件。
+ * 职责边界（cycle-75 T3 拆分后，本文件只做**编排与口径校验**，≤250 行）：
+ *   closureModel.ts    数据模型（ClosureItem / ClusterAudit / ProducedKind）
+ *   closureBuckets.ts  分类学（五分类判据与计数）
+ *   closureTotalsTypes.ts / closureSummary.ts  汇总形状（下沉破循环 import）
+ *   closureView.ts     客户端投影（截断 + 排序）
+ *   scanPrimitives.ts  扫描原语 + 工具族
+ *   assetClosure.ts    路由族（真注册点）+ 词表族再导出
+ *   i18nClosure.ts     词表族
+ * 消费者 import 路径零变更：本文件**再导出**全部下移的公开名。
  *
  * 硬约束（与任务 write_scope 对齐）：纯只读（不写工作区、不改源码，R-31）；
  * 不 import 父工程 src（G-IND）；无 console 直连（出话由调用方经 scoped logger）。
@@ -15,70 +22,59 @@
  *     本仓内看不见）→ 未消费项按 cluster 归类，不硬算成 consumed；
  *   - 未消费清单是「缺口线索」，不是「该删」的判决。
  */
-import type { ClusterAudit, ClosureItem } from './scanPrimitives.ts';
-import { assertScanNonEmpty, buildFileIndex, buildTextMap, toolClosure } from './scanPrimitives.ts';
+import type { ClusterAudit, ClosureItem } from './closureModel.ts';
+import { assertScanNonEmpty, buildFileIndex, buildTextMap, tallyProduced, toolClosure } from './scanPrimitives.ts';
 import { i18nClosure, i18nGhosts, routeClosure, routeGhosts } from './assetClosure.ts';
+// cycle-75 T6：第四族（技能脚本 + MCP 传输层）——此前该面零覆盖。
+import { SKILL_CLOSURE_NOTES, skillClosure } from './skillClosure.ts';
+import type { ClosureTotals } from './closureTotalsTypes.ts';
+import type { ClosureSummary } from './closureSummary.ts';
+import type { ClosureBucket } from './closureBuckets.ts';
+import { CLOSURE_BUCKETS, bucketsOf, producedCountOf } from './closureBuckets.ts';
 
-export interface ClosureTotals {
-  registered: number;
-  produced: number;
-  /** consumed = 本仓内有读取方（含测试/agent 卡证据）。 */
-  consumed: number;
-  /** codeConsumed = 生产代码内真消费（证据出自 src/ 非注册文件）。 */
-  codeConsumed: number;
-  unconsumed: number;
-  ghost: number;
-}
+/* ── 再导出（cycle-75 拆分后保消费者 import 路径零变更）────────────────── */
 
-export interface ClosureSummary {
-  /** ISO 生成时刻（每次调用取一次，不缓存——白盒面要的是这一次）。 */
-  generatedAt: string;
-  /** 扫描根（绝对路径）；仅服务端可读，客户端投影不含它。 */
-  rootDir: string;
-  scannedFiles: number;
-  totals: ClosureTotals;
-  clusters: ClusterAudit[];
-  /** registered=true 且 consumed=false（缺口线索）。 */
-  unconsumed: ClosureItem[];
-  /** consumed=true 但 registered=false（幽灵消费）。 */
-  ghost: Array<{ cluster: string; id: string; evidence: string[] }>;
-  /** 口径声明：客户端据以显示这些绿是什么绿。 */
-  notes: string[];
-}
+export type { AssetDef, ClusterAudit, ClosureItem, ProducedKind } from './closureModel.ts';
+export { emptyProducedTallies, tallyProduced } from './closureModel.ts';
+export type { ClosureBucket } from './closureBuckets.ts';
+export { CLOSURE_BUCKETS, bucketOf, bucketsOf, isProduced, producedCountOf } from './closureBuckets.ts';
+export type { ClosureTotals } from './closureTotalsTypes.ts';
+export type { ClosureSummary } from './closureSummary.ts';
+export type { ClosureView } from './closureView.ts';
+export { UNCONSUMED_VIEW_LIMIT, orderUnconsumed, toClosureView } from './closureView.ts';
 
-/** 生产锚点判定：路由族的注册行 → 是否已接线在 routes/index.ts（挂进宿主 register 调用）。 */
-function routeWired(files: Map<string, string>, id: string): boolean {
-  const idx = files.get('src/host/routes/index.ts');
-  if (idx === undefined) return false;
-  return idx.includes(id);
-}
-
-/** 生产锚点判定：工具族的注册行 → 同一文件内是否有 execute（handler 就位）。 */
-function toolHasHandler(files: Map<string, string>, definedAt: string): boolean {
-  const rel = definedAt.split(':')[0] ?? '';
-  const raw = files.get(rel);
-  return raw !== undefined && /execute\s*:/.test(raw);
-}
+/* ── 生产锚点判定（cycle-75：判据已下移到各族扫描器，此处不再各自重算）── */
 
 /**
- * 按族计算「已生产」项数，判据显性化（不统一成 registered 一个数）。
- * i18n 是例外：词表条目由 t() 纯查找，**没有独立写入点** → produced=0 如实标注。
+ * 按族计算「已生产」项数。
+ *
+ * cycle-75 重写：上一版对路由族只看 `routes/index.ts` 是否**含 id 子串**——
+ * 而真实注册发生在各路由文件内部（index.ts 只调注册器），那判据把 55 条真注册
+ * 报成 1 条。现在各族在**自己的扫描器**里就带上了 producedAt / producedKind 证据，
+ * 本函数只做逐项汇总（单一真相，不在聚合层重算第二套判据）。
+ *
+ * 签名保留 _cluster/_files 两参：既有调用点与契约测试按此形态调用，改签名是破坏性变更。
  */
-export function producedCount(cluster: string, files: Map<string, string>, items: readonly ClosureItem[]): number {
-  if (cluster === 'tools') return items.filter((it) => toolHasHandler(files, it.definedAt)).length;
-  if (cluster === 'routes') return items.filter((it) => routeWired(files, it.id)).length;
-  return 0; // i18n：无独立写入点（诚实标注，不是缺失）
+export function producedCount(_cluster: string, _files: Map<string, string>, items: readonly ClosureItem[]): number {
+  return producedCountOf(items);
 }
 
 const NOTES: readonly string[] = [
   'consumed 判定 = 本仓内有读取方（客户端 fetch / 宿主内部调用 / 内联技能脚本 / 测试或 agent 卡引用）。',
   'tests 与 docs 引用计入证伪面而不计入端点生产消费（测试只证明注册可用）。',
   '工具与路由的对外消费者可以是 DSH 宿主 agent（宿主调用，本仓看不见）→ 未消费项是缺口线索，不是删除判决。',
-  '词表条目没有独立写入点（t() 是纯查找），其 producedAt=null / produced=0 是诚实标注而非缺失。',
-  'endpoint 的「已生产」判据 = 已接线在 routes/index.ts（挂进宿主 register 调用）；工具 = 同文件内有 execute handler。',
+  '词表条目没有独立写入点（t() 是纯查找），其 producedAt=null / producedKind=no-write-point 是诚实标注而非缺失。',
+  'endpoint 的「已生产」判据 = 存在**真注册调用点**（webServer.register({path}) 或 reg(path,…)），'
+  + '不是「routes/index.ts 里出现了该字符串」——后者是聚合器回声。',
+  '未消费 ≠ 全部是缺陷：code=生产代码内真消费；dynamicClaimed=计算键认领；'
+  + 'channelOnly=仅测试/agent 卡引用（无生产消费者）；consumedGap=真缺口；producedGap=只声明没接线。',
+  'producedByKind 是**全量分类**（合计 = total，no-write-point 也占位），'
+  + '故不可与 produced 计数直接互比——后者只数真有写入锚点者。',
+  // cycle-75 T6：第四族（技能/MCP）的口径与诚实边界由族实现自带（避免口径漂移）。
+  ...SKILL_CLOSURE_NOTES,
 ];
 
-/** 计数自洽校验：consumed 计数 = 逐项统计，unconsumed = total − consumed。 */
+/** 计数自洽校验：各族计数 = 逐项统计；分类合计 = total；produced 分类合计 = total。 */
 export function clustersConsistent(clusters: readonly ClusterAudit[]): string[] {
   const problems: string[] = [];
   for (const c of clusters) {
@@ -88,6 +84,21 @@ export function clustersConsistent(clusters: readonly ClusterAudit[]): string[] 
     const code = c.items.filter((it) => it.evidenceKind === 'code').length;
     if (code !== c.codeConsumed) problems.push(c.cluster + ': codeConsumed count mismatch');
     if (c.total - consumed !== c.unconsumed) problems.push(c.cluster + ': unconsumed count mismatch');
+    // cycle-75：分类合计必须等于 total（互斥且穷尽——漏一类即静默丢失资产）。
+    const buckets = bucketsOf(c.items);
+    const bucketSum = CLOSURE_BUCKETS.reduce((s, k) => s + buckets[k], 0);
+    if (bucketSum !== c.total) problems.push(c.cluster + ': bucket sum ' + String(bucketSum) + ' != total ' + String(c.total));
+    // produced 类别分布必须与逐项统计相等，且**合计 = total**（见 NOTES 最后一条）。
+    const tallied = tallyProduced(c.items);
+    for (const k of Object.keys(tallied) as Array<keyof typeof tallied>) {
+      if (tallied[k] !== c.producedByKind[k]) problems.push(c.cluster + ': producedByKind.' + k + ' mismatch');
+    }
+    const producedSum = Object.values(c.producedByKind).reduce((s, n) => s + n, 0);
+    if (producedSum !== c.total) {
+      problems.push(c.cluster + ': producedByKind sum ' + String(producedSum) + ' != total ' + String(c.total));
+    }
+    // 已生产项数不得超过 total（恒真守卫，防分类实现漂移后自报虚高）。
+    if (producedCountOf(c.items) > c.total) problems.push(c.cluster + ': produced > total');
   }
   return problems;
 }
@@ -97,7 +108,7 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   const files = buildTextMap(rootDir, buildFileIndex(rootDir));
   assertScanNonEmpty(files.size, 'file-index');
 
-  const clusters: ClusterAudit[] = [toolClosure(files), i18nClosure(files), routeClosure(files)];
+  const clusters: ClusterAudit[] = [toolClosure(files), i18nClosure(files), routeClosure(files), skillClosure(files)];
 
   const i18nDefined = clusters.find((c) => c.cluster === 'i18n')?.items.map((it) => it.id) ?? [];
   const routeDefined = clusters.find((c) => c.cluster === 'routes')?.items.map((it) => it.id) ?? [];
@@ -111,12 +122,23 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   const codeConsumed = clusters.reduce((sum, c) => sum + c.codeConsumed, 0);
   const registered = clusters.reduce((sum, c) => sum + c.total, 0);
   const produced = clusters.reduce((sum, c) => sum + producedCount(c.cluster, files, c.items), 0);
+  const buckets = bucketsOf(clusters.flatMap((c) => c.items));
+
+  const totals: ClosureTotals = {
+    registered, produced, consumed, codeConsumed,
+    unconsumed: registered - consumed,
+    ghost: ghosts.length,
+    consumedGap: buckets.consumedGap,
+    producedGap: buckets.producedGap,
+    dynamicClaimed: buckets.dynamicClaimed,
+    channelOnly: buckets.channelOnly,
+  };
 
   return {
     generatedAt: new Date().toISOString(),
     rootDir,
     scannedFiles: files.size,
-    totals: { registered, produced, consumed, codeConsumed, unconsumed: registered - consumed, ghost: ghosts.length },
+    totals,
     clusters,
     unconsumed,
     ghost: ghosts,
@@ -124,42 +146,14 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   };
 }
 
-/** 客户端投影：去 rootDir（本地绝对路径不出服务端）。 */
-export interface ClosureView {
-  generatedAt: string;
-  totals: ClosureTotals;
-  clusters: Array<{ cluster: string; unit: string; total: number; consumed: number; codeConsumed: number; unconsumed: number }>;
-  unconsumed: Array<{ cluster: string; id: string; definedAt: string; evidenceKind: string }>;
-  ghost: Array<{ cluster: string; id: string }>;
-  notes: string[];
-}
-
-export function toClosureView(summary: ClosureSummary): ClosureView {
-  return {
-    generatedAt: summary.generatedAt,
-    totals: summary.totals,
-    clusters: summary.clusters.map((c) => ({
-      cluster: c.cluster,
-      unit: c.unit,
-      total: c.total,
-      consumed: c.consumed,
-      codeConsumed: c.codeConsumed,
-      unconsumed: c.unconsumed,
-    })),
-    unconsumed: summary.unconsumed.map((it) => ({
-      cluster: it.cluster,
-      id: it.id,
-      definedAt: it.definedAt,
-      evidenceKind: it.evidenceKind,
-    })),
-    ghost: summary.ghost.map((g) => ({ cluster: g.cluster, id: g.id })),
-    notes: summary.notes,
-  };
-}
-
-/** 口径守卫：三族必须都在场且非空（静默缺族 = 假守卫）。 */
+/**
+ * 口径守卫：四族必须都在场且非空（静默缺族 = 假守卫）。
+ *
+ * cycle-75 T6：由三族扩到**四族**（增技能/MCP 面）。缺族不报错的守卫是假守卫——
+ * 技能面此前正是「零覆盖却不被任何断言发现」的形态。
+ */
 export function assertClustersPresent(clusters: readonly ClusterAudit[]): void {
-  for (const want of ['tools', 'i18n', 'routes']) {
+  for (const want of ['tools', 'i18n', 'routes', 'skills']) {
     const c = clusters.find((x) => x.cluster === want);
     if (!c) throw new Error('closure audit cluster missing: ' + want);
     assertScanNonEmpty(c.total, 'cluster-' + want);

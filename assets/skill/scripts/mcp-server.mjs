@@ -446,4 +446,4 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`AI-Native Iteration Cycle MCP Server v1.6.0 running (project: ${projectDir})`);
+console.error(`AI-Native Iteration Cycle MCP Server v2.5.2 running (project: ${projectDir})`);
