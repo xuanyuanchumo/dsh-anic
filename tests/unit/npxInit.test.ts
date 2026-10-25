@@ -15,6 +15,11 @@ const ROOT = resolve(__dirname, '../..');
 const BIN = join(ROOT, 'bin', 'anic-init.mjs');
 const SKILL_SRC = join(ROOT, 'assets', 'skill');
 
+/** 技能版本从**独立锚点**（技能包 CHANGELOG 首条）派生，不写死字面量——
+ * 版本号是发行源属性，写死在测试里等于每次发版都要改测试（cycle-78 实测：
+ * v2.6.0 升级时两处 2.5.2 断言同步变红，是本轮唯一的非缺陷红）。 */
+const SKILL_VERSION = /^##\s+(\d+\.\d+\.\d+)/m.exec(readFileSync(join(SKILL_SRC, 'CHANGELOG.md'), 'utf-8'))?.[1] ?? '';
+
 const tmpDirs: string[] = [];
 function freshDir(): string {
   const d = mkdtempSync(join(tmpdir(), 'anic-npx-test-'));
@@ -34,7 +39,8 @@ describe('npx anic-init（技能-only 分发入口）', () => {
   it('全新目录：安装技能 64 文件 + 脚手架 .cycles/ + CLAUDE.md 仓库记忆', () => {
     const dir = freshDir();
     const out = run(['init', dir, '--name', 'demo-project']);
-    expect(out).toContain('installing skill v2.5.2');
+    expect(SKILL_VERSION, '技能 CHANGELOG 首条版本必须可解析（版本锚点下限）').not.toBe('');
+    expect(out).toContain(`installing skill v${SKILL_VERSION}`);
     // 技能落点与 DSH 插件 anic_install 同构
     const skillDst = join(dir, '.dsh', 'skills', 'ai-native-iteration-cycle');
     expect(existsSync(join(skillDst, 'SKILL.md'))).toBe(true);
@@ -62,7 +68,7 @@ describe('npx anic-init（技能-only 分发入口）', () => {
     const dir = freshDir();
     run(['init', dir]);
     const out2 = run(['init', dir]);
-    expect(out2).toContain('already installed (v2.5.2), skipping copy');
+    expect(out2).toContain(`already installed (v${SKILL_VERSION}), skipping copy`);
     expect(out2).toContain('already initialized, skipping scaffold');
   });
 

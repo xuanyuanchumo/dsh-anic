@@ -47,31 +47,17 @@ export type EvidenceKind = 'code' | 'channel' | 'none';
 
 export const EVIDENCE_KINDS: readonly EvidenceKind[] = ['code', 'channel', 'none'];
 
-export interface ClosureTotals {
-  registered: number;
-  produced: number;
-  consumed: number;
-  codeConsumed: number;
-  unconsumed: number;
-  ghost: number;
-  /**
-   * ★分层语义（cycle-75 实测校准，必须是渲染侧的显式认知）：
-   *   consumedGap + producedGap === unconsumed  ← 这两键**只覆盖未消费项**；
-   *   dynamicClaimed / channelOnly              ← **不在未消费里**：它们是
-   *   「已消费、但证据弱」（计算键认领 / 仅测试·agent 卡引用）的计数。
-   *
-   * 把四键当成未消费的四等分是**错的**（实测 44+42+3+1=90 ≠ unconsumed 86）。
-   * 之所以仍要同屏可见：不显示这两键，面板就把「396 个已消费」误读成一片健康的绿
-   * （宿主 closureTotalsTypes.ts 的原始裁决）。
-   */
-  consumedGap: number;
-  /** !produced && !consumed —— 未读取：词表键无写入点 / 只声明未接线（需接线或删除）。 */
-  producedGap: number;
-  /** consumed && dynamic —— 已认领消费、但证据是**计算键**（非字面量）。 */
-  dynamicClaimed: number;
-  /** consumed && evidenceKind==='channel' —— 仅测试/agent 卡引用，无生产消费者。 */
-  channelOnly: number;
-}
+/**
+ * ★cycle-78：`ClosureTotals` 形状与守卫已拆至 closureTotalsTypes.ts（T3 ≤250 行；
+ * 拆法与宿主侧 closureTotalsTypes.ts 同构）。此处**再导出**保消费者 import 路径零变更。
+ */
+export type { ClosureTotals } from './closureTotalsTypes.ts';
+export { isClosureTotals } from './closureTotalsTypes.ts';
+import type { ClosureTotals } from './closureTotalsTypes.ts';
+import { isClosureTotals } from './closureTotalsTypes.ts';
+import {
+  isBool, isNum, isObj, isRecordOf, isStr, isStrArray,
+} from './closureTotalsTypes.ts';
 
 export interface ClosureClusterView {
   cluster: string;
@@ -94,6 +80,11 @@ export interface ClosureUnconsumedView {
   /** 消费证据是否来自计算键前缀认领（非字面量）。 */
   dynamic: boolean;
   evidenceKind: EvidenceKind;
+  /**
+   * ★cycle-78：通道声明（未消费但已声明为「通道独占」）。缺席 = 未声明。
+   * 声明**不是豁免**：项仍在未消费明细里，只是归类为 declaredChannel。
+   */
+  declaredChannel?: { owner: string; docRef: string; reason: string };
   /** 消费证据锚点（≤3 条 file:line；空 = 无）。 */
   evidence: string[];
 }
@@ -128,26 +119,7 @@ export interface ClosureView {
   connectivity?: ClosureConnectivityView;
 }
 
-/* ── 谓词原语（fail-closed 的积木；新鲜度：NaN/Infinity 不是合法计数）────── */
-
-function isNum(v: unknown): v is number { return typeof v === 'number' && Number.isFinite(v); }
-function isStr(v: unknown): v is string { return typeof v === 'string'; }
-function isBool(v: unknown): v is boolean { return typeof v === 'boolean'; }
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-function isStrArray(v: unknown): v is string[] { return Array.isArray(v) && v.every((s) => isStr(s)); }
-function isRecordOf<T extends string>(v: unknown, keys: readonly T[]): boolean {
-  return isObj(v) && keys.every((k) => isNum((v as Record<string, unknown>)[k]));
-}
-
-const TOTAL_KEYS: readonly (keyof ClosureTotals)[] =
-  ['registered', 'produced', 'consumed', 'codeConsumed', 'unconsumed', 'ghost',
-    'consumedGap', 'producedGap', 'dynamicClaimed', 'channelOnly'];
-
-export function isClosureTotals(v: unknown): v is ClosureTotals {
-  return isRecordOf(v, TOTAL_KEYS);
-}
+/* ── 谓词原语已随 totals 形状下移到 closureTotalsTypes.ts（上面对应 import）────── */
 
 /**
  * produced 类别是否**形态合法**。
@@ -198,6 +170,13 @@ export function isClosureUnconsumedView(v: unknown): v is ClosureUnconsumedView 
   if (!isStr(v.cluster) || !isStr(v.id) || !isStr(v.definedAt)) return false;
   if (!isProducedKind(v.producedKind) || !isEvidenceKind(v.evidenceKind)) return false;
   if (!isBool(v.produced) || !isBool(v.dynamic)) return false;
+  // cycle-78：通道声明**可选**；在场则三元组必须都是非空字符串（fail-closed）。
+  if (v.declaredChannel !== undefined) {
+    if (!isObj(v.declaredChannel)) return false;
+    const d = v.declaredChannel as Record<string, unknown>;
+    if (!isStr(d.owner) || !isStr(d.docRef) || !isStr(d.reason)) return false;
+    if (d.owner === '' || d.docRef === '' || d.reason === '') return false;
+  }
   return isStrArray(v.evidence);
 }
 
@@ -236,9 +215,11 @@ export function isClosureView(v: unknown): v is ClosureView {
   if (tr.total !== tot.unconsumed) return false;
   // 真值自洽②：truncated 必须由 shown/total 推出（标 false 却少给条目 = 静默截断）
   if (tr.truncated !== (tr.total > tr.shown)) return false;
-  // 真值自洽③：未消费两分类必须覆盖全量（宿主 closureTotalsTypes 的明文口径）。
-  // 刻意只加这两键——dynamicClaimed/channelOnly 不在未消费里（实测 44+42+3+1 ≠ 86）。
-  return tot.consumedGap + tot.producedGap === tot.unconsumed;
+  // 真值自洽③：三分类必须覆盖全部未消费（宿主 closureTotalsTypes 的明文口径）。
+  // cycle-78 升级：`channelDeclared + consumedGap + producedGap === unconsumed`。
+  // 之所以只加这三键——dynamicClaimed/channelOnly 不在未消费里（实测 44+42+3+1 ≠ 86）；
+  // 旧服务端缺 channelDeclared 时按 0 处理（它的两缺口之和本就等于未消费）。
+  return (tot.channelDeclared ?? 0) + tot.consumedGap + tot.producedGap === tot.unconsumed;
 }
 
 /*

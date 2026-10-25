@@ -245,12 +245,13 @@ describe('cycle-75 T5 produced 逐项证据 + 分类互斥穷尽（逐族）', (
     }
   });
 
-  it('分类互斥且穷尽：五类合计 === total，且未消费两类之和 === unconsumed（逐族）', () => {
+  it('分类互斥且穷尽：六类合计 === total，且未消费三键之和 === unconsumed（逐族）', () => {
     for (const c of SUMMARY.clusters) {
       const b = bucketsOf(c.items);
       const sum = CLOSURE_BUCKETS.reduce((s, k) => s + b[k], 0);
-      expect(sum, c.cluster + ' 五分类合计 != total').toBe(c.total);
-      expect(b.consumedGap + b.producedGap, c.cluster + ' 未消费两类 != unconsumed').toBe(c.unconsumed);
+      expect(sum, c.cluster + ' 六分类合计 != total').toBe(c.total);
+      // ★cycle-78：未消费 = 已声明通道 + 两缺口（语义升级，不是放宽）。
+      expect(b.declaredChannel + b.consumedGap + b.producedGap, c.cluster + ' 未消费三键 != unconsumed').toBe(c.unconsumed);
       expect(b.code + b.dynamicClaimed + b.channelOnly, c.cluster + ' 已消费三类 != consumed').toBe(c.consumed);
     }
     // 全量口径与分族汇总同源
@@ -258,6 +259,7 @@ describe('cycle-75 T5 produced 逐项证据 + 分类互斥穷尽（逐族）', (
     expect(all.consumedGap).toBe(SUMMARY.totals.consumedGap);
     expect(all.producedGap).toBe(SUMMARY.totals.producedGap);
     expect(all.dynamicClaimed).toBe(SUMMARY.totals.dynamicClaimed);
+    expect(all.declaredChannel).toBe(SUMMARY.totals.channelDeclared);
   });
 
   it('四族齐备：缺任一族 `assertClustersPresent` 必须响亮抛错（反向自检，逐族）', () => {
@@ -291,7 +293,7 @@ describe('cycle-75 T5 produced 逐项证据 + 分类互斥穷尽（逐族）', (
     expect(SUMMARY.totals.unconsumed).toBe(sum((c) => c.unconsumed));
     // 分类合计（全量）= 各族分类合计之和（增族不得让分类账漏算）
     const all = bucketsOf(SUMMARY.clusters.flatMap((c) => c.items));
-    const perCluster = { code: 0, dynamicClaimed: 0, channelOnly: 0, consumedGap: 0, producedGap: 0 };
+    const perCluster = { code: 0, dynamicClaimed: 0, channelOnly: 0, consumedGap: 0, producedGap: 0, declaredChannel: 0 };
     for (const c of SUMMARY.clusters) {
       const b = bucketsOf(c.items);
       for (const k of CLOSURE_BUCKETS) perCluster[k] += b[k];
@@ -458,8 +460,13 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
 });
 
 describe('cycle-75 T5 投影截断与排序（总数永不截断，真缺口排在前面）', () => {
-  /** 冻结契约 §1.4 的优先级（真缺口在前）。与 CLOSURE_BUCKETS 同步由下方断言钉住。 */
-  const PRIORITY = ['consumedGap', 'producedGap', 'dynamicClaimed', 'channelOnly', 'code'];
+  /**
+   * 冻结契约 §1.4 的优先级（真缺口在前）。
+   * ★cycle-78：新增 declaredChannel 在**末尾**——已声明通道无待办（只需维持文档），
+   * 截断时应当最先被丢弃；与宿主 closureView.VIEW_ORDER 的权重同序。
+   * 与 CLOSURE_BUCKETS 同步由下方断言钉住。
+   */
+  const PRIORITY = ['consumedGap', 'producedGap', 'dynamicClaimed', 'channelOnly', 'code', 'declaredChannel'];
 
   it('优先级表与冻结契约的桶集完全同步（漏同步即红）', () => {
     expect([...PRIORITY].sort()).toEqual([...CLOSURE_BUCKETS].sort());
@@ -476,11 +483,18 @@ describe('cycle-75 T5 投影截断与排序（总数永不截断，真缺口排�
     expect(view.unconsumed.length).toBeLessThanOrEqual(UNCONSUMED_VIEW_LIMIT);
   });
 
-  it('截断时真缺口一条不落：全部 consumedGap 必须在明细里（排序判据的实证）', () => {
+  it('截断时真缺口一条不落：全部 consumedGap/producedGap 必须在明细里（排序判据的实证）', () => {
     const view = toClosureView(SUMMARY);
-    const gapKeys = SUMMARY.unconsumed.filter((i) => bucketOf(i) === 'consumedGap')
+    /*
+     * ★cycle-78 语义升级：本仓的 consumedGap 现为 **0**——那 46 条「生产了没人读」的
+     * 路由已被通道声明认领为 declaredChannel（声明 ≠ 豁免：它们仍是未消费，只是
+     * 不再是「未知缺口」）。故基线改用**两缺口之和**（producedGap=39 词表键仍非零），
+     * 断言本体不变：截断只许丢已声明通道，不许丢任何待办缺口。
+     */
+    const gapKeys = SUMMARY.unconsumed
+      .filter((i) => bucketOf(i) === 'consumedGap' || bucketOf(i) === 'producedGap')
       .map((i) => i.cluster + '|' + i.id);
-    expect(gapKeys.length, '本仓无真缺口 —— 排序断言空转').toBeGreaterThan(0);
+    expect(gapKeys.length, '本仓无待办缺口 —— 排序断言空转').toBeGreaterThan(0);
     if (!view.truncation.unconsumed.truncated) return;
     const shown = new Set(view.unconsumed.map((i) => i.cluster + '|' + i.id));
     const hiddenGaps = gapKeys.filter((k) => !shown.has(k));

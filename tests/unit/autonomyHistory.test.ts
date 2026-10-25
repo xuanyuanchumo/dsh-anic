@@ -188,4 +188,17 @@ describe('摘要投影（org-status 只暴露最近 5 条）', () => {
   it('空账 → 空数组（不伪造占位行）', () => {
     expect(summarizeHistory([], 5)).toEqual([]);
   });
+
+  it('cycle-78：trustExemption 必须随摘要投影（否则 UI 豁免分支永远看不见真账）', () => {
+    const withExemption: AutonomyHistoryEntry = {
+      ...entry('L3', 'L4', '2026-10-25T04:57:07.923Z'),
+      authorization: 'human',
+      trustExemption: { avg: 84, threshold: 85 },
+    };
+    const summary = summarizeHistory([entry('L2', 'L3', '2026-10-25T04:57:07.894Z'), withExemption], 5);
+    expect(summary[0]?.trustExemption).toBeUndefined();
+    expect(summary[1]?.trustExemption).toEqual({ avg: 84, threshold: 85 });
+    // 反向自检：无豁免的记录不得凭空长出该字段（字段存在性 = 事实存在性）
+    expect(Object.keys(summary[0] ?? {})).not.toContain('trustExemption');
+  });
 });

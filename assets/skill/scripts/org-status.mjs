@@ -21,12 +21,12 @@ const CIRCUIT_BREAKER_CONDITIONS = [
     return { triggered: files.length >= 3, detail: `${files.length} consecutive auto-fix failures` };
   }},
   { id: 'CB2', name: '门禁自动判定存疑且无法自动定论', check: (projectDir) => {
-    const ledgerPath = join(projectDir, '.cycles', 'gates', 'ledger.json');
-    if (!existsSync(ledgerPath)) return { triggered: false };
-    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
-    const recent = ledger.entries.slice(-4);
-    const ambiguous = recent.filter(e => e.result === 'FAIL' && (!e.detail || e.detail.includes('ambiguous')));
-    return { triggered: ambiguous.length > 0, detail: `${ambiguous.length} ambiguous gate results` };
+    // 归一 + 可观测（cycle-78 WS-G）：账本不可用时明确 SKIP 并点名原因，
+    // 不再「裸数组 → TypeError → 整个 org-status 崩溃」，也不静默当成「无 DOUBT」。
+    const ledger = loadLedgerEntries(projectDir);
+    if (!ledger.ok) return { triggered: false, skipped: true, detail: `ledger unavailable — ${ledger.reason}` };
+    const ambiguous = ledgerDoubtCount(ledger.entries);
+    return { triggered: ambiguous > 0, detail: `${ambiguous} ambiguous gate results` };
   }},
   { id: 'CB3', name: '涉及真实用户数据/明文凭据且无隔离方案', check: (projectDir) => {
     const incidentsDir = join(projectDir, '.cycles', 'incidents');
@@ -40,17 +40,7 @@ const CIRCUIT_BREAKER_CONDITIONS = [
     const files = readdirSync(incidentsDir).filter(f => f.includes('H2') && f.includes('circuit'));
     return { triggered: files.length > 0, detail: `${files.length} H2 circuit breaker incidents` };
   }},
-  { id: 'CB5', name: '性能指标超预警阈值且1轮优化后仍未恢复', check: (projectDir) => {
-    const bandHistoryPath = join(projectDir, '.cycles', 'band-history.json');
-    if (!existsSync(bandHistoryPath)) return { triggered: false };
-    try {
-      const history = JSON.parse(readFileSync(bandHistoryPath, 'utf-8'));
-      if (history.snapshots.length < 2) return { triggered: false };
-      const recent = history.snapshots.slice(-2);
-      const bothOver = recent.every(s => s.status === 'OVER_BUDGET');
-      return { triggered: bothOver, detail: 'Complexity over budget for 2 consecutive cycles' };
-    } catch { return { triggered: false }; }
-  }},
+  { id: 'CB5', name: '性能指标超预警阈值且1轮优化后仍未恢复', check: (projectDir) => bandUnrecovered(projectDir) },
   { id: 'CB6', name: '人类主动要求审计/切换到L3', check: (projectDir) => {
     const configContent = loadConfig(projectDir);
     const match = configContent.match(/human_override:\s*(L3|true)/i);
@@ -78,6 +68,98 @@ const AUTONOMY_LEVELS = {
   L3: { name: '自主模式', desc: 'Agent 自主执行，人类监控门禁', color: 'GREEN' },
   L4: { name: '全自动模式', desc: 'Agent 全自主，人类仅干预异常', color: 'RED' },
 };
+
+// —— CB5 形状归一 + 双形状判据（cycle-78 WS-F）——
+// 被修缺陷（fail-open，本轮实测）：原 CB5 读 `history.snapshots`，而 `band-detector.mjs`
+// 写入 `.cycles/band-history.json` 的是**裸数组** ⇒ `snapshots` undefined ⇒ 取 `.length`
+// 抛 TypeError 被 `catch { return { triggered: false } }` 吞掉 ⇒ **技能侧 CB5 永不触发**
+// （该熔断的安全作用等于不存在，且没有任何断言会红）。附带第二处死谓词：
+// 旧判据 `s.status === 'OVER_BUDGET'` —— 没有任何生产者写过 `status` 字段。
+//
+// 宿主侧同族实现 src/host/evolution/breakerSignals.ts 已按「双形状」修复，本处与其
+// **逐字同语义**（同一判定两份实现必须同义，否则差分契约迟早以「一边触发一边不触发」变红）：
+//   · 容器归一：裸数组直接用；`{ snapshots: [...] }` 包裹取内部数组；其他 → null
+//   · 单条判据：`band === 'alarm'`（自主带形状）或 `overBudgetCount > 0`（质量带形状=
+//     真实生产形状：该轮存在超预算文件即质量未恢复）
+//   · 判定：末 2 条**都**命中才触发（「连续 2 轮」）；不足 2 条 / 坏 JSON / 非数组 →
+//     不触发且**不抛**（采集失败是「没信号」，不是「熔断」，也不能让 org-status 崩）
+function normalizeBandHistory(history) {
+  if (Array.isArray(history)) return history;
+  if (history && typeof history === 'object' && Array.isArray(history.snapshots)) return history.snapshots;
+  return null;
+}
+
+function bandEntryUnrecovered(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (entry.band === 'alarm') return true; // 自主带形状（既有语义，向后兼容）
+  return typeof entry.overBudgetCount === 'number' && entry.overBudgetCount > 0; // 质量带形状
+}
+
+/** CB5 信号：末 2 条 band-history 快照均「性能未恢复」才触发。 */
+function bandUnrecovered(projectDir) {
+  const bandHistoryPath = join(projectDir, '.cycles', 'band-history.json');
+  if (!existsSync(bandHistoryPath)) return { triggered: false };
+  try {
+    const entries = normalizeBandHistory(JSON.parse(readFileSync(bandHistoryPath, 'utf-8')));
+    if (!entries || entries.length < 2) return { triggered: false };
+    const bothOver = entries.slice(-2).every(bandEntryUnrecovered);
+    // detail 只在真触发时给出：非触发却打印「连续超预算」会自相矛盾（旧形态的隐患）
+    return bothOver
+      ? { triggered: true, detail: 'Complexity over budget for 2 consecutive cycles' }
+      : { triggered: false };
+  } catch { return { triggered: false }; }
+}
+
+// —— 账本形状归一 + 可观测加载（cycle-78 WS-G）——
+// 被修缺陷（**崩溃**，比 fail-open 更坏）：CB2 检查、CB2 诊断、review 汇总三处各自
+// 直接 `ledger.entries.slice(-4)` / `ledger.entries.filter(...)`，而宿主侧 ledgerHasDoubt
+// 两种形状（`{entries:[…]}` 包裹 / 裸数组）都接受。遇到裸数组账本时 `entries` 为
+// undefined ⇒ 未捕获 TypeError ⇒ **整个 org-status 崩溃**（实测
+// `TypeError: ledger.entries.slice is not a function`，连 CB1…CB8 一行都打印不出来）。
+// 当前生产不可达仅因 gate-ledger.mjs 写包裹形态——形状口径不一致是随时可爆的定时器。
+//
+// 归一语义（与宿主侧同口径，纯形状处理，绝不改写条目内容）：
+//   · 包裹 `{ entries: [...] }` → 取 entries
+//   · 裸数组 → 原样使用（条目集合等价；账本是"条目列表"，外层包装只是容器）
+//   · 其他形状 / 坏 JSON / 缺文件 → ok:false + reason（**不抛**）
+// **必须在读 .entries 之前判 Array.isArray**：裸数组上的 `.entries` 不是 undefined，而是
+// `Array.prototype.entries` 这个**函数**——所以旧代码的报错是
+// `ledger.entries.slice is not a function`（在函数上找 slice），而 `gate-ledger --verify`
+// 里 `ledger.entries.length` 恰好等于函数的形参个数 0 ⇒ 静默「0 条 + Valid: YES」。
+// 这个原型方法遮蔽是同一形状错误在同一仓里表现为「崩溃」与「静默清空」两种症状的根因。
+// 诚实语义（反 fail-open，也反误报）：账本不可用时 CB2 **明确 SKIP 并点名原因**——
+// 既不静默当成「无 DOUBT」（旧的 fail-open 方向），也不据此触发熔断（采集失败 ≠ 事故）。
+const LEDGER_REL = ['.cycles', 'gates', 'ledger.json'];
+
+function loadLedgerEntries(projectDir) {
+  const ledgerPath = join(projectDir, ...LEDGER_REL);
+  if (!existsSync(ledgerPath)) {
+    return { ok: false, entries: [], reason: `ledger missing (${LEDGER_REL.join('/')})` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
+  } catch (err) {
+    return { ok: false, entries: [], reason: `ledger unparsable: ${err && err.message ? err.message : String(err)}` };
+  }
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries) ? parsed.entries : null);
+  if (!entries) {
+    return { ok: false, entries: [], reason: 'ledger shape not recognized (expected array or { entries: [...] })' };
+  }
+  return { ok: true, entries, reason: null };
+}
+
+/** CB2 判据（与宿主侧 ledgerHasDoubt 逐字同语义）：最近 4 条中 FAIL 且 detail 空/含 ambiguous。
+ * 注意不认 `result === 'doubt'`：没有任何生产者写过该值（gate-ledger 只接受 PASS|FAIL），
+ * 双实现口径必须一致，否则「一边触发一边不触发」的差分漂移会重新出现。 */
+function ledgerDoubtCount(entries) {
+  return entries
+    .slice(-4)
+    .filter(e => e && e.result === 'FAIL' && (!e.detail || String(e.detail).includes('ambiguous')))
+    .length;
+}
 
 const AGENT_ROLES = {
   orchestrator: { name: '编排者', desc: '分解任务、分配给子 Agent、汇总结果' },
@@ -201,8 +283,21 @@ function updateAgentAssignment(projectDir, role, model) {
 }
 
 function getReviewSummary(projectDir) {
+  // 账本汇总先算、且**两条 return 分支形状必须一致**（cycle-78 WS-G）：原先「无
+  // .cycles/cycles 目录」的提前 return 只给 {totalCycles, reviews}，而 cmdReview 直接读
+  // `summary.gateSummary.passed` ⇒ 在未初始化/空工作区上 `org-status review` 必崩
+  // （本轮实测 TypeError）。同族纪律：同一函数的多个出口不能给出不同形状。
+  const ledger = loadLedgerEntries(projectDir);
+  const gateSummary = { passed: 0, failed: 0 };
+  if (ledger.ok) {
+    gateSummary.passed = ledger.entries.filter(e => e && e.result === 'PASS').length;
+    gateSummary.failed = ledger.entries.filter(e => e && e.result === 'FAIL').length;
+  }
+  // 不可用时如实标注：不把「读不到账本」伪装成「通过 0 / 失败 0」这种看起来正常的统计
+  const ledgerReason = ledger.ok ? null : ledger.reason;
+
   const cyclesBaseDir = join(projectDir, '.cycles', 'cycles');
-  if (!existsSync(cyclesBaseDir)) return { totalCycles: 0, reviews: [] };
+  if (!existsSync(cyclesBaseDir)) return { totalCycles: 0, reviews: [], gateSummary, ledgerReason };
 
   // v1.8.3：数值序（评审摘要按 cycle 序展示，字典序在两位数后乱序）
   const cycleDirs = listCycleDirNames(cyclesBaseDir);
@@ -223,15 +318,7 @@ function getReviewSummary(projectDir) {
     }
   }
 
-  const gateLedgerPath = join(projectDir, '.cycles', 'gates', 'ledger.json');
-  let gateSummary = { passed: 0, failed: 0 };
-  if (existsSync(gateLedgerPath)) {
-    const ledger = JSON.parse(readFileSync(gateLedgerPath, 'utf-8'));
-    gateSummary.passed = ledger.entries.filter(e => e.result === 'PASS').length;
-    gateSummary.failed = ledger.entries.filter(e => e.result === 'FAIL').length;
-  }
-
-  return { totalCycles: cycleDirs.length, reviews, gateSummary };
+  return { totalCycles: cycleDirs.length, reviews, gateSummary, ledgerReason };
 }
 
 function cmdStatus(projectDir) {
@@ -313,6 +400,8 @@ function cmdReview(projectDir) {
   console.log(`Gate Summary:`);
   console.log(`  Passed: ${summary.gateSummary.passed}`);
   console.log(`  Failed: ${summary.gateSummary.failed}`);
+  // 账本不可用时明细为 0/0，必须点名，否则读者会把「读不到」当成「全过」
+  if (summary.ledgerReason) console.log(`  (ledger unavailable — ${summary.ledgerReason})`);
   console.log(``);
 
   if (summary.reviews.length > 0) {
@@ -365,14 +454,16 @@ function diagnoseCondition(projectDir, cond) {
       break;
     }
     case 'CB2': {
-      const ledgerPath = join(projectDir, '.cycles', 'gates', 'ledger.json');
-      if (!existsSync(ledgerPath)) break;
-      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8'));
-      const recent = ledger.entries.slice(-4);
-      const ambiguous = recent.filter(e => e.result === 'FAIL' && (!e.detail || e.detail.includes('ambiguous')));
+      // 与 check 共用同一归一函数（cycle-78 WS-G）：诊断不得另写第二份账本解析，
+      // 否则「check 说触发、诊断找不到原因」这类双实现漂移必然重现。
+      const ledger = loadLedgerEntries(projectDir);
+      if (!ledger.ok) break;
+      const ambiguousEntries = ledger.entries
+        .slice(-4)
+        .filter(e => e && e.result === 'FAIL' && (!e.detail || String(e.detail).includes('ambiguous')));
 
-      if (ambiguous.length > 0) {
-        const gates = ambiguous.map(e => e.gate).join(', ');
+      if (ambiguousEntries.length > 0) {
+        const gates = ambiguousEntries.map(e => e.gate).join(', ');
         diagnosis.rootCause = `门禁 ${gates} 判定存疑，缺少充分详情`;
         diagnosis.fixAction = `重新运行 gate-check.mjs --gate ${gates} 获取更详细的判定证据`;
         diagnosis.fixable = true;
@@ -426,18 +517,29 @@ function diagnoseCondition(projectDir, cond) {
       break;
     }
     case 'CB5': {
+      // 与 check 同一套归一化/双形状判据（cycle-78 WS-F）——诊断不得另写一份解析，
+      // 否则「check 说触发、诊断找不到原因」这类双实现漂移会再次出现。
       const bandHistoryPath = join(projectDir, '.cycles', 'band-history.json');
       if (!existsSync(bandHistoryPath)) break;
       try {
-        const history = JSON.parse(readFileSync(bandHistoryPath, 'utf-8'));
-        if (history.snapshots.length < 2) break;
-        const recent = history.snapshots.slice(-2);
-        if (recent.every(s => s.status === 'OVER_BUDGET')) {
-          const hotspots = recent[recent.length - 1].hotspots || [];
-          diagnosis.rootCause = `复杂度连续超预算，热点文件: ${hotspots.slice(0, 3).map(h => h.file).join(', ')}`;
-          diagnosis.fixAction = '对热点文件进行重构，拆分复杂函数，降低圈复杂度';
-          diagnosis.fixable = true;
-        }
+        const entries = normalizeBandHistory(JSON.parse(readFileSync(bandHistoryPath, 'utf-8')));
+        if (!entries || entries.length < 2) break;
+        const recent = entries.slice(-2);
+        if (!recent.every(bandEntryUnrecovered)) break;
+        const last = recent[recent.length - 1] ?? {};
+        const hotspots = Array.isArray(last.hotspots) ? last.hotspots : [];
+        const overCount = typeof last.overBudgetCount === 'number' ? last.overBudgetCount : 0;
+        // 两种形状的「证据来源」不同：自主带快照没有 overBudgetCount，质量带快照没有
+        // 逐文件热点清单 → 如实说明来源，不要用 0/空串假装「没有热点文件」。
+        const shapeText = last.band === 'alarm'
+          ? '自主带快照 band=alarm，无逐文件清单'
+          : `质量带快照，该轮 overBudgetCount=${overCount}，无逐文件清单`;
+        const hotspotText = hotspots.length > 0
+          ? hotspots.slice(0, 3).map(h => h.file).join(', ')
+          : shapeText;
+        diagnosis.rootCause = `复杂度连续超预算，热点文件: ${hotspotText}`;
+        diagnosis.fixAction = '对热点文件进行重构，拆分复杂函数，降低圈复杂度';
+        diagnosis.fixable = true;
       } catch { break; }
       break;
     }
@@ -553,7 +655,9 @@ function cmdAutoFallback(projectDir) {
 
   for (const cond of CIRCUIT_BREAKER_CONDITIONS) {
     const result = cond.check(projectDir);
-    const status = result.triggered ? 'TRIGGERED' : 'OK';
+    // 三态：TRIGGERED / OK / SKIP。SKIP = 信号源不可用（如账本缺失/损坏）——既不是
+    // 「触发」也不是「安全」，旧实现把这种状态静默当成 OK（fail-open），必须显式出来。
+    const status = result.skipped ? 'SKIP' : (result.triggered ? 'TRIGGERED' : 'OK');
     console.log(`  [${status}] ${cond.id}: ${cond.name}`);
     if (result.detail) console.log(`    Detail: ${result.detail}`);
 

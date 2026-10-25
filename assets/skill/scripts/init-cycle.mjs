@@ -6,6 +6,10 @@
 // 而 workflow-state.mjs 的 initState 仅在状态文件不存在时才重建——两脚本各管半边
 // 导致 currentCycle 漂移（cycle-27..41 停在 cycle-26 的实际成因）。现在建目录后
 // 同步把状态机推到新循环（loadState→不存在/损坏则重建→currentCycle 前移+留痕）。
+//
+// cycle-78 WS-A（全生命周期）：新号前移分支同时把 currentPhase 归零到 plan 并给旧相
+// 留一条 phaseHistory 记录（note='cycle-init'）。此前只前移 currentCycle、相位永久
+// 停在上一循环——与 host 侧 cycleRunner.initCycle 同一语义（双实现同语义）。
 
 import { mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -48,7 +52,21 @@ function syncWorkflowState(projectDir, cycleNum) {
     // 数值序兜底：只允许前移（新号 > 旧号），防旧号重建把状态机拉回过去。
     const prevNum = typeof state.currentCycle === 'string' ? parseInt(state.currentCycle.replace('cycle-', ''), 10) : NaN;
     if (!Number.isFinite(prevNum) || cycleNum > prevNum) {
-      state = { ...state, currentCycle: cycleName, updatedAt: now };
+      // cycle-78 WS-A：新循环归零到 plan。此前只前移 currentCycle、不碰 currentPhase，
+      // 相位永久停在上一循环（真实工作区 cycle-77 已收口仍显示 build：全生命周期
+      // 的"阶段流转"是死的）。旧相留痕：exitedAt 取真实当前时间（不伪造，也不给
+      // 尚未开始的 plan 写 exitedAt）；currentPhase 非字符串时无相可记，不编造条目。
+      const history = Array.isArray(state.phaseHistory) ? state.phaseHistory : [];
+      const exited = typeof state.currentPhase === 'string' ? state.currentPhase : null;
+      state = {
+        ...state,
+        currentPhase: 'plan',
+        currentCycle: cycleName,
+        phaseHistory: exited
+          ? [...history, { phase: exited, exitedAt: now, note: 'cycle-init' }]
+          : history,
+        updatedAt: now,
+      };
     } else {
       return; // 旧号或不可比：不动状态机（init-cycle 幂等语义）
     }

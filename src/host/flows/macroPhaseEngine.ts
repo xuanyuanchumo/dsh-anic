@@ -34,10 +34,26 @@ export const PHASES: ReadonlyArray<MacroPhase> = [
 
 export const PHASE_IDS: ReadonlyArray<string> = PHASES.map((p) => p.id);
 
+/** 相位历史条目。
+ *
+ * 被守卫缺陷（cycle-78 WS-A）：旧类型把 `phase`/`exitedAt` 声明为必填，但真实
+ * `.cycles/workflow-state.json` 的历史条目是**人工/脚本混合写入**的（如
+ * `{note:'cycle-75 收口…', at:…}`，没有 phase/exitedAt）。loadMacroState 原样透传
+ * 数组，于是类型声明与磁盘事实不符——initCycle 想在条目里加 `note` 时被类型挡住。
+ * 修法：条目字段全部可选并补上 note/detail/at，磁盘上有什么就承认什么（不伪造）。
+ */
+export interface PhaseHistoryEntry {
+  phase?: string;
+  exitedAt?: string;
+  note?: string;
+  detail?: string;
+  at?: string;
+}
+
 export interface MacroStateFile {
   currentPhase: string;
   currentCycle: string | null;
-  phaseHistory: Array<{ phase: string; exitedAt: string }>;
+  phaseHistory: PhaseHistoryEntry[];
   nodeStatus: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

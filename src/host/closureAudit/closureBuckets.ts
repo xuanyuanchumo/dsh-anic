@@ -18,14 +18,21 @@
  *   channelOnly    consumed && 仅测试/agent卡引用      —— 无生产消费者（弱消费）
  *   consumedGap    produced && !consumed              —— **真缺口**：生产了没人读
  *   producedGap    !produced && !consumed             —— 产出缺口：只声明、没接线
+ *   declaredChannel !consumed && 已声明               —— **通道独占**（cycle-78）：
+ *                  未消费，但声明表点名了 owner/docRef/reason。它是「已知通道」，
+ *                  不是「未知缺口」——两类的处置动作相反（前者维持/复核文档，
+ *                  后者补接线或删声明），故必须分开计数。
  */
 import type { ClosureItem } from './closureModel.ts';
 
-export type ClosureBucket = 'code' | 'dynamicClaimed' | 'channelOnly' | 'consumedGap' | 'producedGap';
+export type ClosureBucket =
+  | 'code' | 'dynamicClaimed' | 'channelOnly' | 'consumedGap' | 'producedGap'
+  /** ★cycle-78：未消费但已在 channelRegistry 声明（通道独占）。 */
+  | 'declaredChannel';
 
 /** 分类全序（供穷尽性断言与稳定遍历；顺序即投影排序权重）。 */
 export const CLOSURE_BUCKETS: readonly ClosureBucket[] =
-  ['code', 'dynamicClaimed', 'channelOnly', 'consumedGap', 'producedGap'];
+  ['code', 'dynamicClaimed', 'channelOnly', 'consumedGap', 'producedGap', 'declaredChannel'];
 
 /**
  * 「已生产」判据：真有写入/接线锚点。
@@ -42,7 +49,12 @@ export function isProduced(item: ClosureItem): boolean {
 
 /** 单项归类（互斥穷尽，判据顺序即优先级）。 */
 export function bucketOf(item: ClosureItem): ClosureBucket {
-  if (!item.consumed) return isProduced(item) ? 'consumedGap' : 'producedGap';
+  if (!item.consumed) {
+    // cycle-78：未消费项先问「声明过没有」——声明 ≠ 豁免，只是把它从「未知缺口」
+    // 归到「已知通道」。没声明的仍按产出锚点二分（那才是要动手补的缺口）。
+    if (item.declaredChannel !== undefined) return 'declaredChannel';
+    return isProduced(item) ? 'consumedGap' : 'producedGap';
+  }
   if (item.dynamic) return 'dynamicClaimed';
   if (item.evidenceKind === 'channel') return 'channelOnly';
   return 'code';
@@ -50,7 +62,9 @@ export function bucketOf(item: ClosureItem): ClosureBucket {
 
 /** 逐项归类计数（合计恒 = items.length）。 */
 export function bucketsOf(items: readonly ClosureItem[]): Record<ClosureBucket, number> {
-  const out: Record<ClosureBucket, number> = { code: 0, dynamicClaimed: 0, channelOnly: 0, consumedGap: 0, producedGap: 0 };
+  const out: Record<ClosureBucket, number> = {
+    code: 0, dynamicClaimed: 0, channelOnly: 0, consumedGap: 0, producedGap: 0, declaredChannel: 0,
+  };
   for (const it of items) out[bucketOf(it)] += 1;
   return out;
 }

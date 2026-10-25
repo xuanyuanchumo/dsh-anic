@@ -158,7 +158,16 @@
     "orchestration": "多智能体编排",
     "enabledMark": "已启用",
     "disabledMark": "已停用",
-    "snapshotAt": "快照 {timestamp}"
+    "snapshotAt": "快照 {timestamp}",
+    "autonomyHistoryTitle": "自主级变更",
+    "autonomyHistoryAria": "自主级变更时间线：显示最近 {shown} 条 / 共 {total} 条",
+    "autonomyFromTo": "{from} → {to}",
+    "autonomyActor": "由 {actor}",
+    "autonomyExempt": "⚠ 人类授权豁免信任阈值 {avg}/{threshold}",
+    "autonomyMore": "……另有 {count} 条变更未展示",
+    "autonomyHistoryError": "变更账读取失败：{error}",
+    "authHuman": "人类授权",
+    "authSystem": "系统授权"
   },
   "prefs": {
     "ariaLabel": "ANIC 功能开关",
@@ -330,11 +339,15 @@
     "weakChannel": "仅通道引用 {n}（只在测试 / agent 卡里被读到）",
     "truncated": "明细已显示 {shown} / 共 {total} 条（其余 {rest} 条只计入上方全量计数）。",
     "declaredOnly": "产出锚点细分：无写入点 {nw} 项（词表键由 t() 纯查找）、仅声明未接线 {do} 项 —— 两类的补救动作不同。",
+    "channelDeclared": "通道声明 {n}（端点族未消费但已声明：外部 curl / 运维 / MCP 客户端；声明 ≠ 豁免）",
+    "channelUndeclared": "未声明 {n}（端点族未消费且无声明 —— 棘轮红：必须补 owner+docRef+reason 或补消费方）",
+    "channelUndeclaredList": "未声明端点（前 3 条）：{list}",
     "group": {
       "consumedGap": "真缺口 {n}：已注册/已产出，但本仓内无人读（对外消费者可能是宿主 agent，本仓看不见）",
       "producedGap": "未读取 {n}：无写入点或未接线 —— 需接线，或删除",
       "dynamicClaimed": "计算键认领 {n}：有计算键证据、无字面量消费方",
-      "channelOnly": "仅通道引用 {n}：只在测试 / agent 卡里被读到"
+      "channelOnly": "仅通道引用 {n}：只在测试 / agent 卡里被读到",
+      "declaredChannel": "已声明通道 {n}：外部 curl / 运维 / MCP 客户端调用，本仓无生产代码消费方（声明 ≠ 豁免，仍需维护文档）"
     },
     "kind": {
       "registerCall": "真注册调用",

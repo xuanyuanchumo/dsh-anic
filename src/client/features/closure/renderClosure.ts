@@ -28,13 +28,15 @@
  * 纪律：用户面文本一律 t()；颜色走 token() 主题令牌；无绝对 http(s) URL；不持状态不发请求。
  */
 import { createElement, type ReactElement } from 'react';
-import { token, type TokenName } from '../../../shared/tokens.ts';
+import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import { renderSectionFailure } from '../../components/sectionFailure.ts';
 import type { ClosureUnconsumedView, ClosureView } from './closureTypes.ts';
 import { CLOSURE_CLASSES, classifyItem, producedAnchorBreakdown, type ClosureClassName } from './closureClassify.ts';
 // cycle-75 T4：流动可视化（注册 → 生产 → 消费）。纯数据派生 + 纯渲染，无第二真相源。
 import { buildClosureFlow, renderClosureFlow } from './closureFlowGraph.ts';
+// ★cycle-78：分组标签/配色表 + 「通道声明 N / 未声明 M」行（拆分护 T3 ≤250 行）。
+import { GROUP_KEYS, GROUP_TOKENS, renderChannelDeclared } from './closurePanelParts.ts';
 
 export type {
   ClosureView, ClosureTotals, ClosureClusterView, ClosureUnconsumedView,
@@ -61,24 +63,9 @@ const CLUSTER_LABEL_KEYS: Record<string, string> = {
 };
 
 /**
- * 分组标签键（四类；契约 §2 冻结的键名，不得拼写变体）。
- * 写成精确字面量对象而非 `Record<string, string>` 查表：查表在
- * noUncheckedIndexedAccess 下返回 `string | undefined`，会逼出「undefined 文案」。
+ * 分组标签键与配色已**下移**到 closurePanelParts.ts（cycle-78：五类后本文件逼近
+ * T3 的 250 行上限）。此处只保留分组渲染逻辑，import 保持零语义变化。
  */
-const GROUP_KEYS = {
-  consumedGap: 'closure.group.consumedGap',
-  producedGap: 'closure.group.producedGap',
-  dynamicClaimed: 'closure.group.dynamicClaimed',
-  channelOnly: 'closure.group.channelOnly',
-} as const satisfies Record<ClosureClassName, string>;
-
-/** 分组强调色：真缺口最响，仅通道引用最轻（颜色一律走语义令牌，带同源 fallback）。 */
-const GROUP_TOKENS = {
-  consumedGap: 'anic-fail',
-  producedGap: 'anic-doubt',
-  dynamicClaimed: 'anic-warn-text',
-  channelOnly: 'anic-text-dim',
-} as const satisfies Record<ClosureClassName, TokenName>;
 
 /** 产出锚点展示名（覆盖全部 ProducedKind 四值；未知值回落原 id——可见的漏翻，不是空白）。 */
 const KIND_KEYS = {
@@ -172,6 +159,19 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
     : null;
 
   /**
+   * ★cycle-78 通道声明行：routes 族未消费拆成「已声明通道 N / 未声明 M」。
+   *
+   * 未声明数按 **routes 族**收窄（i18n 词表键没有通道概念，混进来会造出恒亮的假红）；
+   * 明细里的 `declaredChannel` 只用来点名（前 3 条），计数来自服务端 totals。
+   */
+  const routesUnconsumed = view.clusters.find((c) => c.cluster === 'routes')?.unconsumed;
+  const declaredRow = renderChannelDeclared(
+    tot,
+    routesUnconsumed,
+    view.unconsumed.filter((u) => u.cluster === 'routes' && u.declaredChannel === undefined).map((u) => u.id),
+  );
+
+  /**
    * ★cycle-76 连通性行：注册 → 生产 → **运行时可达**。
    *
    * 为什么必须同屏：一个**空心注册**（注册器存在、reg() 也在、但聚合器没调）在三态
@@ -240,7 +240,7 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
     // cycle-75 T4「可视化流动」：注册 → 生产 → 消费 的流向（缺口发生在哪一段一眼可见）。
     // 数据由纯函数 buildClosureFlow 派生（同一投影、无第二真相源）；渲染同为纯函数。
     renderClosureFlow(buildClosureFlow(view)),
-    buckets, weak, truncation, detail, notes);
+    buckets, weak, declaredRow, truncation, detail, notes);
   if (failure === null) return body;
   // 陈旧数据形态：数据 + 失败行（如实标注「以下为上次成功的数据」）。
   return createElement('div', { 'data-anic-closure-stale': 'true' }, body, renderClosureFailure(failure, true));

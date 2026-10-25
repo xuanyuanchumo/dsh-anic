@@ -77,12 +77,29 @@ describe('静态守卫：三个 runtime 编排文件不得再有第二份默认�
     expect(findBare60000Defaults('timeoutMs = BOOTSTRAP_STEP_TIMEOUT_MS,')).toEqual([]);
   });
 
-  it('消费面诚实：bootstrapBudget 头注不得再声称「runtime 未收敛」为未修缺口', () => {
+  it('消费面诚实：bootstrapBudget 头注如实记录「对称性已收敛」（cycle-78 WS-B）', () => {
     const budget = readFileSync(join(ROOT, 'src/host/runtime/bootstrapBudget.ts'), 'utf-8');
-    // 必须如实记录本轮收敛（三个文件 + 单一常量）
+    // 必须如实记录 cycle-77 的 runtime 收敛（三个文件 + 单一常量）
     expect(budget).toMatch(/bootstrapEngineIntegration\.ts/);
     expect(budget).toMatch(/cycle-77/);
-    // 保留仍未收敛的真实缺口（skillInvoker 的 120000 cap 不对称），不许假装全链已通
-    expect(budget).toMatch(/未在本轮收敛/);
+    // cycle-78 起该缺口**已收敛**：头注不得再声称「未在本轮收敛」（那是过时事实，
+    // 与源码里已存在的 MAX_SKILL_INVOKE_TIMEOUT_MS 矛盾——注释撒谎比没注释更坏）
+    expect(budget).toMatch(/已收敛/);
+    expect(budget).toMatch(/MAX_SKILL_INVOKE_TIMEOUT_MS/);
+    expect(budget).not.toMatch(/未在本轮收敛/);
+  });
+
+  it('同步/异步两入口 cap 已对称：skillInvoker 不再写死 120000', () => {
+    const invoker = readFileSync(join(ROOT, 'src/host/skillInvoker.ts'), 'utf-8');
+    // 守卫必须只看**代码**、不看注释：本文件头注要如实记录「原写死 120000 cap」的
+    // 缺陷历史，若把注释也当违例，守卫会与「诚实注释」互相排斥（cycle-78 实测踩到）。
+    const codeOnly = invoker.replace(/^\s*\/\/[^\n]*/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const oldCapRe = /Math\.min\(timeoutMs,\s*120000\)/;
+    // 反向前提：旧违例形态在**代码**上必须被判红（证明这条断言真能失败）
+    expect(oldCapRe.test(codeOnly), 'skillInvoker 仍写死 120000 cap —— 同步入口预算会被砍半').toBe(false);
+    expect(oldCapRe.test('timeout: Math.min(timeoutMs, 120000),')).toBe(true);
+    // 收敛形态：统一走上限纯函数（名字与 import 都要在）
+    expect(invoker).toMatch(/resolveSkillInvokeTimeout/);
+    expect(codeOnly).toMatch(/from\s*'\.\/runtime\/bootstrapBudget\.ts'/);
   });
 });

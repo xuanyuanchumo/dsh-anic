@@ -81,7 +81,10 @@ describe('cycle-75 词表证据锚点（definedAt 不许误报）', () => {
     // 真值由「该行含叶子名」与「父级归属」同时确定（见 ② 的机械校验）。
     expect(lineOfKey(INDEX, 'trace.statusDone')).toBe(123);
     expect(lineOfKey(INDEX, 'state.loading')).toBe(60);
-    expect(lineOfKey(INDEX, 'gate.pending')).toBe(235);
+    // cycle-78：org 分区新增 9 个自主级变更时间线键（locale/zh.json），其后的
+    // gate.pending 随之下移 235 → 244。钉的仍是**磁盘真值**（精度未放宽），
+    // 只是 locale 增长必然移动该行——新增/删除 org 之前的键时须同步本行。
+    expect(lineOfKey(INDEX, 'gate.pending')).toBe(244);
     // 且 keyAnchor 的对外形态与索引同源
     expect(keyAnchor(RAW, 'trace.statusDone')).toBe('locale/zh.json:123');
   });

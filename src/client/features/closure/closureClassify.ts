@@ -15,14 +15,14 @@
 import type { ClosureUnconsumedView } from './closureTypes.ts';
 
 /**
- * 未消费清单的四分类（契约 §2 与任务 T3）。
+ * 未消费清单的分类（契约 §2 与任务 T3；cycle-78 增第五类 declaredChannel）。
  *
- * 顺序 = 可行动性（真缺口在先）——渲染分组与计数都按此序。
+ * 顺序 = 可行动性（要动手的在先、只需维持文档的殿后）——渲染分组与计数都按此序。
  */
-export type ClosureClassName = 'consumedGap' | 'producedGap' | 'dynamicClaimed' | 'channelOnly';
+export type ClosureClassName = 'consumedGap' | 'producedGap' | 'dynamicClaimed' | 'channelOnly' | 'declaredChannel';
 
 export const CLOSURE_CLASSES: readonly ClosureClassName[] =
-  ['consumedGap', 'producedGap', 'dynamicClaimed', 'channelOnly'];
+  ['consumedGap', 'producedGap', 'dynamicClaimed', 'channelOnly', 'declaredChannel'];
 
 /** 分类计数（**不是**未消费的四等分——见 ClosureTotals 的分层语义注释）。 */
 export type ClosureClassCounts = Record<ClosureClassName, number>;
@@ -46,6 +46,10 @@ export type ClosureClassCounts = Record<ClosureClassName, number>;
  * 比随 produced 二分更可信（且该形态在当前数据下不存在，不影响任何计数）。
  */
 export function classifyItem(u: ClosureUnconsumedView): ClosureClassName {
+  // ★cycle-78：已声明通道**优先判定**——它才是「为什么这条没人读」的答案。
+  // 放在 produced 之前，否则 46 条通道独占路由会被 produced=true 判成「真缺口」
+  // （红），与宿主 totals 的 consumedGap=0 自相矛盾。
+  if (u.declaredChannel !== undefined) return 'declaredChannel';
   if (u.produced) return 'consumedGap';
   if (u.dynamic) return 'dynamicClaimed';
   if (u.evidenceKind === 'channel') return 'channelOnly';
@@ -61,7 +65,9 @@ export function classifyItem(u: ClosureUnconsumedView): ClosureClassName {
  * （全量计数 / 明细计数），并把「已显示 N / 共 M 条」显式说出。
  */
 export function classifyUnconsumed(list: readonly ClosureUnconsumedView[]): ClosureClassCounts {
-  const out: ClosureClassCounts = { consumedGap: 0, producedGap: 0, dynamicClaimed: 0, channelOnly: 0 };
+  const out: ClosureClassCounts = {
+    consumedGap: 0, producedGap: 0, dynamicClaimed: 0, channelOnly: 0, declaredChannel: 0,
+  };
   for (const u of list) out[classifyItem(u)] += 1;
   return out;
 }

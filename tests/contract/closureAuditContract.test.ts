@@ -27,12 +27,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   assertClustersPresent,
+  bucketsOf,
+  CHANNEL_DECLARATIONS,
   clustersConsistent,
   runClosureAudit,
   toClosureView,
+  validateDeclarationDocs,
+  validateDeclarations,
 } from '../../src/host/closureAudit/registryClosure.ts';
+import { CLOSURE_BUCKETS, bucketOf } from '../../src/host/closureAudit/closureBuckets.ts';
 // 去注释判定原语（cycle-76 下沉到 textScan；scanPrimitives 再导出）。
-import { stripComments } from '../../src/host/closureAudit/scanPrimitives.ts';
+import { buildFileIndex, buildTextMap, stripComments } from '../../src/host/closureAudit/scanPrimitives.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const summary = runClosureAudit(ROOT);
@@ -325,5 +330,103 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
     expect(growthViolation({ cluster: 'i18n', unconsumed: (BASELINE.i18n ?? 0) + 1 }), '+1 必须被判违规').not.toBeNull();
     // 未列入基线的族不参与棘轮（新增族由人显式登记，不静默判违规）
     expect(growthViolation({ cluster: 'unknown-cluster', unconsumed: 9999 })).toBeNull();
+  });
+});
+/*
+ * ★cycle-78 WS-D：把「通道独占」变成机器可读声明 + **未声明棘轮**。
+ *
+ * ## 被修的缺口（本轮实测）
+ * `routes: 63 注册 / 17 代码消费 / 46 未消费`——46 条全是通道独占（外部 curl /
+ * 运维脚本 / MCP 客户端 / 人工面），功能上合法，但机器面前它们与「死代码」无法
+ * 区分：面板只能显示「46 条未消费」，人分不清哪条是已声明的运维通道、哪条是
+ * 忘了接线的真缺口。
+ *
+ * ## 声明 ≠ 豁免（本组断言的核心语义）
+ * 声明三元组（owner 谁维护 / docRef 哪份文档 / reason 为什么没有本仓消费方）
+ * **不改变** consumed=false，也不减少 unconsumed 计数；它只把该路由从
+ * 「未知缺口」（consumedGap/producedGap）搬到「已知通道」（declaredChannel）。
+ * 新增未消费路由**不声明即棘轮红** —— 声明是义务，不是白名单。
+ *
+ * ## 为什么 docRef 要机器校验
+ * 「指向某份文档」是最容易伪造的证据：写个不存在的锚点肉眼看不出来。
+ * validateDeclarationDocs 要求 文件存在 + 锚点命中真实标题 + 该章节正文含路由
+ * 字面量，三者同真才算出据；⑤ 用内存副本证明它真能判红。
+ */
+describe('cycle-78 通道声明（声明 ≠ 豁免）+ 未声明棘轮', () => {
+  const routeCl = summary.clusters.find((c) => c.cluster === 'routes');
+  const routeItems = routeCl?.items ?? [];
+  const registeredRoutes = routeItems.map((x) => x.id);
+  const unconsumedRouteItems = routeItems.filter((x) => !x.consumed);
+  const unconsumedRoutes = unconsumedRouteItems.map((x) => x.id);
+  const FILES = buildTextMap(ROOT, buildFileIndex(ROOT));
+
+  it('① 未消费路由**全部**有机器可读声明（owner/docRef/reason 非空），docRef 逐条有据', () => {
+    // 空集下限：未消费路由为 0 时下面的逐条断言全部空转（假守卫）。
+    expect(unconsumedRoutes.length, '未消费路由为 0 —— 声明断言空转').toBeGreaterThanOrEqual(40);
+    for (const item of unconsumedRouteItems) {
+      const decl = item.declaredChannel;
+      expect(decl, '未消费路由没有注入声明（面板将把它当未知缺口）：' + item.id).toBeDefined();
+      expect(decl?.owner ?? '', item.id + ' owner 为空（等于没人负责）').not.toBe('');
+      expect(decl?.docRef ?? '', item.id + ' docRef 为空（等于没文档）').not.toBe('');
+      expect(decl?.reason ?? '', item.id + ' reason 为空（等于没解释）').not.toBe('');
+      // 归类必须落在「已声明通道」，不是真缺口（否则 46 条运维通道会被当红点）。
+      expect(bucketOf(item), item.id + ' 未归入 declaredChannel').toBe('declaredChannel');
+    }
+    // docRef 机器校验：文件在扫描集 + 锚点命中真实标题 + 该章节正文含路由字面量。
+    expect(validateDeclarationDocs(FILES, CHANNEL_DECLARATIONS), 'docRef 不成立（无法追到真实文档章节）').toEqual([]);
+    console.log('CLOSURE_CHANNEL_DECLARED ' + JSON.stringify({
+      declarations: CHANNEL_DECLARATIONS.length, unconsumedRoutes: unconsumedRoutes.length,
+    }));
+  });
+
+  it('② 两组成分恒等式成立 + 六分类互斥穷尽（合计恒 = total）', () => {
+    const tot = summary.totals;
+    // 未消费 = 已声明通道 + 两缺口；已消费 = 生产代码 + 计算键 + 仅通道。
+    expect(tot.channelDeclared + tot.consumedGap + tot.producedGap, 'unconsumed 三键恒等式破').toBe(tot.unconsumed);
+    expect(tot.consumed, 'consumed = codeConsumed + channelOnly 破').toBe(tot.codeConsumed + tot.channelOnly);
+    expect(tot.registered, 'registered = consumed + unconsumed 破').toBe(tot.consumed + tot.unconsumed);
+    for (const cl of summary.clusters) {
+      const b = bucketsOf(cl.items);
+      expect(CLOSURE_BUCKETS.reduce((s, k) => s + b[k], 0), cl.cluster + ' 六分类合计 != total').toBe(cl.total);
+      expect(b.declaredChannel + b.consumedGap + b.producedGap, cl.cluster + ' 未消费恒等式破').toBe(cl.unconsumed);
+      expect(b.code + b.dynamicClaimed + b.channelOnly, cl.cluster + ' 已消费恒等式破').toBe(cl.consumed);
+    }
+  });
+
+  it('③ 未声明棘轮：未消费路由的未声明集合必须为空（新增未声明路由 ⇒ 红并点名）', () => {
+    const m2 = validateDeclarations(registeredRoutes, unconsumedRoutes);
+    expect(
+      m2.undeclaredRoutes,
+      '未声明路由（新增路由必须补 owner/docRef/reason，或补真消费方）：\n' + m2.undeclaredRoutes.join('\n'),
+    ).toEqual([]);
+  });
+
+  it('④ 声明表与注册面双向一致：声明了不存在的路由（幽灵声明）⇒ 红', () => {
+    const m2 = validateDeclarations(registeredRoutes, unconsumedRoutes);
+    expect(m2.staleDeclarations, '声明了注册面不存在的路由：' + m2.staleDeclarations.join(', ')).toEqual([]);
+  });
+
+  it('⑤ 反向自检：删一条声明 ⇒ ③ 必红；篡改 docRef ⇒ ① 必红（判据不是恒真）', () => {
+    const sample = unconsumedRoutes[0] ?? '';
+    expect(sample, '没有未消费路由 —— 下面的变异断言空转').not.toBe('');
+    // 变异 1：内存副本删掉一条声明 ⇒ 棘轮必须点名这一条（而不是静默通过）。
+    const trimmed = CHANNEL_DECLARATIONS.filter((d) => d.route !== sample);
+    expect(validateDeclarations(registeredRoutes, unconsumedRoutes, trimmed).undeclaredRoutes,
+      '删掉一条声明后棘轮没红 —— 该断开是装饰').toEqual([sample]);
+    // 变异 2：把 docRef 锚点改成不存在的章节 ⇒ docRef 校验必须红。
+    const source = CHANNEL_DECLARATIONS.find((d) => d.route === sample);
+    expect(source, '样本路由不在声明表里：' + sample).toBeDefined();
+    const tampered = [{ ...(source as { route: string; owner: string; docRef: string; reason: string }),
+      docRef: 'docs/agents/API参考-周期面.md#99.99-no-such-anchor' }];
+    expect(validateDeclarationDocs(FILES, tampered).length, '篡改 docRef 后没红 —— docRef 校验是装饰')
+      .toBeGreaterThan(0);
+    // 对照：原表仍然全绿（证明变异不是「判据整体失效」造出来的红）。
+    expect(validateDeclarationDocs(FILES, CHANNEL_DECLARATIONS)).toEqual([]);
+    // 变异 3：模拟「新增了一条没人声明的新路由」⇒ 棘轮必须点名它（这是棘轮的本义）。
+    const fabricated = gr('/anic', 'fixture', 'undeclared-route');
+    expect(
+      validateDeclarations([...registeredRoutes, fabricated], [...unconsumedRoutes, fabricated]).undeclaredRoutes,
+      '新增未声明路由未被棘轮抓到 —— 棘轮对新路由无效',
+    ).toEqual([fabricated]);
   });
 });

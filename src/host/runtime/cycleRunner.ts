@@ -1,14 +1,25 @@
 /**
  * Cycle 生命周期管理（F8，M2-a）。
  *
- * initCycle → 创建 .cycles/cycle-N/ 结构
+ * initCycle → 创建 .cycles/cycle-N/ 结构 + 宏观相位重置为 plan
  * advanceCycle → 状态机推进 + 账本追加
- * closeCycle → 最终门禁检查
+ * closeCycle → 最终门禁检查 + 按门禁账本推进宏观相位
+ *
+ * cycle-78 WS-A（全生命周期缺口）：宏观 6 相此前是死的——`initCycle` 只建目录、
+ * `closeCycle` 只查 workflow-graph 状态机与账本有效性，**从不碰 `.cycles/workflow-state.json`
+ * 的 currentPhase**，也没有任何自举链调用 `anic_flows_advance`。结果：L4 自举循环
+ * 跑完 77 轮，状态机仍显示"构建中"（真实工作区 currentPhase=build 恒不变）。
+ * 现在两条写路径补齐：init 归零到 plan、close 在全门禁 PASS 时按引擎守卫逐相推进。
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadLedger, appendEntry, verifyLedger, type LedgerEntry } from './ledger.ts';
 import { loadWorkflowGraph, loadState, initState, advance, checkStrict, type WorkflowGraph, type NodeState } from './stateMachine.ts';
+import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
+import { initMacroState, loadMacroState, readGateResults, type MacroStateFile } from '../flows/macroPhaseEngine.ts';
+import { advancePhasesOnClose, phaseNoAdvance, type PhaseAdvanceReport } from './cyclePhaseAdvance.ts';
+
+export type { PhaseAdvanceReport } from './cyclePhaseAdvance.ts';
 
 export interface CycleInfo {
   cycleDir: string;
@@ -23,6 +34,23 @@ export interface AdvanceResult {
   state: Record<string, NodeState>;
   ledgerEntry?: LedgerEntry;
   reason?: string;
+}
+
+/** close 结果：既有三字段原样保留 + 相位推进报告（只增字段，消费端零破坏）。 */
+export interface CloseResult extends PhaseAdvanceReport {
+  ok: boolean;
+  gatesPassed: boolean;
+  ledgerValid: boolean;
+  reason?: string;
+  /**
+   * 门禁账本四门（G0-G3）是否**全部**有 PASS 记录——与 `gatesPassed` 是**两个证据源**：
+   * `gatesPassed` = workflow-graph 节点级 strict check（play 协议），本字段 = 门禁账本
+   * （自举协议）。自举循环只跑门禁协议 ⇒ nodeStatus 长期为空 ⇒ `gatesPassed=false`
+   * 而相位照常推进；把两者分开暴露，读者才不会把"节点账空"误读成"门禁没过"。
+   */
+  gatesLedgerPassed: boolean;
+  /** 本次 close 采信的证据组合：both / workflow-graph / gate-ledger / none。 */
+  closeEvidence: 'both' | 'workflow-graph' | 'gate-ledger' | 'none';
 }
 
 /** 列出已有 cycle 目录（数值序）。
@@ -71,7 +99,39 @@ export function initCycle(cyclesDir: string, projectName?: string): CycleInfo {
     JSON.stringify({ cycleNumber: n, projectName: projectName ?? 'unnamed', createdAt: now }, null, 2),
   );
 
+  // 宏观相位归零到新循环的 plan（cycle-78 WS-A 写路径一）。
+  resetPhaseForNewCycle(cyclesDir, `cycle-${n}`, now);
+
   return { cycleDir, cycleNumber: n, createdAt: now };
+}
+
+/** 把宏观相位重置为新循环的 plan（initCycle 成功后调用）。
+ *
+ * 被守卫缺陷：initCycle 此前只建目录，`.cycles/workflow-state.json` 的 currentPhase
+ * 永远停在上一循环（真实工作区 cycle-77 已收口仍显示 build）——自举链没有任何一环
+ * 写相位，于是"阶段流转"是死的。
+ * 复用 macroPhaseEngine 的 loadMacroState/initMacroState + 原子写（半写状态文件会
+ * 让下次启动解析失败）；currentCycle 同步到新号；phaseHistory 追加一条结构化留痕
+ * （note='cycle-init'），exitedAt 取**真实当前时间**——旧相确实在此刻退出，既不伪造
+ * 历史时刻，也不给尚未开始的新相（plan）写 exitedAt。首次建状态（无旧文件）不追加，
+ * 因为没有相真的退出过（不伪造）。
+ */
+function resetPhaseForNewCycle(cyclesDir: string, cycleName: string, now: string): void {
+  // closeCycle/initCycle 只拿到 `.cycles` 目录：workspaceRoot 只能由 dirname 反推
+  // （macroPhaseEngine 的状态路径固定为 <root>/.cycles/workflow-state.json）。
+  const workspaceRoot = dirname(cyclesDir);
+  const prev = loadMacroState(workspaceRoot);
+  const state: MacroStateFile = prev ?? initMacroState(workspaceRoot);
+  if (prev) {
+    state.phaseHistory = [
+      ...state.phaseHistory,
+      { phase: prev.currentPhase, exitedAt: now, note: 'cycle-init' },
+    ];
+  }
+  state.currentPhase = 'plan';
+  state.currentCycle = cycleName;
+  state.updatedAt = now;
+  atomicWriteFileSync(join(cyclesDir, 'workflow-state.json'), JSON.stringify(state, null, 2));
 }
 
 /** 推进 cycle 节点（状态机 + 账本）。
@@ -122,30 +182,50 @@ export function advanceCycle(
     });
   }
 
-  // 持久化状态
-  writeFileSync(join(cyclesDir, 'workflow-state.json'), JSON.stringify({ nodeStatus: adv.state }, null, 2));
+  // 持久化状态（相位字段保全，cycle-78 WS-A）：旧实现只写 `{nodeStatus}`，会把同一
+  // 文件里的 currentPhase/phaseHistory（宏观引擎的正典字段）整段抹掉——节点推进一次，
+  // 刚重置的相位就退回 plan。状态文件是单一真源，节点账与相位账必须共存。
+  const prevMacro = loadMacroState(dirname(cyclesDir));
+  const payload = prevMacro
+    ? { ...prevMacro, nodeStatus: adv.state, updatedAt: new Date().toISOString() }
+    : { nodeStatus: adv.state };
+  writeFileSync(join(cyclesDir, 'workflow-state.json'), JSON.stringify(payload, null, 2));
 
   return { ok: true, cycleNumber, nodeId, state: adv.state, ledgerEntry };
 }
 
-/** 关闭 cycle：严格门禁检查 + 账本验证。 */
-export function closeCycle(cyclesDir: string, _cycleNumber: number): {
-  ok: boolean;
-  gatesPassed: boolean;
-  ledgerValid: boolean;
-  reason?: string;
-} {
+/** 关闭 cycle：严格门禁检查 + 账本验证 + 按门禁账本推进宏观相位。 */
+export function closeCycle(cyclesDir: string, _cycleNumber: number): CloseResult {
+  // 同 resetPhaseForNewCycle：只拿到 `.cycles` 目录，workspaceRoot 由 dirname 反推。
+  const workspaceRoot = dirname(cyclesDir);
+  // 两个证据源在**任何**返回路径上都要齐（缺失 graph 也要报告账本事实，否则读者只能猜）。
+  const ledgerGates = readGateResults(workspaceRoot).passed;
+  const gatesLedgerPassed = ['G0', 'G1', 'G2', 'G3'].every((g) => ledgerGates.includes(g));
   const graph = loadWorkflowGraph(cyclesDir);
-  if (!graph) return { ok: false, gatesPassed: false, ledgerValid: false, reason: 'no workflow-graph.yaml' };
+  if (!graph) {
+    return {
+      ...phaseNoAdvance(workspaceRoot, 'workflow-graph.yaml', 'no workflow-graph.yaml — phase not advanced (zero writes)'),
+      ok: false,
+      gatesPassed: false,
+      ledgerValid: false,
+      gatesLedgerPassed,
+      closeEvidence: gatesLedgerPassed ? 'gate-ledger' : 'none',
+      reason: 'no workflow-graph.yaml',
+    };
+  }
 
   const state = loadState(cyclesDir);
   const check = checkStrict(graph, state);
   const verify = verifyLedger(cyclesDir);
+  const phase = advancePhasesOnClose(workspaceRoot);
 
   return {
+    ...phase,
     ok: check.ok && verify.ok,
     gatesPassed: check.ok,
     ledgerValid: verify.ok,
+    gatesLedgerPassed,
+    closeEvidence: check.ok && gatesLedgerPassed ? 'both' : check.ok ? 'workflow-graph' : gatesLedgerPassed ? 'gate-ledger' : 'none',
     reason: !check.ok ? check.reason : !verify.ok ? (verify.reason ?? undefined) : undefined,
   };
 }

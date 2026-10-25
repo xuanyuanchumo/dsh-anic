@@ -33,6 +33,11 @@ export interface ClosureView {
     produced: boolean;
     /** ★cycle-75：是否为计算键认领的消费证据（不由字面量 grep 得到）。 */
     dynamic: boolean;
+    /**
+     * ★cycle-78：通道声明（未消费但已声明为「通道独占」）。缺席 = 未声明，
+     * 面板据以把已声明项与真缺口分开显示；**声明不是豁免**，项仍在未消费里。
+     */
+    declaredChannel?: { owner: string; docRef: string; reason: string };
     /** ★cycle-75：消费证据（≤3 条 file:line）；空 = 无。 */
     evidence: string[];
   }>;
@@ -74,6 +79,9 @@ export const UNCONSUMED_VIEW_LIMIT = 80;
 /** 投影排序权重（小在前）。真缺口优先，仅通道引用殿后。 */
 const VIEW_ORDER: Record<ClosureBucket, number> = {
   consumedGap: 0, producedGap: 1, dynamicClaimed: 2, channelOnly: 3, code: 4,
+  // cycle-78：已声明的通道**最不急**（无待办：只需维持文档），故排最后 ——
+  // 截断（上限 80）时优先丢弃它们，真缺口一条都不会被截掉。
+  declaredChannel: 5,
 };
 
 /** 未消费明细的**确定性**排序（族 → id 为稳定次序；权重为主序）。 */
@@ -109,6 +117,8 @@ export function toClosureView(summary: ClosureSummary): ClosureView {
       producedKind: it.producedKind,
       produced: isProduced(it),
       dynamic: it.dynamic,
+      // cycle-78：声明透传（投影只搬运事实，不在投影层重算「算不算已声明」）。
+      ...(it.declaredChannel === undefined ? {} : { declaredChannel: { ...it.declaredChannel } }),
       evidence: [...it.evidence],
     })),
     ghost: summary.ghost.map((g) => ({ cluster: g.cluster, id: g.id })),

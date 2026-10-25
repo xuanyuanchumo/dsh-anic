@@ -101,3 +101,112 @@ describe('renderOrgStatus (P0-ORG-STRING)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// cycle-78：自主级变更时间线（白盒可见）
+//
+// 缺口（本轮实测）：cycle-77 把「谁在何时把 L? 改成 L?」写进
+// `.cycles/autonomy-history.json` 并由 org-status 投影（autonomy.history /
+// historyCount / historyError），但面板只画「当前 L?」——L4 是谁授权的、信任
+// 豁免是否发生，UI 上完全查不到。下面每条用例都钉一个**用户可见**事实，
+// 而不是「函数没抛错」。
+// ---------------------------------------------------------------------------
+
+/** 1 条 system 授权变更 + 1 条 human 授权且带信任豁免的变更（时间递增）。 */
+const HISTORY = [
+  { from: 'L2', to: 'L3', at: '2026-10-01T09:15:00.000Z', actor: 'anic_autonomy_upgrade', authorization: 'system', reason: 'trust 82' },
+  { from: 'L3', to: 'L4', at: '2026-10-05T18:42:00.000Z', actor: 'human@local', authorization: 'human', reason: 'manual authorize', trustExemption: { avg: 61, threshold: 75 } },
+];
+
+/** 以基础 STATUS 为底，只覆盖 autonomy 分区（其余字段保持真实形状）。 */
+function withHistory(autonomy: Partial<OrgStatusJson['autonomy']>): OrgStatusJson {
+  return { ...STATUS, autonomy: { ...STATUS.autonomy, ...autonomy } };
+}
+
+/** 渲染后的变更行标记集（计数即「可见条数」——不看 DOM 就等于没验）。 */
+function rows(html: string): string[] {
+  return html.match(/data-anic-autonomy-transition="[^"]*"/g) ?? [];
+}
+
+describe('renderOrgStatus 自主级变更时间线（cycle-78）', () => {
+  it('① 无 history → 不渲染变更子区（不留空壳标题）', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(STATUS));
+    expect(html).not.toContain('data-anic-org-autonomy-history');
+    expect(html).not.toContain('自主级变更');
+  });
+
+  it('② 2 条变更 → 两行且 from/to、时间、actor、授权来源文本正确', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(withHistory({ history: HISTORY, historyCount: 2 })));
+    expect(html).toContain('data-anic-org-autonomy-history');
+    expect(rows(html)).toHaveLength(2);
+    expect(html).toContain('L2 → L3');
+    expect(html).toContain('L3 → L4');
+    expect(html).toContain('2026-10-01 09:15'); // 行内压短，不塞完整 ISO
+    expect(html).not.toContain('2026-10-01T09:15'); // 与上一条互为反向：短格式确实生效
+    expect(html).toContain('anic_autonomy_upgrade');
+    expect(html).toContain('人类授权');
+    expect(html).toContain('系统授权');
+    // 授权来源是行内的第二通道：人类授权更醒目（font-weight 600），系统授权弱化
+    expect(html).toMatch(/color:var\(--anic-doubt[^)]*\);font-weight:600/);
+  });
+
+  it('③ 6 条变更 → 恰 5 行 + 「另有 1 条」，且时间倒序（最近在前）', () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({
+      from: i % 2 === 0 ? 'L2' : 'L3', to: i % 2 === 0 ? 'L3' : 'L4',
+      at: `2026-10-0${String(i + 1)}T12:00:00.000Z`, actor: `actor-${String(i)}`,
+      authorization: i % 2 === 0 ? 'system' : 'human', reason: 'r',
+    }));
+    const html = renderToStaticMarkup(renderOrgStatus(withHistory({ history: six, historyCount: 6 })));
+    expect(rows(html)).toHaveLength(5);
+    expect(html).toContain('另有 1 条变更未展示');
+    // 倒序：最新（10-06）必须出现在次新（10-05）之前
+    expect(html.indexOf('2026-10-06 12:00')).toBeLessThan(html.indexOf('2026-10-05 12:00'));
+    // 被截掉的是最旧一条（10-01），不是最新一条
+    expect(html).not.toContain('2026-10-01 12:00');
+  });
+
+  it('③b historyCount 反映账本全量 → 截限提示按真实总数计，不按投影条数计', () => {
+    // host 只投影最近 5 条：history.length=2 但账里 9 条时必须显示还有 7 条
+    const html = renderToStaticMarkup(renderOrgStatus(withHistory({ history: HISTORY, historyCount: 9 })));
+    expect(rows(html)).toHaveLength(2);
+    expect(html).toContain('另有 7 条变更未展示');
+  });
+
+  it('④ 含 trustExemption → 同行可见「人类授权豁免 avg/threshold」警示', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(withHistory({ history: HISTORY, historyCount: 2 })));
+    expect(html).toContain('data-anic-autonomy-exempt="true"');
+    expect(html).toContain('豁免信任阈值 61/75');
+  });
+
+  it('⑤ historyError → 错误行响亮出现（role=alert），空历史也不静默', () => {
+    const html = renderToStaticMarkup(
+      renderOrgStatus(withHistory({ history: [], historyCount: 0, historyError: 'autonomy-history.json is not valid JSON: x' })),
+    );
+    expect(html).toContain('data-anic-autonomy-history-error="true"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('变更账读取失败');
+    expect(html).toContain('is not valid JSON'); // 根因原文透出，不糊成"无变更"
+    expect(rows(html)).toHaveLength(0); // 坏账不得伪造出变更行
+  });
+
+  it('⑥ 反向自检：缺 actor 的坏 fixture 必须让 ② 的 actor 断言判红（含好 fixture 对照）', () => {
+    const noActor = { from: 'L2', to: 'L3', at: '2026-10-01T09:15:00.000Z', authorization: 'system', reason: 'r' };
+    const brokenHtml = renderToStaticMarkup(
+      renderOrgStatus(withHistory({ history: [noActor] as unknown as NonNullable<OrgStatusJson['autonomy']['history']> })),
+    );
+    const goodHtml = renderToStaticMarkup(renderOrgStatus(withHistory({ history: [HISTORY[0]!] })));
+    /** ② 中使用的可见性断言本体（同一谓词跑好/坏两份 fixture）。 */
+    const actorVisible = (h: string): boolean => h.includes('anic_autonomy_upgrade');
+    expect(actorVisible(goodHtml)).toBe(true); // 对照：谓词确实能命中
+    expect(actorVisible(brokenHtml)).toBe(false); // 篡改后必须判红（否则 ② 是空转）
+    expect(rows(brokenHtml)).toHaveLength(1); // 缺字段不崩：该行仍渲染
+    expect(brokenHtml).toContain('由 undefined'); // 缺字段如实暴露，不静默成空白
+  });
+
+  it('⑦ 响应式：每行 flex-wrap（窄面板折行而非横向溢出），容器带 aria-label', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(withHistory({ history: HISTORY, historyCount: 2 })));
+    // 行内 flex-wrap + baseline 是窄面板不溢出的唯一保证（无新 CSS 文件可依赖）
+    expect(html).toMatch(/data-anic-autonomy-transition="[^"]*" style="[^"]*display:flex[^"]*flex-wrap:wrap/);
+    expect(html).toContain('aria-label="自主级变更时间线：显示最近 2 条 / 共 2 条"');
+  });
+});

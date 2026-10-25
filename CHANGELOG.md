@@ -1,5 +1,114 @@
 # dsh-anic CHANGELOG
 
+## v0.44.0 — 2026-10-26（cycle-78：全生命周期相位自动化 + 熔断可达性 + 通道声明 + 自主级时间线）
+
+> L4 全自主第 78 轮。起点是**宿主重启后的真实复核**（cycle-77 交付已生效：`?workspace=` 查询选择器、
+> self-check 9 探针含 P9、org-status `L4 + historyCount=2`），因此本轮攻的是"机制已通但**不可达/不可视/不流转**"三类缺口。
+> 6 名实施队员（4 并行 + 2 续接）分域作业，Lead 统一集成与真实世界取证。
+
+### ① 全生命周期：宏观相位不再是死的（P0）
+
+**被守卫缺陷**（实测）：`.cycles/workflow-state.json` 的 `currentPhase` **77 轮停在 build**；
+机制齐备（`advanceMacro` 带逐相门禁守卫、`anic_flows_advance` 工具在）但**没有任何自举链调用它**——
+`initCycle` 只建目录、`closeCycle` 只查节点状态与哈希链、`advanceCycle` 写盘还会把相位字段整段抹掉。
+
+- `initCycle` → 相位归零 `plan`（`currentCycle` 同步，旧相留痕带 `note:'cycle-init'`，首次建状态不伪造退出记录）；
+- `closeCycle` → 读门禁账本，**G0-G3 全 PASS 才逐相推进**（build→test→deploy→maintain），被卡即停、缺门零写入、末相幂等；
+- `advanceCycle` 写盘保全 `currentPhase/phaseHistory`（原只写 `{nodeStatus}`）；
+- **双证据源显式分离**（只增字段）：`gatesLedgerPassed`（门禁账本）+ `closeEvidence`（both/workflow-graph/gate-ledger/none）
+  —— 自举循环只跑门禁协议，`nodeStatus` 空是**证据缺席**而非门禁失败，不再让读者靠猜；
+- 技能 `init-cycle.mjs` 同语义（双实现，契约 `cycleLifecyclePhaseContract` ② 真 spawn 对钉）。
+
+**真实世界证据**：`closeCycle(repo/.cycles, 77)` → `phaseFrom:build → phaseTo:maintain, phaseAdvanced:true`，
+phaseHistory 追加 build/test/deploy 三条真实 `exitedAt`；随后 `init-cycle` 建 cycle-78 → `currentPhase=plan`、
+旧相 `maintain` 留痕。**这是本仓首次出现相位随循环真实流动。**
+
+### ② 熔断可达性：CB5 从 fail-open 修到可触发（P0，宿主 + 技能双实现）
+
+`band-detector` 写入的 `band-history.json` 条目形状是 `{timestamp,totalScore,avgScore,fileCount,overBudgetCount}`
+——**没有 `band` 字段**；而宿主 `breakerSignals.bandUnrecovered` 判 `band==='alarm'`、技能 `org-status.mjs` 读
+`history.snapshots`（真实是裸数组，`.length` 抛错被 catch 吞）⇒ **CB5 两侧都永不触发**，文档却宣称有效。
+
+- 宿主：`entryUnrecovered` 双形状（`band==='alarm'` 或 `overBudgetCount>0`），末 2 条都命中才触发；
+- 技能：`normalizeBandHistory` + `bandEntryUnrecovered` 与宿主同语义，check 与诊断共用同一归一；
+- **技能侧 CB2 同族（更严重：崩溃）**：`ledger.entries.slice(-4)` 遇裸数组直接 TypeError 崩掉整个 org-status
+  （`.entries` 是 `Array.prototype.entries` 函数）→ `loadLedgerEntries` 归一 + 三态 `TRIGGERED|OK|SKIP`，
+  账本不可用时明确 `[SKIP]` 点名原因（不 fail-open、不崩溃）；顺带修空工作区 `org-status review` 必崩（两出口形状不一致）。
+- 反向自检：用 `git show HEAD:` 旧脚本跑同夹具 ⇒ 旧 CB5 静默 OK、旧 CB2 裸数组崩溃（证明修的是真缺陷）。
+
+### ③ 可观测性诚实化：报警 ≠ 执行失败
+
+`band-detector` 在 WARNING/WE 违规时 `exit 1`，被 FlowTracker 记为 FAILED、健康面降级（实测 `1/1 failed`）。
+WE 规则 7/8 在近常数过程（σ=0.16）必然常亮——报告内容不该等于执行成败。
+
+- **默认（报告模式）**：只要产出报告即 `exit 0`（告警作为数据输出）；**`--strict`（门禁模式）**：告警即 `exit 1`；
+- 执行失败（目录/配置/历史损坏）仍非零且 stderr 点名（原先历史损坏静默清空 ⇒ WE 规则永不触发，同修）；
+- 同步超时 cap 收敛：`MAX_SKILL_INVOKE_TIMEOUT_MS = BOOTSTRAP_STEP_TIMEOUT_MS`(240s) + 纯函数
+  `resolveSkillInvokeTimeout`（防 Infinity/NaN），`skillInvoker` 弃 `Math.min(timeoutMs,120000)`；
+- 技能版本 **2.5.2 → 2.6.0**（四锚一致，quick-validate PASS）。
+
+### ④ 白盒：46 条通道独占路由的机器可读声明（声明 ≠ 豁免）
+
+闭环三态矩阵此前把 `routes: 63 / 17 代码消费 / 46 未消费` 平铺——46 条是外部 curl / 运维 / MCP / 人工面，
+机器面前却与死代码不可区分。
+
+- 新增 `closureAudit/channelRegistry.ts`：46 条四元组声明 `{route, owner, docRef, reason}`；
+  `docRef` 三重机器校验（文件存在 + 锚点命中真实标题 + 该章节正文含路由字面量）⇒ **46/46 全绿**；
+- 分类学第 6 桶 `declaredChannel`：`unconsumed = declaredChannel + consumedGap + producedGap`，
+  `consumed = code + dynamicClaimed + channelOnly`（逐族强制，不只验总和）；
+- **未声明棘轮**：未消费路由未声明即点名红；反向自检（删声明/篡改 docRef/伪造新路由）真判红；
+- 关键陷阱修复：声明表自身的路由字面量会被当成"生产代码调用方"把缺口**洗成绿**（实测 consumed 335→390），
+  已在消费面显式排除声明表自身，并用空集下限兜住退化；
+- 新 totals：`registered 433 / consumed 348 / unconsumed 85 / declaredChannel 46 / consumedGap 0 / producedGap 39 / ghost 0`
+  —— **consumedGap 46→0 不是放水，是把"真缺口"重分类为"已声明的通道面"**；面板新增
+  `data-anic-closure-declared`（通道声明 46 / 未声明 0）。
+
+### ⑤ 可视化：自主级审计时间线进面板
+
+后端的 `org-status.autonomy.history` 一直存在，但客户端类型把它丢弃 ⇒ UI 永远看不见"L4 是谁授权的"。
+
+- `OrgStatusJson.autonomy` 只增 `history/historyCount/historyError`（含 `trustExemption`）；
+- `renderOrgStatus` 新增时间线：`data-anic-org-autonomy-history` / 每行 `data-anic-autonomy-transition` /
+  豁免标记 `data-anic-autonomy-exempt`，倒序取 5 + `+N`，`historyError` 走 `role="alert"`，
+  行内 `flex-wrap`（窄面板不溢出）、`ul/li` 语义 + `aria-label`；i18n zh/en 各 +9 键；
+- host 侧补漏：`summarizeHistory` 此前丢掉 `trustExemption`（UI 分支只能靠 fixture 看见）——审计信息不得在投影层择优丢失；
+- **实测真账**：`org-status` 摘要现在带 `L3→L4` 的 `trustExemption {avg:84, threshold:85}`。
+
+### ⑥ 质量属性横向证据（本轮实测）
+
+| 指标 | 值 |
+|---|---|
+| 工具 / 路由 / 技能 | 22（22 消费）/ 63（17 代码 + 46 声明 + 0 幽灵）/ 16（16 消费） |
+| 闭环分类 | registered 433 · consumed 348 · unconsumed 85 · declaredChannel 46 · consumedGap 0 · ghost 0 |
+| 测试 | 164 files / **2036 tests**（+67 用例，全部带反向自检） |
+| 中文注释 | **226/226 文件（100%）**，8,378 注释行 |
+| 模块纪律 | 0 个 >250 行（src）；运行时 import 环 0 |
+| 构建 | `dist/client.js` 299,203 B + `dist/host.js` 573,550 B |
+| 技能版本 | 2.6.0（四锚一致） |
+
+### 验证基线（本轮收口）
+
+```
+typecheck: tsconfig.client + tsconfig.host 双配置 0 错
+validate:  12/12 PASS（dsh-anic@0.44.0）
+vitest:    164 files / 2036 tests 全绿
+smoke:     ALL PASS（20 条）
+trigger:   22 tools · recall 27/27 = 100% · FPR 0/14 = 0%
+eval:      E1-E8 + Q1-Q8 共 16 维全 PASS
+gates:     G0-G3 全 PASS（账本含逐维质量裁决）
+lifecycle: cycle-78 close → plan→design→build→test→deploy→maintain 自动推进
+build:     staging → 原子替换成功
+```
+
+### 已知边界（诚实登记）
+
+- 真实宿主 J0 探针未跑（需重启宿主加载本轮 dist；纪律禁止启停宿主）；面板新增行需重建 dist + 重启后可见。
+- `@vitest/coverage-v8` 未安装 ⇒ coverage 产物缺失（G2 coverage_threshold 本轮仍无证据；登记为债务）。
+- 4 条流程层（archive/gate-check/hitl/macro-phase）仍各有 120s cap（技能两入口已对称；流程层待统一）。
+- `assets/skill/scripts/lib/ledger.mjs loadLedger` 与 `gate-ledger.mjs --list/--verify` 仍只认包裹形状
+  （裸数组账本静默清空 → 同族 fail-open），属 lib/ 文件域，登记待下一轮。
+- `nodeStatus` 节点账长期为空（play 协议未被自举链使用）：本轮只做到**如实分离两种证据**，不做协议统一。
+
 ## v0.43.0 — 2026-10-25（cycle-77：L4 自主级可审计 + 账本质量维入账 + 完整性/连接性缺口六连修）
 
 > 本轮由 **L4 全自主模式**（用户指令授权，`humanAuthorized` + `trustExemption` 如实入账）

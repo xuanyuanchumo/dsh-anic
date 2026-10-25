@@ -42,7 +42,12 @@ describe('清单构建与落盘', () => {
   it('readSkillVersion：锚定 SKILL.md「MCP Tools (vX.Y.Z)」标题（cycle-31 修复回归钉）', () => {
     // 修复背景：旧正则要求字面量 "version" 前缀，真实锚点无此前缀 → 恒 null，
     // skillInstallRoute 版本门控快路径从未生效。本用例钉住「真实锚点可读」。
-    expect(readSkillVersion(INLINE)).toBe('2.5.2');
+    // 期望值取**独立锚点**（技能包 CHANGELOG 首条），不写死字面量：版本号是发行源
+    // 属性，写死在测试里会让每次发版都误红（cycle-78 v2.6.0 升级实测踩到）。
+    const changelog = readFileSync(join(INLINE, 'CHANGELOG.md'), 'utf-8');
+    const expected = /^##\s+(\d+\.\d+\.\d+)/m.exec(changelog)?.[1] ?? '';
+    expect(expected, '技能 CHANGELOG 首条版本必须可解析').not.toBe('');
+    expect(readSkillVersion(INLINE)).toBe(expected);
     // 无锚点目录 → null（诚实降级，不猜）
     const none = join(TMP, 'no-anchor');
     mkdirSync(none, { recursive: true });

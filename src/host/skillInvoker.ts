@@ -12,6 +12,11 @@ import fs from 'node:fs';
 import type { InvokeResult } from './skillInvokerAsync.ts';
 export type { InvokeResult } from './skillInvokerAsync.ts';
 import { writeSkillManifest } from './skillIntegrity.ts';
+// cycle-78 WS-B（原 cycle-77 F-06 遗留）：超时上限与自举每步预算**单一事实源**。
+// 被修缺陷：本文件 spawnSync 原写死 Math.min(timeoutMs, 120000)，而异步伴生文件按
+// 传入值执行 ⇒ 同一份 240000ms 自举预算在同步入口被砍成 120000ms（eval-runner 整
+// 金字塔实测 57s+，冷启动余量被吃掉），两入口语义不对称。现在上限只有一处定义。
+import { resolveSkillInvokeTimeout } from './runtime/bootstrapBudget.ts';
 
 const SKILL_SCRIPTS = [
   'init-workflow',
@@ -198,7 +203,9 @@ export function invokeSkillScript(
   // args._[0]，解析出 <scriptsDir>/--project-dir 幽灵目录 —— 无任何测试变红
   // （单元测试只测状态机，从不真正调用脚本）。
   const result = spawnSync('node', [scriptPath, workspace, ...args], {
-    timeout: Math.min(timeoutMs, 120000),
+    // 上限 = MAX_SKILL_INVOKE_TIMEOUT_MS（= 自举每步预算 240000），与异步入口一致；
+    // 非法值（NaN/Infinity/非正）由纯函数兜到上限，绝不把「永不超时」交给 spawnSync。
+    timeout: resolveSkillInvokeTimeout(timeoutMs),
     encoding: 'utf-8',
     cwd: scriptsDir,
   });

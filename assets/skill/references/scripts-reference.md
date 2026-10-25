@@ -167,7 +167,7 @@ node scripts/eval-runner.mjs <project-dir> [--dimensions E1,E2,...] [--cycle N]
 
 **输入参数**：
 ```
-node scripts/band-detector.mjs <project-dir> [--threshold 0.15] [--history N]
+node scripts/band-detector.mjs <project-dir> [--threshold 0.15] [--history N] [--strict]
 ```
 
 | 参数 | 必填 | 说明 |
@@ -175,6 +175,7 @@ node scripts/band-detector.mjs <project-dir> [--threshold 0.15] [--history N]
 | `<project-dir>` | 是 | 项目根目录路径 |
 | `--threshold` | 否 | 预算波动容忍阈值，默认 0.15 |
 | `--history` | 否 | 历史快照分析数量，默认 10 |
+| `--strict` | 否 | 门禁模式：出现告警即非零退出（CI/硬门用）。缺省为报告模式 |
 
 **输出格式**：
 ```
@@ -198,7 +199,24 @@ OVER BUDGET (N files):
 
 COMPLEXITY HOTSPOTS (top N):
   [score] <file> (branches: N, functions: N)
+
+Mode: report (default) | strict (gate) | alarms: <清单|none>
 ```
+
+**告警 ≠ 执行失败**（v2.6.0 语义分层）：热点/超预算/WE 违例属于**报告数据**，
+不是脚本执行成败。两种模式共用同一份报告文本，只有退出码语义不同：
+
+| 模式 | 触发条件 | 退出码 |
+|---|---|---|
+| 报告模式（默认） | 成功产出报告（无论有无告警） | 0 |
+| 报告模式（默认） | 目录不存在 / 配置缺失 / 历史快照损坏或解析失败 | 1（stderr 点名原因） |
+| 门禁模式 `--strict` | 无告警 | 0 |
+| 门禁模式 `--strict` | `OVER_BUDGET` 或 `WARNING`（hotspots>5）或任意 WE 违例 | 1（stderr 列告警清单） |
+| 门禁模式 `--strict` | 上述执行失败 | 1（stderr 点名原因） |
+
+缺省报告模式是**健康的默认**：近常数过程（σ≈0.16）上 WE 规则 7/8 必然常亮，
+若把报告内容当执行成败，FlowTracker 会把「报告送达且有告警」记成 FAILED，
+`analyzeSkillHealth` 随之长期输出 degraded 建议。需要 CI 硬门时显式传 `--strict`。
 
 **Western Electric 规则**：
 | 规则 | 描述 |
@@ -213,8 +231,6 @@ COMPLEXITY HOTSPOTS (top N):
 | Rule 8 | 连续 8 点在 1σ 外（变异过大） |
 
 **历史持久化**：每次运行将快照保存到 `.cycles/band-history.json`，最多保留 50 条。
-
-**退出码**：0=在预算内且无统计违规, 1=超出预算或有 Western Electric 违规
 
 ---
 
@@ -436,10 +452,10 @@ Auto-fallback completed. Autonomy level maintained: L4
 | 条件 | 说明 |
 |---|---|
 | CB1 | 同一异常连续3次自动修复失败 |
-| CB2 | 门禁自动判定存疑且无法自动定论 |
+| CB2 | 门禁自动判定存疑且无法自动定论（判据：`gates/ledger.json` 最近 4 条中 `result='FAIL'` 且 `detail` 为空或含 `ambiguous`；容器兼容 `{ entries: [...] }` 包裹与裸数组，账本缺失/损坏/形状不认识 → 输出 `[SKIP] CB2` 并点名原因，不当成「无 DOUBT」） |
 | CB3 | 涉及真实用户数据/明文凭据且无隔离方案 |
 | CB4 | 破坏性操作影响范围不可评估或不可回滚 |
-| CB5 | 性能指标超预警阈值且1轮优化后仍未恢复 |
+| CB5 | 性能指标超预警阈值且1轮优化后仍未恢复（判据：`band-history.json` 末 2 条均「未恢复」——`band==='alarm'` 或 `overBudgetCount>0`；容器兼容裸数组与 `{ snapshots: [...] }` 包裹，坏 JSON / 非数组 / 不足 2 条不算触发） |
 | CB6 | 人类主动要求审计/切换到L3 |
 | CB7 | 无人值守超时/资源上限 |
 | CB8 | 自动化资源上限（累计重试>10次或熔断>3次） |

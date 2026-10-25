@@ -218,11 +218,24 @@ export function validateHistory(entries: AutonomyHistoryEntry[]): string[] {
   return issues;
 }
 
-/** 摘要投影（org-status 只暴露最近 N 条，不把整账灌进响应）。 */
+/** 摘要投影（org-status 只暴露最近 N 条，不把整账灌进响应）。
+ *
+ * cycle-78 补漏：`trustExemption` 是**人类授权覆盖信任阈值**的机器证据
+ * （L3→L4 在 avg 84 < 85 时靠它成立）。此前摘要把它丢掉 ⇒ 面板 UI 的豁免分支
+ * 永远走不到（fixture 能测、真机看不见）。审计信息不得在投影层被择优丢失。
+ */
 export function summarizeHistory(
   entries: AutonomyHistoryEntry[],
   limit = 5,
-): Array<{ from: string; to: string; at: string; actor: string; authorization: string; reason: string }> {
+): Array<{
+  from: string;
+  to: string;
+  at: string;
+  actor: string;
+  authorization: string;
+  reason: string;
+  trustExemption?: { avg: number; threshold: number };
+}> {
   return entries.slice(-Math.max(0, limit)).map((e) => ({
     from: e.from,
     to: e.to,
@@ -230,5 +243,6 @@ export function summarizeHistory(
     actor: e.actor,
     authorization: e.authorization,
     reason: e.reason,
+    ...(e.trustExemption ? { trustExemption: e.trustExemption } : {}),
   }));
 }

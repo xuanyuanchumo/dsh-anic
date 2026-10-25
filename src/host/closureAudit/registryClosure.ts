@@ -35,6 +35,10 @@ import type { ClosureTotals } from './closureTotalsTypes.ts';
 import type { ClosureSummary } from './closureSummary.ts';
 import type { ClosureBucket } from './closureBuckets.ts';
 import { CLOSURE_BUCKETS, bucketsOf, producedCountOf } from './closureBuckets.ts';
+// cycle-78：通道声明（把「通道独占」从「未消费」里认领出来，见 channelRegistry 头注）。
+import {
+  CHANNEL_DECLARATIONS, findDeclaration, validateDeclarationDocs, validateDeclarations,
+} from './channelRegistry.ts';
 
 /* ── 再导出（cycle-75 拆分后保消费者 import 路径零变更）────────────────── */
 
@@ -44,6 +48,12 @@ export type { ClosureBucket } from './closureBuckets.ts';
 export { CLOSURE_BUCKETS, bucketOf, bucketsOf, isProduced, producedCountOf } from './closureBuckets.ts';
 export type { ClosureTotals } from './closureTotalsTypes.ts';
 export type { ClosureSummary } from './closureSummary.ts';
+// cycle-78：通道声明（未声明棘轮的机器面）——再导出保消费者 import 路径零变更。
+export type { ChannelDeclaration, DeclarationMismatch } from './channelRegistry.ts';
+export {
+  CHANNEL_DECLARATIONS, checkDocRef, findDeclaration, routeSection,
+  validateDeclarationDocs, validateDeclarations,
+} from './channelRegistry.ts';
 export type { ClosureView } from './closureView.ts';
 export { UNCONSUMED_VIEW_LIMIT, orderUnconsumed, toClosureView } from './closureView.ts';
 // cycle-76：连通性（report 类型 + 两态断言原语）。
@@ -75,6 +85,10 @@ const NOTES: readonly string[] = [
   + '不是「routes/index.ts 里出现了该字符串」——后者是聚合器回声。',
   '未消费 ≠ 全部是缺陷：code=生产代码内真消费；dynamicClaimed=计算键认领；'
   + 'channelOnly=仅测试/agent 卡引用（无生产消费者）；consumedGap=真缺口；producedGap=只声明没接线。',
+  // cycle-78：第六类（通道独占）的口径——声明 ≠ 豁免，必须与真缺口分开计数。
+  'declaredChannel（cycle-78）=未消费、但已在 channelRegistry 声明 owner/docRef/reason 的「通道独占」路由'
+  + '（外部 curl / 运维脚本 / MCP 客户端 / 人工面）。声明不改变 consumed=false 的事实，'
+  + '只把它从「未知缺口」搬到「已知通道」；**新增未消费路由没声明即棘轮红**（契约测试 ③）。',
   'producedByKind 是**全量分类**（合计 = total，no-write-point 也占位），'
   + '故不可与 produced 计数直接互比——后者只数真有写入锚点者。',
   // cycle-75 T6：第四族（技能/MCP）的口径与诚实边界由族实现自带（避免口径漂移）。
@@ -95,6 +109,18 @@ export function clustersConsistent(clusters: readonly ClusterAudit[]): string[] 
     const buckets = bucketsOf(c.items);
     const bucketSum = CLOSURE_BUCKETS.reduce((s, k) => s + buckets[k], 0);
     if (bucketSum !== c.total) problems.push(c.cluster + ': bucket sum ' + String(bucketSum) + ' != total ' + String(c.total));
+    // ★cycle-78：两组成分恒等式（语义升级，不是放宽）。
+    //   unconsumed = declaredChannel + consumedGap + producedGap
+    //   consumed   = code + dynamicClaimed + channelOnly
+    // 分开校验而不是只校验总和：总和相等仍可能「未消费项被算进已消费」。
+    const unconsumedSum = buckets.declaredChannel + buckets.consumedGap + buckets.producedGap;
+    if (unconsumedSum !== c.unconsumed) {
+      problems.push(c.cluster + ': unconsumed identity broken (' + String(unconsumedSum) + ' != ' + String(c.unconsumed) + ')');
+    }
+    const consumedSum = buckets.code + buckets.dynamicClaimed + buckets.channelOnly;
+    if (consumedSum !== c.consumed) {
+      problems.push(c.cluster + ': consumed identity broken (' + String(consumedSum) + ' != ' + String(c.consumed) + ')');
+    }
     // produced 类别分布必须与逐项统计相等，且**合计 = total**（见 NOTES 最后一条）。
     const tallied = tallyProduced(c.items);
     for (const k of Object.keys(tallied) as Array<keyof typeof tallied>) {
@@ -126,6 +152,42 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
     routeClosure(files, evidence), skillClosure(files),
   ];
 
+  /*
+   * ★cycle-78：把**通道声明**注入 routes 族的逐项明细（声明表是唯一真相源）。
+   * 为什么在编排器注入而不是 assetClosure 扫描器：声明是「注册面之外的人为承诺」，
+   * 扫描器只该回答注册/生产/消费三个事实问题——把承诺混进扫描会让「有没有人声明」
+   * 与「有没有人消费」两个维度互相污染。注入在 bucketsOf 之前，保证分类与 totals 同源。
+   */
+  const routeCluster = clusters.find((c) => c.cluster === 'routes');
+  if (routeCluster !== undefined) {
+    routeCluster.items = routeCluster.items.map((it) => {
+      const decl = findDeclaration(it.id);
+      if (decl === undefined) return it;
+      return { ...it, declaredChannel: { owner: decl.owner, docRef: decl.docRef, reason: decl.reason } };
+    });
+  }
+  // 声明表体检：字段非空 + docRef 有据（文件 + 标题章节 + 正文含路由）；不静默。
+  const declarationProblems = validateDeclarationDocs(files, CHANNEL_DECLARATIONS);
+  const routeIds = (routeCluster?.items ?? []).map((it) => it.id);
+  const unconsumedRouteIds = (routeCluster?.items ?? []).filter((it) => !it.consumed).map((it) => it.id);
+  const mismatch = validateDeclarations(routeIds, unconsumedRouteIds);
+  // 未声明棘轮：未消费路由**必须**被声明。这里只如实入 notes（判定红在契约测试 ③：
+  // 运行期抛错会让整个面板失去数据，比「红一条测试」更糟——可见的缺口优于隐身）。
+  const channelNotes = [
+    '通道声明（cycle-78）：routes 未消费项中 ' + String(unconsumedRouteIds.length - mismatch.undeclaredRoutes.length)
+    + '/' + String(unconsumedRouteIds.length) + ' 条已声明（owner+docRef+reason），'
+    + '声明 ≠ 豁免：它们仍计入未消费，只是归类为 declaredChannel（已知通道）。',
+    ...(mismatch.undeclaredRoutes.length === 0
+      ? ['未声明未消费路由：0 条（棘轮通过）。']
+      : ['未声明未消费路由（棘轮红，必须补声明或补接线）：' + mismatch.undeclaredRoutes.join(', ')]),
+    ...(mismatch.staleDeclarations.length === 0
+      ? []
+      : ['声明表指向不存在的路由（幽灵声明，必须删或修正）：' + mismatch.staleDeclarations.join(', ')]),
+    ...(declarationProblems.length === 0
+      ? ['声明 docRef 校验：' + String(CHANNEL_DECLARATIONS.length) + '/' + String(CHANNEL_DECLARATIONS.length) + ' 条有据（文件存在 + 章节标题命中 + 正文含路由字面量）。']
+      : ['声明 docRef 问题（不静默）：' + declarationProblems.join('；')]),
+  ];
+
   const i18nDefined = clusters.find((c) => c.cluster === 'i18n')?.items.map((it) => it.id) ?? [];
   const routeDefined = clusters.find((c) => c.cluster === 'routes')?.items.map((it) => it.id) ?? [];
   const ghosts = [
@@ -153,6 +215,9 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
     producedGap: buckets.producedGap,
     dynamicClaimed: buckets.dynamicClaimed,
     channelOnly: buckets.channelOnly,
+    // cycle-78：通道声明数（未消费但已声明）。面板据以显示「声明 N / 未声明 M」，
+    // 其中 M = unconsumed - channelDeclared —— 两个数都从服务端亲算的 totals 派生。
+    channelDeclared: buckets.declaredChannel,
   };
 
   return {
@@ -163,7 +228,7 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
     clusters,
     unconsumed,
     ghost: ghosts,
-    notes: [...NOTES],
+    notes: [...NOTES, ...channelNotes],
     connectivity,
   };
 }

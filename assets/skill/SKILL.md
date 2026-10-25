@@ -275,7 +275,7 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 | 规划 | `workflow-state.mjs check` | 检查门禁状态，生成规划 |
 | 拆测 | — | 功能→分层用例映射，生成任务清单 |
 | 验证 | `eval-runner.mjs --dimensions E3,E4,E8,Q2` | 运行测试+lint+评估 |
-| 复杂度漂移 | `band-detector.mjs` | Western Electric 规则检测（S-10：补入 L4 链；连续 2 轮超预算 = CB5 熔断条件，结果供 org-status 读取） |
+| 复杂度漂移 | `band-detector.mjs` | Western Electric 规则检测（S-10：补入 L4 链；结果供 org-status 读取）。v2.6.0 语义分层：**默认报告模式**（告警是报告数据，成功产出即 exit 0，避免把「有告警」记成执行失败）；`--strict` 门禁模式才在 OVER_BUDGET/WARNING/WE 违例时 exit 1（CI 硬门用）；执行失败（目录/配置/历史快照损坏）两模式皆非零。**CB5 熔断条件**：`band-history.json` 末 2 条均「未恢复」——质量带形状看该轮 `overBudgetCount > 0`（连续 2 轮存在超预算文件），自主带形状看 `band: 'alarm'`。宿主侧 `breakerSignals.ts` 与技能侧 `org-status.mjs` 两处判定**同语义**（cycle-78 前两处各自 fail-open：宿主只认 band 字段，技能读错容器 `history.snapshots`；现已双形状可达） |
 | 修复循环 | `auto-fix-loop.mjs` | 验证失败→失败模式分析→根因诊断→修复→重新验证，不可直接熔断 |
 | 门禁判定 | `gate-check.mjs --gate all --quality --record` | G0-G3 全部门禁；`--record`（v1.8.0）把每次判定结果自动写入账本（带去重，FAIL 也记） |
 | 多Agent门禁评估 | `multi-agent-gate.mjs` | 5个人工门各由3个Agent从不同维度评估，信任度≥70%且--auto-approve时自动执行 |
@@ -325,7 +325,7 @@ CLAUDE.md/AGENTS.md 保留在项目根目录（框架要求）。
 node scripts/mcp-server.mjs --project-dir <path>
 ```
 
-MCP Tools (v2.5.2)：
+MCP Tools (v2.6.0)：
 - `init_workflow` / `init_cycle` / `gate_check`（含 --quality 质量门禁） / `eval_runner`（含 E1-E8 + Q1-Q8）
 - `band_detector`（含 Western Electric 规则） / `workflow_state`（status/advance/check） / `gate_ledger`（record/verify/list 哈希链）
 - `fact_base_verify` / `plan_sync_check`（含 git diff） / `org_status`（status/agent/review/auto-fallback）

@@ -17,6 +17,11 @@
 **响应 200**：`{ ok: true, ...initCycle(cyclesDir, projectName) }`。
 **404**：无工作区 → `{ error: 'no workspace' }`。
 
+**cycle-78 生命周期联动**：`initCycle` 成功后会把宏观相位归零到新循环的 `plan`
+（`.cycles/workflow-state.json` 原子写；`currentCycle` 同步；`phaseHistory` 追加
+`{phase:'<旧相>', exitedAt: 真实时间, note:'cycle-init'}`，首次建状态不伪造退出记录）。
+技能侧 `init-cycle.mjs` 同语义（双实现，契约 `cycleLifecyclePhaseContract` ② 真 spawn 对钉）。
+
 ## 2. POST `/anic/cycle/advance`
 
 **路径**：`cycleRoute.ts:46`。
@@ -43,7 +48,23 @@ if (!cycleNumber || !nodeId || !Number.isInteger(cycleNumber) || cycleNumber < 1
 
 **路径**：`cycleRoute.ts:56`。**Body** `{ cycleNumber: number }`。
 **400**：`{ error: 'cycleNumber (positive integer) required' }`。
-**响应**：`closeCycle(cyclesDir, cycleNumber)` 结果，`result.ok ? 200 : 409`。
+**响应**：`closeCycle(cyclesDir, cycleNumber)` 结果整体作为响应体（无字段裁剪），`result.ok ? 200 : 409`。
+
+**cycle-78 全生命周期联动**（只增字段，既有四字段零破坏）：
+
+| 字段 | 语义 |
+| --- | --- |
+| `phaseFrom` / `phaseTo` | 本次 close 前/后的宏观相位（`loadMacroState` 事实，不是意图） |
+| `phaseAdvanced` | 是否真实写入相位（门禁不全 / 已末相 / 幂等 → false，**零写入**） |
+| `phaseBlockedBy` | 卡住的门（逗号分隔，缺门时点名） |
+| `phaseReason` | 人类可读原因（缺门点名 / 引擎逐字消息 / 末相说明） |
+| `gatesLedgerPassed` | 门禁账本 G0-G3 **全部**有 PASS（自举协议证据） |
+| `closeEvidence` | `both` / `workflow-graph` / `gate-ledger` / `none`——本次结论由哪套证据支撑 |
+
+**双证据源纪律**：`gatesPassed` = workflow-graph 节点级 strict check（play 协议），
+`gatesLedgerPassed` = 门禁账本（自举协议）。自举循环只跑门禁协议 ⇒ `nodeStatus` 长期为空
+⇒ `ok=false` 而相位照常推进——两个字段分开暴露，读者不会把"节点账空"误读成"门禁没过"。
+相位推进只认门禁账本（`cyclePhaseAdvance.ts`），且门禁不全时零相位写入。
 
 ## 4. GET `/anic/cycle/state`
 

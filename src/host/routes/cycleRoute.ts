@@ -6,6 +6,10 @@
  * POST /anic/cycle/close     关闭 cycle（门禁检查 + 账本验证）
  * GET  /anic/cycle/state     当前状态机状态
  * GET  /anic/cycle/list      cycle 列表
+ *
+ * cycle-78 WS-A：`/anic/cycle/close` 的响应体**就是** closeCycle 的返回对象（无字段裁剪），
+ * 新增的 phaseFrom/phaseTo/phaseAdvanced/phaseBlockedBy/phaseReason 自动透传给客户端；
+ * 既有 ok/gatesPassed/ledgerValid/reason 保持不变（返回值只增字段）。本文件无需改逻辑。
  */
 import { sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { initCycle, advanceCycle, closeCycle, listCycles, nextCycleNumber } from '../runtime/cycleRunner.ts';

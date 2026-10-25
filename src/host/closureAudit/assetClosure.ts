@@ -147,6 +147,13 @@ export function scanRouteAssets(files: Map<string, string>): AssetDef[] {
 function routeConsumerUniverse(rel: string): boolean {
   if (ROUTE_FILE.test(rel)) return false; // ③ 注册层自身（路由文件即注册表）
   if (rel === 'src/host/routes/index.ts') return false; // ④ 投影层（聚合器回声）
+  /*
+   * ⑤ ★cycle-78：通道声明表是**声明面**（哪条路由由外部通道独占、谁维护），
+   * 不是调用方。若不排除，46 条通道独占路由会因「在自己的声明表里露过一次名」
+   * 而全部被判成生产代码消费——声明白盒化反而把缺口洗成健康的绿，
+   * 正是守卫纪律②「不匹配自身」要防的自指污染。
+   */
+  if (rel === 'src/host/closureAudit/channelRegistry.ts') return false;
   if (rel.startsWith('locale/') || rel.startsWith('docs/')) return false;
   if (rel.startsWith('tests/') || rel.startsWith('assets/')) return false;
   if (rel.endsWith('.md') || rel.endsWith('.json')) return false;

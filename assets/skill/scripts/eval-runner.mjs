@@ -389,9 +389,12 @@ function checkResponsive(projectDir) {
 
 function checkComplexity(projectDir) {
   // D-1415（cycle-15，D-1404 漏网同型）：原 `… 2>&1 || true` 在 cmd.exe 无 true
-  // 命令——band-detector 非零退出（真发现 WE 违例/超预算，正是需要报警时）execSync
-  // 抛错进 catch → SKIP（fail-open）。改 execFileSync 直跑（无 shell 语义），非零
-  // 退出时从 e.stdout 取完整输出按文本裁决。
+  // 命令——band-detector 非零退出时 execSync 抛错进 catch → SKIP（fail-open）。改
+  // execFileSync 直跑（无 shell 语义），非零退出时从 e.stdout 取完整输出按文本裁决。
+  // cycle-78（v2.6.0 语义分层）起：告警本身**不再**导致非零退出（默认报告模式恒 0，
+  // 只有目录/配置/历史快照这类执行失败才非零），所以这里的 catch 分支已从「告警主
+  // 路径」退化为执行失败的兜底；判定仍只看报告文本（OVER_BUDGET / WE 计数），
+  // 因为「复杂度是否超标」是报告内容，不是脚本执行成败。
   let output = '';
   try {
     output = execFileSync('node', [join(SKILL_ROOT, 'scripts', 'band-detector.mjs'), projectDir, '--threshold', '0.15'], {

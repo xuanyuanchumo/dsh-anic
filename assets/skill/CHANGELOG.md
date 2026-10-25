@@ -1,5 +1,27 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.6.0 — band-detector 告警≠执行失败（cycle-78 WS-B 可观测性诚实化）
+
+### 修复（feat）
+
+- **语义分层**：`band-detector.mjs` 原先在 `WARNING` / Western Electric 违例时也
+  `exit 1`（实测 3674 分 / 10 热点 / 65 条 WE 违规 → exit 1）。后果是 **FlowTracker 把
+  「报告送达且有告警」记成 FAILED**（本机 flowStats `band-detector 1/1 failed`），
+  `analyzeSkillHealth` 据此长期输出 degraded 建议——健康面被噪声淹没。而 WE 规则 7/8
+  在近常数过程（σ≈0.16）上必然常亮：**报告内容不该等于执行成败**。
+  - **默认（报告模式）**：成功产出报告即 `exit 0`；热点/超预算/WE 违例保留为报告数据
+    （文本面原样保留：`OVER_BUDGET`、`WARNING`、`N Western Electric rule violation(s)`
+    仍可被 eval-runner / MCP 解析），新增 `Mode: … | alarms: …` 汇总行。
+  - **`--strict`（门禁模式）**：`OVER_BUDGET` 或 `WARNING`（hotspots>5）或任意 WE 违例
+    → `exit 1`（stderr 点名告警清单），供 CI/硬门使用。
+  - **执行失败**仍非零退出并点名原因：项目目录不存在、`.cycles/config.yml` 缺失、
+    `.cycles/band-history.json` 损坏或非数组（原先静默 `return []` = 统计基线被悄悄
+    清空、WE 规则永不触发）；顶层 `try/catch` 兜住内部抛错。
+- 文档同步：`references/scripts-reference.md`（band-detector 小节：`--strict` 参数、
+  输出 `Mode` 行、两模式退出码表）、`SKILL.md`（L4 链「复杂度漂移」行）。
+- 测试：`tests/contract/bandDetectorSemantics.test.ts`（真跑 spawnSync：默认 0 / strict 1 /
+  执行失败非零 + stderr 点名 + 反向自检 + 版本四锚）。
+
 ## 2.5.2 — E5 性能基线工件通道（cycle-62 T-6201）
 
 ### 修复（feat）

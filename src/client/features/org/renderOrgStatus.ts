@@ -39,6 +39,80 @@ const H4 = { fontSize: 11, fontWeight: 600, color: token('anic-text'), margin: '
 const P = { fontSize: 11, color: token('anic-text-dim'), margin: '2px 0' } as const;
 const UL = { margin: '2px 0', paddingLeft: 18 } as const;
 
+/** 单条自主级变更（响应字段的子形状——客户端只依赖 JSON 契约，不 import host 类型）。 */
+type AutonomyTransition = NonNullable<OrgStatusJson['autonomy']['history']>[number];
+
+/** 面板最多展示条数（与 host summarizeHistory 的默认 limit 同值，两处不漂移）。 */
+const HISTORY_SHOWN = 5;
+
+/** 变更行样式：`flexWrap` 是响应式关键——面板可拖窄，单行「L2 → L3 · 时间 · actor · 授权 · 豁免」必然超宽，不折行就被 overflow 裁掉半截。 */
+const HISTORY_ROW = { display: 'flex', flexWrap: 'wrap' as const, gap: '2px 10px', alignItems: 'baseline', fontSize: 11 } as const;
+
+/** ISO → `YYYY-MM-DD HH:mm`。非法串原样返回——如实呈现，不静默吞成空白。 */
+function shortAt(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  return m !== null ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : iso;
+}
+
+/**
+ * 自主级变更时间线（cycle-78 缺口修复）。cycle-77 已把「谁在何时把 L? 改成 L?」写进
+ * 结构化审计账（`.cycles/autonomy-history.json` → `org-status.autonomy.history`），但面板
+ * 只画「当前 L?」——变更过程不可见：L4 是谁授权的、信任豁免是否发生，UI 上查不到。
+ *
+ * 纪律：空历史且无错误 → 整区不渲染（不留空壳）；historyError 响亮成行 + role=alert
+ * （坏账不得吞成"没有变更"）；时间倒序取最近 5 条（ISO 字符串比较即时间序，避开
+ * Date.parse 的 NaN 陷阱）；超出 +N 如实计数，total 优先取 historyCount。
+ */
+function renderAutonomyHistory(autonomy: OrgStatusJson['autonomy']): ReactElement | null {
+  const rows = Array.isArray(autonomy.history) ? autonomy.history : [];
+  const error = autonomy.historyError;
+  if (rows.length === 0 && error === undefined) return null;
+  const recent = [...rows].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, HISTORY_SHOWN);
+  const total = Math.max(autonomy.historyCount ?? 0, rows.length);
+  const hidden = Math.max(0, total - recent.length);
+
+  return createElement(
+    'section',
+    {
+      className: 'anic-org-autonomy-history',
+      'data-anic-org-autonomy-history': 'true',
+      // 可访问性：容器有名 ⇒ section 成为 region 地标，读屏可一键跳到变更账
+      'aria-label': t('org.autonomyHistoryAria', { shown: recent.length, total }),
+    },
+    createElement('h4', { style: H4 }, t('org.autonomyHistoryTitle')),
+    error !== undefined
+      ? createElement('p', { 'data-anic-autonomy-history-error': 'true', role: 'alert', style: { ...P, color: token('anic-fail') } },
+          t('org.autonomyHistoryError', { error }))
+      : null,
+    recent.length > 0 ? createElement('ul', { style: UL }, ...recent.map((tr) => renderTransitionRow(tr))) : null,
+    hidden > 0
+      ? createElement('p', { 'data-anic-autonomy-hidden': String(hidden), style: P }, t('org.autonomyMore', { count: hidden }))
+      : null,
+  );
+}
+
+/** 一行变更：`L2 → L3` · 时间 · actor · 授权标记 ·（可选）信任豁免警示。 */
+function renderTransitionRow(tr: AutonomyTransition): ReactElement {
+  const human = tr.authorization === 'human';
+  const exemption = tr.trustExemption;
+  return createElement(
+    'li',
+    { key: `${tr.at}-${tr.from}-${tr.to}`, 'data-anic-autonomy-transition': tr.authorization, style: { ...P, ...HISTORY_ROW } },
+    createElement('span', { style: { color: token('anic-text-strong'), fontWeight: 600 } },
+      t('org.autonomyFromTo', { from: tr.from, to: tr.to })),
+    createElement('span', { style: { color: token('anic-text-faint') } }, shortAt(tr.at)),
+    createElement('span', null, t('org.autonomyActor', { actor: tr.actor })),
+    // 授权来源是「谁负责」的第二通道：human 醒目（人显式承担风险），system 弱化（机器证据）；文案本身已可读。
+    createElement('span', { style: { color: human ? token('anic-doubt') : token('anic-text-faint'), fontWeight: human ? 600 : 400 } },
+      human ? t('org.authHuman') : t('org.authSystem')),
+    // 信任豁免是「这条升级看起来像 bug，其实有人签字」的唯一线索，必须与变更同行可见。
+    exemption !== undefined
+      ? createElement('span', { 'data-anic-autonomy-exempt': 'true', style: { color: token('anic-fail'), fontWeight: 600 } },
+          t('org.autonomyExempt', { avg: exemption.avg, threshold: exemption.threshold }))
+      : null,
+  );
+}
+
 export function renderOrgStatus(status: OrgStatusJson): ReactElement {
   const trustEntries = Object.entries(status.trust.scores);
 
@@ -125,6 +199,9 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
         t('org.action', { action: status.autonomy.action }),
       ),
       breakers,
+      // cycle-78：自主级变更时间线接在自主级分区内——「当前是什么级」与
+      // 「怎么变成这个级的」必须在同一视线内，否则用户要跨分区拼因果。
+      renderAutonomyHistory(status.autonomy),
     ),
     createElement(
       'section',

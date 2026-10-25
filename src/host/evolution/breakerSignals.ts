@@ -10,7 +10,9 @@
  *   CB2 门禁存疑        账本末 4 条 result==='FAIL' 且 detail 空或含 ambiguous hasDoubt
  *   CB3 用户数据未隔离  incidents 文件名同时含 'H1' 与 'circuit'             userDataUnisolated
  *   CB4 破坏性不可回滚  incidents 文件名同时含 'H2' 与 'circuit'             destructiveNoRollback
- *   CB5 性能未恢复      band-history 末 2 条 band 均为 'alarm'（OVER_BUDGET） perfUnrecovered
+ *   CB5 性能未恢复      band-history 末 2 条均「未恢复」（双形状判据）        perfUnrecovered
+ *                         · 自主带形状 band === 'alarm'
+ *                         · 质量带形状（真实生产）overBudgetCount > 0
  *   CB6 人类要求 L3     config.yml 原文 /human_override:\s*(L3|true)/i        humanRequestsL3
  *   CB7 无人值守超时    config.yml 原文 /session_timeout:\s*(\d+)/ > 24       unattendedHours
  *   CB8 资源上限        incidents 文件名含 'circuit' 计数（>3 触发）；        totalBreakerTrips
@@ -82,12 +84,32 @@ function ledgerHasDoubt(cyclesDir: string): boolean {
   } catch { return false; }
 }
 
-/** CB5：band-history 末 2 条 band 均为 'alarm'（技能侧 OVER_BUDGET 对应物）。
+/** 单条 band-history 快照是否表示「该轮性能未恢复」——CB5 的双形状判据。
  *
- * cycle-21（量纲注释）：`band` 字段只存在于自主带形状 entry（BandEntry）；
- * 代码质量带 entry（avgScore/totalScore）无 band 字段 → every() 对 undefined
- * 判等 false → 不熔断。这与真实生产形状一致（质量带历史不驱动自主性熔断——
- * 复杂度超标由 band-detector 脚本自身的 exit code 治理，不走 CB5）。
+ * 两种形状都是**真实生产**写出的，不是为通过测试编造的：
+ *   - 自主带形状 BandEntry：`{ band: 'alarm' | … }`（autonomyHistory 侧写盘）；
+ *   - 质量带形状（cycle-78 实测的真实生产形状）：`band-detector.mjs` 写
+ *     `{timestamp,totalScore,avgScore,fileCount,overBudgetCount}` —— **没有 band 字段**，
+ *     但该轮「存在超预算文件」（overBudgetCount>0）就是质量未恢复的等价值。
+ * 非对象/字段类型不符 → false（采集层绝不猜测）。
+ */
+function entryUnrecovered(entry: { band?: unknown; overBudgetCount?: unknown } | null | undefined): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  if (entry.band === 'alarm') return true; // 自主带形状（既有语义，向后兼容）
+  return typeof entry.overBudgetCount === 'number' && entry.overBudgetCount > 0; // 质量带形状
+}
+
+/** CB5：band-history 末 2 条「性能未恢复」（双形状，见 entryUnrecovered）。
+ *
+ * 被修缺陷（cycle-78 WS-E，fail-open 实测）：本判定原只认 `e.band === 'alarm'`，
+ * 而真实生产 band-history 条目没有 band 字段 ⇒ `every()` 对 undefined 恒 false
+ * ⇒ **CB5 熔断永不触发**。坏方向是最坏的那种——该熔断的安全作用等于不存在，
+ * 而三处文档仍宣称它有效（文件头 CB5 行 / 本段旧注释「不走 CB5」/ SKILL.md
+ * 「连续 2 轮超预算 = CB5 熔断条件」），声明与实现互斥且无人能察觉。
+ *
+ * 判定语义：末 2 条**都**命中任一形状才触发（「连续 2 轮」；单轮命中不算），
+ * 保持 fail-safe：文件缺失 / 坏 JSON / 非数组 / 少于 2 条 → false，绝不抛
+ * （采集层自身不能炸掉 org-status）。
  */
 function bandUnrecovered(workspaceRoot: string): boolean {
   const historyPath = join(workspaceRoot, '.cycles', 'band-history.json');
@@ -95,8 +117,8 @@ function bandUnrecovered(workspaceRoot: string): boolean {
   try {
     const history: unknown = JSON.parse(readFileSync(historyPath, 'utf-8'));
     if (!Array.isArray(history) || history.length < 2) return false;
-    const recent = history.slice(-2) as Array<{ band?: unknown }>;
-    return recent.every((e) => e?.band === 'alarm');
+    const recent = history.slice(-2) as Array<{ band?: unknown; overBudgetCount?: unknown }>;
+    return recent.every((e) => entryUnrecovered(e));
   } catch { return false; }
 }
 

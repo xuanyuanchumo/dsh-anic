@@ -44,6 +44,16 @@ export interface ClosureItem {
   dynamic: boolean;
   /** 消费证据（≤3 条 file:line）。空数组 = 未消费。 */
   evidence: string[];
+  /**
+   * ★cycle-78：**通道声明**（未消费但是「已声明的运维/外部通道」）。
+   *
+   * 只有 `CHANNEL_DECLARATIONS` 里点名的路由才带本字段；三元组（谁维护 / 哪份文档 /
+   * 为什么没有本仓消费方）由 channelRegistry 机器校验。⚠ 声明**不是豁免**：
+   * 带本字段的项仍 `consumed=false`、仍计入 unconsumed，只是 bucket 变成
+   * `declaredChannel`（「已知通道」而非「未知缺口」）。没声明的未消费路由
+   * 仍是 consumedGap/producedGap —— 那才是棘轮要抓的东西。
+   */
+  declaredChannel?: { owner: string; docRef: string; reason: string };
 }
 
 export interface ClusterAudit {

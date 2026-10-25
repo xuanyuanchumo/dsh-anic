@@ -15,7 +15,7 @@
  *
  * ① 注册 —— 四族来自**单一注册表**（工具/词表/路由/技能），不是手写清单；逐族非空
  * ② 生产 —— 每项 `producedAt` 非空者必须带**证据类别**，不得混入「仅声明 / 无写入点」
- * ③ 消费 —— 五分类**互斥且穷尽**（`clustersConsistent` 为空）
+ * ③ 消费 —— 六分类**互斥且穷尽**（`clustersConsistent` 为空；cycle-78 增 declaredChannel）
  * ④ 连通性 —— 入口到资产的调用链**全通**且**零空转注册器**
  * ⑤ 逻辑性 —— 流恒等式 / 截断总数一致 / 缺口两分类覆盖 三条同时成立
  * ⑥ 白盒 —— 投影过 fail-closed 形状守卫，且**不含本地绝对路径**
@@ -28,7 +28,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runClosureAudit, clustersConsistent, toClosureView, UNCONSUMED_VIEW_LIMIT } from '../../src/host/closureAudit/registryClosure.ts';
+import { runClosureAudit, bucketOf, clustersConsistent, toClosureView, UNCONSUMED_VIEW_LIMIT, validateDeclarations } from '../../src/host/closureAudit/registryClosure.ts';
 import { scanRouteDefs } from '../../src/host/closureAudit/assetClosure.ts';
 import { buildConnectivity, assertConnectivityComplete } from '../../src/host/closureAudit/connectivity.ts';
 import { buildClosureFlow } from '../../src/client/features/closure/closureFlowGraph.ts';
@@ -62,12 +62,18 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
     for (const i of produced) expect(i.producedEvidence.length).toBeGreaterThan(0);
   });
 
-  it('③ 消费：五分类互斥且穷尽（自洽校验为空）', () => {
+  it('③ 消费：六分类互斥且穷尽（自洽校验为空）', () => {
     expect(clustersConsistent(SUMMARY.clusters)).toEqual([]);
     const cl = SUMMARY.clusters;
     expect(cl.length).toBe(4);
-    // 未消费两分类必须覆盖全量（其余两键不在未消费里）
-    expect(SUMMARY.totals.consumedGap + SUMMARY.totals.producedGap).toBe(SUMMARY.totals.unconsumed);
+    // cycle-78 升级恒等式（**不得放宽**）：未消费 = 已声明通道 + 两缺口。
+    // 旧口径（consumedGap + producedGap === unconsumed）在 46 条通道声明注入后必然破：
+    // 那 46 条不再是「未知缺口」，而是「已知通道」——这正是本轮的语义升级。
+    expect(SUMMARY.totals.channelDeclared + SUMMARY.totals.consumedGap + SUMMARY.totals.producedGap)
+      .toBe(SUMMARY.totals.unconsumed);
+    // 已消费 = 生产代码 + 仅通道（计算键项的证据也是 code，故用 codeConsumed + channelOnly）。
+    expect(SUMMARY.totals.consumed).toBe(SUMMARY.totals.codeConsumed + SUMMARY.totals.channelOnly);
+    expect(SUMMARY.totals.registered).toBe(SUMMARY.totals.consumed + SUMMARY.totals.unconsumed);
   });
 
   it('④ 连通性：入口到资产的调用链全通且零空转注册器', () => {
@@ -91,7 +97,9 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
     expect(tr.total).toBe(SUMMARY.totals.unconsumed);
     expect(VIEW.unconsumed.length).toBe(Math.min(SUMMARY.totals.unconsumed, UNCONSUMED_VIEW_LIMIT));
     expect(tr.truncated).toBe(tr.total > tr.shown);
-    expect(VIEW.totals.consumedGap + VIEW.totals.producedGap).toBe(VIEW.totals.unconsumed);
+    // cycle-78：投影里的三键恒等式同样成立（服务端 totals 与投影同源，不得各算一套）。
+    expect((VIEW.totals.channelDeclared ?? 0) + VIEW.totals.consumedGap + VIEW.totals.producedGap)
+      .toBe(VIEW.totals.unconsumed);
   });
 
   it('⑥ 白盒：投影过 fail-closed 守卫且不含本地绝对路径', () => {
@@ -190,5 +198,35 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
     runClosureAudit(ROOT);
     const elapsed = performance.now() - t0;
     expect(elapsed, '全量体检耗时 ' + elapsed.toFixed(0) + ' ms 超预算——检查 evidenceIndex 是否被绕过').toBeLessThan(2500);
+  });
+
+  /*
+   * ★cycle-78（目标层的第 13 条）：把「46 条未消费路由」从**未知缺口**变成
+   * **已声明通道**——这是「白盒透明化、可量化、可观测」在路由面的最后一段。
+   *
+   * 判据三重：① 每条未消费路由都带声明三元组（owner/docRef/reason）；
+   * ② 归类为 declaredChannel（不是 consumedGap 红点）；③ 声明后**仍是未消费**
+   * ——「声明 ≠ 豁免」，谁把它当白名单就该在这里被拦下。
+   * 双向一致（幽灵声明 / 漏声明）由 closureAuditContract ④③ 逐项钉，此处只
+   * 验证目标层「这一柄确实装上了」。
+   */
+  it('⑬ 通道声明：未消费路由全部有机器可读声明，且声明不是豁免（棘轮绿）', () => {
+    const routeCl = SUMMARY.clusters.find((c) => c.cluster === 'routes');
+    const unconsumedRoutes = (routeCl?.items ?? []).filter((i) => !i.consumed);
+    expect(unconsumedRoutes.length, '无未消费路由 —— 本节断言空转').toBeGreaterThan(0);
+    for (const i of unconsumedRoutes) {
+      expect(i.declaredChannel, '未消费路由缺声明：' + i.id).toBeDefined();
+      expect(bucketOf(i), i.id + ' 未被归入 declaredChannel').toBe('declaredChannel');
+    }
+    // 声明 ≠ 豁免：计数上仍算未消费，只是被点名归类。
+    expect(SUMMARY.totals.channelDeclared).toBe(unconsumedRoutes.length);
+    expect(SUMMARY.unconsumed.some((i) => i.cluster === 'routes'), '已声明通道被移出了未消费清单').toBe(true);
+    // 双向一致 + 无漏声明（机器可判，不靠肉眼）。
+    const m = validateDeclarations(
+      (routeCl?.items ?? []).map((i) => i.id),
+      unconsumedRoutes.map((i) => i.id),
+    );
+    expect(m.undeclaredRoutes, '漏声明的未消费路由：' + m.undeclaredRoutes.join(', ')).toEqual([]);
+    expect(m.staleDeclarations, '幽灵声明：' + m.staleDeclarations.join(', ')).toEqual([]);
   });
 }, 120_000);

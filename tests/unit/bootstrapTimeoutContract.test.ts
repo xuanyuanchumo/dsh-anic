@@ -66,12 +66,18 @@ describe('消费面诚实性：注释声明的消费者必须真实（反「声�
   it('bootstrapBudget 头注列举的消费者在源码中真实存在（导出被引用）', () => {
     const budget = readFileSync(join(ROOT, 'src/host/runtime/bootstrapBudget.ts'), 'utf-8');
     const gateway = readFileSync(join(ROOT, 'src/host/toolsBootstrapGateway.ts'), 'utf-8');
-    // 头注必须如实列出真实消费者与未收敛缺口（不得粉饰为「已覆盖全链」）
+    const invoker = readFileSync(join(ROOT, 'src/host/skillInvoker.ts'), 'utf-8');
+    // 头注必须如实列出真实消费者（不得粉饰为「已覆盖全链」）
     expect(budget).toMatch(/真实消费面/);
     expect(budget).toMatch(/toolsBootstrapGateway\.ts/);
-    expect(budget).toMatch(/未在本轮收敛/);
-    // 该臂头注声明的唯一消费者必须真的 import 本模块
+    // cycle-78 WS-B：同步入口的 120000 cap 不对称**已收敛**，头注必须如实改口
+    // （继续写「未在本轮收敛」= 注释与源码里的 MAX_SKILL_INVOKE_TIMEOUT_MS 互相矛盾）
+    expect(budget).toMatch(/已收敛/);
+    expect(budget).not.toMatch(/未在本轮收敛/);
+    // 该臂头注声明的唯一入口消费者必须真的 import 本模块
     expect(gateway).toMatch(/from '\.\/runtime\/bootstrapBudget\.ts'/);
+    // 新增消费者（同步技能入口）必须真的调用上限纯函数
+    expect(invoker).toMatch(/resolveSkillInvokeTimeout/);
     // 反向前提：旧假声明（声称两个编排器与 engine integration 都用默认参数引用）必须已删除
     expect(budget).not.toMatch(/本条被 runtime\/bootstrapOrchestrator\.ts、/);
   });

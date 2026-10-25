@@ -158,7 +158,16 @@
     "orchestration": "Agent orchestration",
     "enabledMark": "enabled",
     "disabledMark": "disabled",
-    "snapshotAt": "Snapshot {timestamp}"
+    "snapshotAt": "Snapshot {timestamp}",
+    "autonomyHistoryTitle": "Autonomy changes",
+    "autonomyHistoryAria": "Autonomy change timeline: showing {shown} of {total}",
+    "autonomyFromTo": "{from} → {to}",
+    "autonomyActor": "by {actor}",
+    "autonomyExempt": "⚠ human trust exemption {avg}/{threshold}",
+    "autonomyMore": "…{count} more changes not shown",
+    "autonomyHistoryError": "History read failed: {error}",
+    "authHuman": "human-authorized",
+    "authSystem": "system-authorized"
   },
   "prefs": {
     "ariaLabel": "ANIC feature switches",
@@ -330,11 +339,15 @@
     "weakChannel": "channel-only {n} (read only by tests / agent cards)",
     "truncated": "Detail shows {shown} of {total} (the other {rest} count only in the full totals above).",
     "declaredOnly": "Production anchors: no write point {nw} (locale keys are pure t() lookups), declared-but-unwired {do} — the two need different fixes.",
+    "channelDeclared": "channel declarations {n} (endpoints unconsumed but declared: external curl / ops / MCP clients; declaring is not an exemption)",
+    "channelUndeclared": "undeclared {n} (endpoints unconsumed with no declaration — ratchet red: add owner+docRef+reason or a real consumer)",
+    "channelUndeclaredList": "undeclared endpoints, first 3: {list}",
     "group": {
       "consumedGap": "Real gaps {n}: registered/produced, but nobody reads it in this repo (external consumer may be a host agent, invisible here)",
       "producedGap": "Never read {n}: no write point or no wiring — wire it, or delete it",
       "dynamicClaimed": "Dynamic-key claims {n}: prefix evidence, no literal consumer",
-      "channelOnly": "Channel-only {n}: read only by tests / agent cards"
+      "channelOnly": "Channel-only {n}: read only by tests / agent cards",
+      "declaredChannel": "Declared channels {n}: called by external curl / ops / MCP clients, no production-code consumer here (declaring is not an exemption — keep the doc true)"
     },
     "kind": {
       "registerCall": "real register call",
