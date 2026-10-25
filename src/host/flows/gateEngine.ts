@@ -67,9 +67,13 @@ export function checkG0(workspaceRoot: string): GateCheckResult {
   return { pass: true, detail: `Evaluation report found in ${latest.name} (${rows} dimension rows)` };
 }
 
-/** G1（gate-check.mjs:61-80 同构；解析器与技能 lib/tasks.mjs 共同实现语义）。 */
+/** G1（gate-check.mjs:61-80 同构）。cycle-79 O-01：导出面 detail 追加 §cycle-N（与脚本逐字全等）。 */
 export function checkG1(workspaceRoot: string): GateCheckResult {
   const latest = latestCycle(workspaceRoot);
+  return withCycleTag(gateG1(latest), latest);
+}
+/** G1 判定核心（不含循环身份——身份由 withCycleTag 单点追加）。 */
+function gateG1(latest: { name: string; dir: string } | null): GateCheckResult {
   if (!latest) return { pass: false, detail: 'No cycle workspace' };
   const taskList = join(latest.dir, '任务清单.md');
   if (!existsSync(taskList)) return { pass: false, detail: 'No task list' };
@@ -79,10 +83,13 @@ export function checkG1(workspaceRoot: string): GateCheckResult {
   if (pending.length > 0) return { pass: false, detail: `${pending.length} of ${rows.length} tasks not completed` };
   return { pass: true, detail: `All ${rows.length} tasks completed` };
 }
-
-/** G2（gate-check.mjs 同构：正典报告优先 + §2 汇总表格式契约；cycle-72 与脚本逐字对齐）。 */
+/** G2（gate-check.mjs 同构：正典报告优先 + §2 汇总表契约）。cycle-79 O-01：detail 追加 §cycle-N。 */
 export function checkG2(workspaceRoot: string, configContent: string | null = null): GateCheckResult {
   const latest = latestCycle(workspaceRoot);
+  return withCycleTag(gateG2(workspaceRoot, latest, configContent), latest);
+}
+/** G2 判定核心（不含循环身份）。 */
+function gateG2(ws: string, latest: { name: string; dir: string } | null, cfg: string | null): GateCheckResult {
   if (!latest) return { pass: false, detail: 'No cycle workspace' };
   const testReportsDir = join(latest.dir, 'test-reports');
   if (!existsSync(testReportsDir)) return { pass: false, detail: 'No test reports directory' };
@@ -97,12 +104,8 @@ export function checkG2(workspaceRoot: string, configContent: string | null = nu
   const eligible = reports.filter((f) => !DERIVED_REPORTS.includes(f));
   const byMtime = eligible.map((f) => ({ f, m: mtimeOf(f) })).sort((a, b) => b.m - a.m);
   const latestReport = canonical ?? (byMtime[0]?.f ?? reports[0] ?? '');
-  const newerNonCanonical = canonical
-    ? eligible.filter((f) => f !== canonical && mtimeOf(f) > mtimeOf(canonical))
-    : [];
-  const ignoredNote = newerNonCanonical.length > 0
-    ? ` [ignored newer non-canonical: ${newerNonCanonical.join(', ')}]`
-    : '';
+  const newerNonCanonical = canonical ? eligible.filter((f) => f !== canonical && mtimeOf(f) > mtimeOf(canonical)) : [];
+  const ignoredNote = newerNonCanonical.length > 0 ? ` [ignored newer non-canonical: ${newerNonCanonical.join(', ')}]` : '';
   const content = readFileSync(join(testReportsDir, latestReport), 'utf-8');
   const summary = parseTestSummary(content);
   if (!summary.recognized) {
@@ -112,33 +115,32 @@ export function checkG2(workspaceRoot: string, configContent: string | null = nu
     return { pass: false, detail: `${summary.failures} failures, ${summary.errors} errors (${latestReport})${ignoredNote}` };
   }
   // cycle-39 T-3903：journey_coverage（双侧同构，差分契约钉死）
-  const journeyCoverage = readYamlNestedBoolean(configContent, 'gates', 'G2', 'journey_coverage');
+  const journeyCoverage = readYamlNestedBoolean(cfg, 'gates', 'G2', 'journey_coverage');
   if (journeyCoverage) {
-    const j = checkJourneyCoverage(workspaceRoot, configContent);
+    const j = checkJourneyCoverage(ws, cfg);
     if (!j.pass) return { pass: false, detail: `${j.detail} (plus zero failures in ${latestReport})${ignoredNote}` };
   }
   return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})${ignoredNote}` };
 }
-
-/** G3（gate-check.mjs:119-131 同构：build_cmd 走 shell，timeout 120s）。 */
+/** G3（gate-check.mjs 同构：build_cmd 走 shell，timeout 120s）。cycle-79 O-01：detail 追加 §cycle-N。 */
 export function checkG3(workspaceRoot: string, configContent: string | null): GateCheckResult {
-  const buildCmd = readYamlString(configContent, 'build_cmd');
+  return withCycleTag(gateG3(workspaceRoot, configContent), latestCycle(workspaceRoot));
+}
+/** G3 判定核心（不含循环身份）。 */
+function gateG3(ws: string, cfg: string | null): GateCheckResult {
+  const buildCmd = readYamlString(cfg, 'build_cmd');
   if (!buildCmd) return { pass: false, detail: 'No build command configured' };
-  const r = spawnSync(buildCmd, { cwd: workspaceRoot, timeout: 120000, shell: true, encoding: 'utf-8' });
+  const r = spawnSync(buildCmd, { cwd: ws, timeout: 120000, shell: true, encoding: 'utf-8' });
   return r.status === 0
     ? { pass: true, detail: `Build passed: ${buildCmd}` }
     : { pass: false, detail: `Build failed: ${buildCmd}` };
 }
-
 /**
  * 质量门完整判定（含**逐维裁决**——cycle-77 修 F-04，cycle-72 债务台账 §4）。
- *
- * 被守卫的缺陷：原生侧判定面把「门的 pass/detail」和「质量维结论」分成两个字段返回，
- * 账本写入（recordNative）原先只消费前者 ⇒ 质量维 FAIL 时账本仍可能记 PASS，
- * 与脚本侧同一个账本 fail-open 面。
- * 这里把逐维裁决词与 pass/detail 一起算出来（**同一次解析**，不二次读报告），
- * 使账本 detail 能带上 `[Q1:PASS,Q5:FAIL]` 这类证据；`checkQualityGate` 保留
- * `{pass, detail}` 纯形状（既有调用方与 toEqual 契约不变）。
+ * 被守卫缺陷：原生侧把「门的 pass/detail」与「质量维结论」分成两个字段返回，账本写入
+ * （recordNative）原先只消费前者 ⇒ 质量维 FAIL 时账本仍可能记 PASS（与脚本侧同一个
+ * fail-open 面）。修法：逐维裁决词与 pass/detail **同一次解析**算出，供账本 detail 拼接
+ * `[Q1:PASS,Q5:FAIL]`；`checkQualityGate` 仍返回 `{pass, detail}` 纯形状（既有契约不变）。
  */
 export interface QualityGateEvaluation {
   pass: boolean;
@@ -148,9 +150,7 @@ export interface QualityGateEvaluation {
 }
 
 /** 质量门结果 + 账本合流证据（附加字段不改变 {pass, detail} 契约；差分测试只比这两字段）。 */
-export interface QualityGateDetail extends GateCheckResult {
-  dimensionRows?: string[];
-}
+export type QualityGateDetail = GateCheckResult & { dimensionRows?: string[] };
 
 /** 质量门完整判定（gate-check.mjs checkQualityGate + dimensionRows 同构）。 */
 export function evaluateQualityGate(workspaceRoot: string, gateId: string): QualityGateEvaluation {
@@ -194,8 +194,22 @@ export function checkQualityGate(workspaceRoot: string, gateId: string): GateChe
   return { pass, detail };
 }
 
+/**
+ * 循环身份后缀（cycle-79 修 O-01，cycle-78 审计日志 §6 / 债务台账 O-01）。
+ * 被守卫缺陷：账本 `--record` 的去重键是 (result, detail)，而 G1/G2/G3 的 detail 原先
+ * **与循环无关**（如 `Zero failures, zero errors (测试报告.md)`）⇒ 跨循环同结论被静默
+ * dedup，本循环没有自己的门禁审计条目（实测 cycle-78 的 G2/G3 仍是 cycle-77 记录）。
+ * 修法：detail 末尾追加 `§cycle-N`，让去重键自带循环身份。G0 不套：其 detail 已含
+ * `in cycle-N`。必须与脚本 `gate-check.mjs::withCycleTag` 逐字全等（差分契约抓 drift）。
+ */
+function withCycleTag(result: GateCheckResult, latest: { name: string } | null): GateCheckResult {
+  if (!latest) return result;
+  return { ...result, detail: `${result.detail} §${latest.name}` };
+}
+
 const GATE_FN: Record<string, (ws: string, cfg: string | null) => GateCheckResult> = {
   G0: (ws) => checkG0(ws),
+  // cycle-79 O-01：循环身份已在 checkG1/G2/G3 内追加（单点，避免编排层二次加 §）
   G1: (ws) => checkG1(ws),
   G2: (ws, cfg) => checkG2(ws, cfg),
   G3: (ws, cfg) => checkG3(ws, cfg),

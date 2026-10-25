@@ -192,12 +192,16 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
     expect(cycles, '运行时 import 环：' + cycles.slice(0, 3).map((c) => c.join(' -> ')).join(' ; ')).toEqual([]);
   });
 
-  it('⑫ 性能预算（棘轮）：全量体检必须 < 2500 ms —— 防回退到 7.9 s 的 O(项×全仓行) 实现', () => {
-    // 实测 453 ms（倒排索引）；留 5.5× 余量防抖动。回退到旧实现（7933 ms）必红。
+  it('⑫ 性能预算（棘轮）：全量体检必须 < 2500 ms（插桩 coverage 运行时放宽到 6000 ms）—— 防回退到 7.9 s 的 O(项×全仓行) 实现', () => {
+    // 实测 453–535 ms（倒排索引）；留 5.5× 余量防抖动。回退到旧实现（7933 ms）必红。
+    // cycle-79：v8 插桩使同一路径实测 ~2.7 s（覆盖统计开销，非算法回退）。`pnpm run coverage`
+    // 会设 DSH_ANIC_COVERAGE=1 ⇒ 该次运行放宽到 6000 ms；**常规测试仍守 2500 ms**
+    // （回到 7.9s 的旧实现两种预算下都必红，棘轮未被实质削弱）。
+    const budgetMs = process.env.DSH_ANIC_COVERAGE === '1' ? 6000 : 2500;
     const t0 = performance.now();
     runClosureAudit(ROOT);
     const elapsed = performance.now() - t0;
-    expect(elapsed, '全量体检耗时 ' + elapsed.toFixed(0) + ' ms 超预算——检查 evidenceIndex 是否被绕过').toBeLessThan(2500);
+    expect(elapsed, '全量体检耗时 ' + elapsed.toFixed(0) + ' ms 超预算——检查 evidenceIndex 是否被绕过').toBeLessThan(budgetMs);
   });
 
   /*

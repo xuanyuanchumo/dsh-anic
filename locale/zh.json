@@ -6,9 +6,7 @@
   "panel": {
     "toolbar": "ANIC 工作流工具栏",
     "refresh": "刷新",
-    "refreshing": "刷新中…",
     "prefsToggle": "⚙ 开关",
-    "prefs": "设置",
     "selfInit": "自举",
     "selfInitTitle": "对当前工作区执行技能 init-workflow（幂等）",
     "selfInitRunning": "自举中…",
@@ -18,13 +16,6 @@
     "selfInitRetry": "重试",
     "selfInitOff": "自举已按开关关闭（flow.selfInit 由工作区/部署层控制）",
     "selfInitOffTitle": "该开关只支持工作区/部署层，用户层不可写",
-    "stepTrace": "步骤追踪",
-    "diagnostics": "诊断",
-    "noData": "暂无数据",
-    "loading": "加载中…",
-    "liveSource": "实时",
-    "embeddedSource": "嵌入快照",
-    "fetchFailed": "获取失败",
     "notLoaded": "未加载",
     "malformedNotUsed": "响应畸形 — 未采用",
     "fetchFailedWith": "拉取失败 ({error})",
@@ -36,7 +27,6 @@
     "sourceEmbeddedFetchFailed": "构建期快照（live 拉取失败：{error}）",
     "sourceMalformed": "live 响应畸形 — 保留上次数据",
     "sourceLive": "实时 {generatedAt} · {nodes} 节点 / {edges} 边",
-    "dataLine": "数据：{line}",
     "traceDataLine": "步骤流程数据：{line}",
     "traceLine": "{steps} 步 · 投影 {generatedAt}",
     "diagDataLine": "运行时自检：{line}",
@@ -58,12 +48,6 @@
   },
   "state": {
     "loading": "加载中…",
-    "empty": "暂无数据",
-    "error": "加载失败",
-    "degraded": "降级运行",
-    "stale": "以下为最后已知数据",
-    "retry": "重试",
-    "lastSuccess": "上次成功：{time}",
     "sectionFailed": "本节数据取不到：{error}",
     "sectionFailedStale": "本节最近一次拉取失败：{error}（以下为上次成功的数据）"
   },
@@ -78,10 +62,6 @@
     "statusOrphaned": "疑似失联",
     "statusDone": "完成",
     "statusError": "失败",
-    "statusInFlightMark": "▶",
-    "statusOrphanedMark": "!",
-    "statusDoneMark": "✓",
-    "statusErrorMark": "✕",
     "pollOff": "自动刷新已关闭（flow.autoRefresh）—— 点「刷新」手动拉取",
     "turnGroup": "Turn {turn}（{count} 次调用）",
     "ungrouped": "未标注 turn（{count} 次调用）",
@@ -93,7 +73,6 @@
     "turnTimeRange": " · {from}–{to} · 跨度 {span}",
     "diagnostics": "通道计数：事件 {events} · 工具调用 {calls} · 结果 {results} · anic 调用 {anicCalls} · anic 结果 {anicResults}",
     "resultPreview": " ⇒ {preview}",
-    "resultPreviewLabel": "返回",
     "turnDensity": " · {rate} 次/分钟",
     "turnCompletedAt": " · 完成于 {at}",
     "elapsed": "已进行 {sec}s",
@@ -118,7 +97,6 @@
     "ledger": "账本: {result}",
     "producedBy": "产出: {producer}",
     "producedByTitle": "产出者标注（G-T5 结构化映射）：该步工件由哪个脚本/流程产出；无法结构化判定时不标注（不猜）",
-    "line": "{count} 步 · 投影 {generatedAt}",
     "warnings": "投影告警 {count} 条（诚实标注，非错误）",
     "statusDone": "完成",
     "statusActive": "进行中",
@@ -130,9 +108,7 @@
     "title": "运行时自检（Runtime INV Probes）",
     "pass": "PASS",
     "fail": "FAIL",
-    "summary": "{total} 项 · 通过 {passed} · 失败 {failed}",
-    "requestId": "requestId: {requestId}",
-    "failedRegion": "自检失败项"
+    "requestId": "requestId: {requestId}"
   },
   "org": {
     "cyclesTitle": "Cycle 全景",
@@ -143,7 +119,6 @@
     "ledgerInvalid": "校验失败",
     "trustTitle": "信任分",
     "recommendedBand": "推荐自主级: ",
-    "trustBarLabel": "{gate} 信任分 {score}%",
     "autonomyTitle": "自主级",
     "current": "当前: ",
     "configuredSuffix": "（配置 {band}）",
@@ -238,11 +213,7 @@
     "disabled": "HITL 批准队列已按开关关闭（flow.approvals）—— 队列降级为只读展示，修复动作请改走技能 CLI"
   },
   "gate": {
-    "PASS": "通过",
-    "FAIL": "失败",
-    "doubt": "存疑",
-    "pending": "待定",
-    "skip": "跳过"
+    "pending": "待定"
   },
   "presentation": {
     "skillSummary": "执行技能脚本 {script}",
@@ -271,7 +242,6 @@
     "title": "技能健康：",
     "summary": " {total} 次调用 · 总成功率 {rate}",
     "empty": "尚无调用历史（FlowTracker 无记录）——技能脚本被调用后此处呈现健康分析。",
-    "successRate": "成功率",
     "timeoutRate": "超时率",
     "avgDuration": "平均耗时",
     "suggestionsTitle": "改进建议：",
@@ -308,7 +278,6 @@
     "closure": "闭环体检"
   },
   "techdebt": {
-    "title": "技术债务队列：",
     "summary": "待处理 {open} · 已消费 {resolved} · 跳过 {skipped}",
     "empty": "零欠债——无未消费提案（评估失败维度才会产提案）。",
     "more": "…还有 {count} 条未展示（截限）",
@@ -332,7 +301,6 @@
     "evidenceOf": "证据：{kind}",
     "notesTitle": "判定口径：",
     "generatedAt": "体检时刻：{generatedAt}",
-    "unavailable": "闭环体检数据不可用（路由未注册或扫描失败）。",
     "bucketsTitle": "全量计数（以下数字永不截断）：",
     "weakTitle": "证据偏弱（已计入「有消费」、但不算生产代码消费）：",
     "weakDynamic": "计算键认领 {n}（有前缀证据、无字面量消费方）",

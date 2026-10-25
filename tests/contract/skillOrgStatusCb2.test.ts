@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -145,31 +145,33 @@ describe('④⑤ 账本缺失 / 坏 JSON / 形状不认识 → 明确 [SKIP] 并
   });
 });
 
-describe('⑥ 反向自检：HEAD 旧实现在裸数组夹具上必须崩溃（证明修的是真缺陷）', () => {
-  it('旧脚本裸数组 → TypeError 且无任何 CB 输出；旧脚本包裹形态照常触发 ⇒ 夹具可区分', () => {
-    const gitShow = spawnSync('git', ['show', 'HEAD:assets/skill/scripts/org-status.mjs'], {
-      cwd: ROOT, encoding: 'utf-8', timeout: 20000,
-    });
-    expect(gitShow.status, `git show 失败（HEAD 不含该脚本？）：${gitShow.stderr}`).toBe(0);
+describe('⑥ 反向自检：把形状归一退回「直接取 .entries」→ 裸数组必崩溃（证明修的是真缺陷）', () => {
+  it('回退副本裸数组 → TypeError 且无 CB 输出；回退副本包裹形态照常触发 ⇒ 夹具可区分', () => {
+    // 为什么用「源码变异」而不是 `git show HEAD`：cycle-78 修复已随 ad14e22 提交，
+    // HEAD 现在是**已修**版本——历史锚点会随每次 commit 腐烂（本轮实测从绿变红）。
+    // 变异副本与 git 历史无关：把归一里「先判数组」的三元表达式退回旧形态
+    // `parsed.entries`（裸数组上即 Array.prototype.entries 函数），即复现原始崩溃。
     const legacyDir = join(tmpdir(), `anic-cb2-legacy-${Date.now()}`);
     mkdirSync(legacyDir, { recursive: true });
-    cpSync(join(SCRIPTS_DIR, 'lib'), join(legacyDir, 'lib'), { recursive: true });
-    const legacyScript = join(legacyDir, 'org-status.mjs');
-    writeFileSync(legacyScript, gitShow.stdout ?? '');
-    expect(gitShow.stdout, '旧脚本内容为空 = 反向自检失效').toContain('ledger.entries');
+    cpSync(SCRIPTS_DIR, join(legacyDir, 'scripts'), { recursive: true });
+    const legacyScript = join(legacyDir, 'scripts', 'org-status.mjs');
+    const src = readFileSync(legacyScript, 'utf-8');
+    // 锚点用 \r?\n：技能脚本在工作区是 CRLF（git autocrlf），LF-only 锚点会恒 false
+    const normalization = /  const entries = Array\.isArray\(parsed\)\r?\n    \? parsed\r?\n    : \(parsed && typeof parsed === 'object' && Array\.isArray\(parsed\.entries\) \? parsed\.entries : null\);/;
+    expect(normalization.test(src), 'loadLedgerEntries 归一形态已变——请同步本反向自检锚点').toBe(true);
+    writeFileSync(legacyScript, src.replace(normalization, '  const entries = parsed.entries; // LEGACY: 无形状归一'));
 
     try {
-      // 同一裸数组夹具：旧实现必崩（未捕获 TypeError）
+      // 同一裸数组夹具：回退版必崩（在函数上找 .slice）
       writeLedger(DOUBT_ENTRIES);
       const legacy = run('auto-fallback', legacyScript);
-      expect(crashed(legacy.out), `旧实现未崩溃，说明夹具没有区分力：\n${legacy.out}`).toBe(true);
-      expect(legacy.out).toContain('ledger.entries.slice is not a function');
-      expect(cb2Line(legacy.out), '旧实现崩溃前不应有 CB2 结论').toBe('');
+      expect(crashed(legacy.out), `回退版未崩溃，说明夹具没有区分力：\n${legacy.out}`).toBe(true);
+      expect(legacy.out).toContain('is not a function');
+      expect(cb2Line(legacy.out), '回退版崩溃前不应有 CB2 结论').toBe('');
 
-      // 对照：旧实现在包裹形态上照常触发 ⇒ 差异只在「账本形状归一」
+      // 对照：回退版在包裹形态上照常触发 ⇒ 差异只在「账本形状归一」
       writeLedger({ entries: DOUBT_ENTRIES, chainHead: 'x' });
-      const legacyWrapped = run('auto-fallback', legacyScript);
-      expect(cb2Line(legacyWrapped.out)).toContain('[TRIGGERED] CB2');
+      expect(cb2Line(run('auto-fallback', legacyScript).out)).toContain('[TRIGGERED] CB2');
 
       // 新实现同裸数组夹具不崩且结论一致
       writeLedger(DOUBT_ENTRIES);

@@ -1,5 +1,91 @@
 # dsh-anic CHANGELOG
 
+## v0.45.0 — 2026-10-26（cycle-79：账本循环身份 + 覆盖证据链 + 词表零死键 + 账本形状归一）
+
+> L4 全自主第 79 轮。起点是**宿主重启后的真机复核**：v0.44.0 已生效（closure `channelDeclared=46`、
+> org-status `L4 + historyCount=2` 且带 `trustExemption`、self-check 9 探针 P9 in-sync）。本轮攻的是
+> 上一轮审计日志与待排期台账点名的"**证据链缺口**"，并把覆盖率从"声明"变成"可测量且达标"。
+
+### ① 账本循环身份：跨循环不再静默去重（P0 可审计性）
+
+**实测证据**：`.cycles/gates/ledger.json` 里 cycle-78 的 G2/G3 仍是 cycle-77 记录——去重键 `(result, detail)`
+不含循环身份，detail 是循环无关字符串 ⇒ 跨循环同结论被静默 dedup，本循环**没有自己的审计条目**。
+
+- `gate-check.mjs`：G1/G2/G3 的 detail 追加 `§cycle-N`（G0 已含 `in cycle-N`，保持）；环境/质量段/退出码语义不变；
+- `gateEngine.ts`（native 侧）：detail 与脚本**逐字全等**（差分契约钉死）；`checkG1/G2/G3` 导出面套同一后缀；
+- 判别力：HEAD 旧脚本同夹具第二轮 → G1/G2/G3 全部 `unchanged, not re-recorded`（账本 5 条）；新脚本 → 8 条；
+- 契约 `ledgerCycleIdentityContract` 4 例：跨循环各记 4 条 / 同循环 dedup / 反向自检（剥身份必红）/ native=script 逐字。
+
+**真实账本**：cycle-79 四门各一条，G1/G2/G3 detail 末尾 `§cycle-79`；cycle-78 缺的 G2/G3 无法回填（append-only），
+本循环起不再发生。
+
+### ② 覆盖率证据链（P1 测试体系，本仓首次可测量）
+
+**被守卫缺陷**：`.cycles/config.yml` 声明 `gates.G2.coverage_threshold`（lines 80 / branches 65），
+但 `@vitest/coverage-v8` 从未安装、G2 只查测试报告与 journey 覆盖——**声明阈值却不测量 = 装饰性声明**。
+
+- 安装 `@vitest/coverage-v8@3.2.7`；`vitest.config.ts` 配 v8 provider / `all:true` / json-summary，
+  产物落 `.cycles/cycles/cycle-79/coverage/`（不污染仓库根）；
+- 新增 `scripts/coverage.mjs`（163 行）：跑测量 → 读摘要 → 打印四指标 + 最差 5 文件 → **现场阈值判定**（读 config.yml）；
+- **真实结果：lines 87.27% / branches 83.26% / functions 88.69% / statements 87.27%（≥ 80/65，达标）**；
+- `coverageEvidenceContract` 5 例：工件存在（缺失即**明确失败，不 SKIP**）、阈值与 config 双向绑定、达标断言真读 JSON、
+  反向自检 + 防伪造（合计==total / 路径须在 src/ / 文件数≥100）；
+- 两个实测坑固化：`reportOnFailure`（证据不能在红时消失）、`clean:false`（同一次运行内契约假红）；
+- 插桩下性能棘轮（⑫ <2500ms）实测 2.7s → `pnpm run coverage` 注入 `DSH_ANIC_COVERAGE=1` 仅该次放宽到 6000ms，
+  **常规测试仍守 2500ms**（旧 7.9s 实现在两种预算下都必红）。
+
+### ③ 词表卫生：39 条死键 → 32 删 / 7 具名 RESERVED（P1）
+
+- i18n 族 `unconsumed 39 → 7`（键数 332→300）；逐键复核含**动态前缀审计**（无 `'gate.'+x` / 模板串构造），
+  确认无引用才删；zh/en 同键删除；
+- 保留 7 条全部具名 + reason：`meta.description`（类元数据、宿主按属性路径读）+ `panel.selfInitOff(-Title)`
+  （关闭态零说明：功能缺口）+ `trace.statusActive/Failed/Skipped/Pending`（渲染裸英文 token：功能缺口）；
+- `i18nDeadKeyContract` 5 例：未消费集 ⇄ RESERVED **双向相等**、reason 校验、反向自检（注入 `__probe__.deadKey` 必红；
+  发现"RESERVED 写完整引号字面量会被测试自身算作消费"的自指陷阱，改用拼接）、zh/en 全等、非空下限。
+
+### ④ 硬化：流程层超时 cap 统一 + 技能账本形状归一（P2）
+
+- 4 条流程（archive / gate-check / hitl / macro-phase）的 cap 从写死 120000 → `MAX_SKILL_INVOKE_TIMEOUT_MS`（240s），
+  默认值语义不变；静态守卫精确区分"cap 位"与 `??` 默认位；
+- `lib/ledger.mjs` 新增唯一读取实现 `readLedger`：包裹 / 裸数组 / 缺失 / 坏 JSON / 形状不认识五态；
+  裸数组链头由末条 hash 重建（`--verify` 结论与包裹一致）；不可读时 `gate-ledger --list/--verify` 输出
+  `[SKIP] ledger unavailable — 原因` + exit 1，**绝不 `Valid: YES`**；`appendEntry` 不可读时**拒绝追加**（防覆盖历史）；
+- 判别力：旧实现裸数组 → `No gate entries recorded.` / `Total entries: 0 / Valid: YES`（假健康）；新实现 → 真实 2 条 + 链头重建说明；
+- `ledgerShapeNormalization` 14 例（真 spawn + HEAD/变异反向自检 + 4 文件 cap 静态守卫）。
+
+### ⑤ 工程化与证据
+
+- 技能版本 **2.6.0 → 2.6.1**（四锚一致）：账本循环身份 + 形状归一是行为变更；`scripts-reference.md` 补 `§cycle-N`
+  去重须知与 gate-ledger `[SKIP]` 语义；
+- 文档：`API参考-周期面.md`（读账本须知 §cycle-N）、`测试指南.md` §9 覆盖率证据链、`闭环三态真值契约.md`（删键说明）；
+- 安全：新增 coverage 工具链带入 `glob <10.5.0` [high] 传递漏洞 → `pnpm-workspace.yaml` override 钉 10.5.0，
+  **high 1→0**（moderate 3 = vitest 已知跨大版本项，维持登记）。
+
+### 验证基线（本轮收口）
+
+```
+typecheck: 双 tsconfig 0 错
+validate:  12/12 PASS（dsh-anic@0.45.0）
+vitest:    168 files / 2066 tests 全绿
+smoke:     ALL PASS（20 条）
+trigger:   22 tools · recall 27/27 = 100% · FPR 0/14
+coverage:  lines 87.27% · branches 83.26% · functions 88.69%（≥80/65 达标）
+eval:      E1-E8 + Q1-Q8 16 维全 PASS
+gates:     G0-G3 全 PASS（G1/G2/G3 detail 含 §cycle-79；账本 176 条 valid）
+lifecycle: cycle-79 close → plan→design→build→test→deploy→maintain 自动推进
+skill:     2.6.1 · ok=true / in-sync / extras=[]
+build:     client.js 297,131 B + host.js 574,931 B（原子替换）
+```
+
+### 已知边界（诚实登记）
+
+- J0 探针未跑；**GUI 浏览器级验证受宿主 web 认证阻断**（agent 浏览器无会话凭据）——面板继续以真渲染 + 契约锚点取证。
+- 覆盖率分母含 0% 的 client 文件（`WorkflowGraphPanel.ts` 等），真实最差文件已列明，不宣称"全面高覆盖"。
+- `.cycles/` gitignore ⇒ 覆盖率工件不随仓库分发；契约"缺失即明确失败"。
+- i18n 消费面含 `tests/` 引用（`trace.statusDone` 类），词表覆盖率可能被测试字面量抬高（登记待收窄）。
+- `multi-agent-gate.mjs` 对不可读账本文案仍写 `ledger(empty)`（同族文案瑕疵，未修）。
+- vitest 自身 3 条 moderate 漏洞（修复版 4.1.11，跨大版本，维持既有登记）。
+
 ## v0.44.0 — 2026-10-26（cycle-78：全生命周期相位自动化 + 熔断可达性 + 通道声明 + 自主级时间线）
 
 > L4 全自主第 78 轮。起点是**宿主重启后的真实复核**（cycle-77 交付已生效：`?workspace=` 查询选择器、

@@ -26,6 +26,9 @@ import {
   PHASES, PHASE_IDS, loadMacroState, readGateResults, advanceMacro,
 } from './macroPhaseEngine.ts';
 import { resolveSkillScriptsDir, invokeSkillScript } from '../skillInvoker.ts';
+// 超时 cap 单一事实源（cycle-79 O-03）：原先独立写死 120000，与技能入口 240000 不一致。
+// 默认值（120s）保持本流程原语义不变，只把 cap 统一到同一常量。
+import { MAX_SKILL_INVOKE_TIMEOUT_MS } from '../runtime/bootstrapBudget.ts';
 
 export type MacroPhaseState = 'plan' | 'design' | 'build' | 'test' | 'deploy' | 'maintain';
 
@@ -124,7 +127,8 @@ export function runMacroPhaseFlow(
   opts: { target?: string; mode?: MacroFlowMode; dryRun?: boolean; timeoutMs?: number } = {},
 ): MacroFlowRunResult {
   const mode: MacroFlowMode = opts.mode ?? 'script';
-  const timeoutMs = Math.min(opts.timeoutMs ?? 120000, 120000);
+  // cap 统一到技能调用上限（cycle-79 O-03）；显式传参优先语义不变，默认 120s 不变
+  const timeoutMs = Math.min(opts.timeoutMs ?? 120000, MAX_SKILL_INVOKE_TIMEOUT_MS);
   const cyclesDir = join(workspaceRoot, '.cycles');
   const before = loadMacroState(workspaceRoot)?.currentPhase ?? 'plan';
   const gatesPassed = readGateResults(workspaceRoot).passed;

@@ -174,11 +174,16 @@ describe('④ 反向自检：把报告模式改回 exit 1，① 必须变红', (
   });
 });
 
-describe('⑤ 技能版本四锚 2.6.0（quick-validate 真跑）', () => {
+describe('⑤ 技能版本四锚（quick-validate 真跑；版本从技能 CHANGELOG 首条派生，防每次发版误红）', () => {
   it('版本一致跨 4 锚点且校验 PASS', () => {
+    // cycle-79：原断言硬编码 2.6.0，技能升 2.6.1 即红——版本号是活真相源，
+    // 从 assets/skill/CHANGELOG.md 顶部条目派生（与 npxInit/skillIntegrity 同款纪律）。
+    const changelog = readFileSync(join(ROOT, 'assets/skill/CHANGELOG.md'), 'utf8');
+    const expected = /^## (\d+\.\d+\.\d+)\b/m.exec(changelog)?.[1];
+    expect(expected, '技能 CHANGELOG 首条版本可解析').toBeDefined();
     const r = run(join(SCRIPTS_DIR, 'quick-validate.mjs'), [join(ROOT, 'assets/skill')]);
     expect(r.code, `quick-validate 应 PASS：${r.out}\n${r.err}`).toBe(0);
-    expect(r.out).toMatch(/Version consistent across 4 anchors: 2\.6\.0/);
+    expect(r.out).toContain(`Version consistent across 4 anchors: ${expected}`);
     expect(r.out).toContain('VALIDATION PASSED');
   });
 });

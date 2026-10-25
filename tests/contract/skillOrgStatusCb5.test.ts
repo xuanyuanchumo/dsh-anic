@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -131,28 +131,32 @@ describe('⑤ fail-safe：坏 JSON / 非数组 / 不足 2 条 → 不触发、�
   });
 });
 
-describe('⑥ 反向自检：HEAD 旧实现在同一夹具上必须判 OK（证明旧版真 fail-open）', () => {
-  it('git show HEAD 的旧脚本：真实形状末 2 条超预算仍 [OK] CB5；新脚本同夹具 [TRIGGERED]', () => {
-    // 旧脚本要能独立运行：把它连同 lib/ 复制到 tmp（相对 import 才能解析）
-    const gitShow = spawnSync('git', ['show', 'HEAD:assets/skill/scripts/org-status.mjs'], {
-      cwd: ROOT, encoding: 'utf-8', timeout: 20000,
-    });
-    expect(gitShow.status, `git show 失败（HEAD 不含该脚本？）：${gitShow.stderr}`).toBe(0);
+describe('⑥ 反向自检：把「质量带」判据回退成只认 band → ① 必红（证明旧版真 fail-open）', () => {
+  it('回退副本在真实形状夹具上仍 [OK] CB5，新实现同夹具 [TRIGGERED]', () => {
+    // 为什么用「源码变异」而不是 `git show HEAD`：cycle-78 的修复已随 ad14e22 提交，
+    // HEAD 现在是**已修**版本——历史锚点会随每次 commit 腐烂（本轮实测：HEAD 版反向
+    // 自检从绿变红，而缺陷其实早已修好）。变异副本与 git 历史无关，永远有效；锚点
+    // 断言保证「判据形态变了就红」，不会退化成静默失效。
     const legacyDir = join(tmpdir(), `anic-cb5-legacy-${Date.now()}`);
     mkdirSync(legacyDir, { recursive: true });
-    cpSync(join(SCRIPTS_DIR, 'lib'), join(legacyDir, 'lib'), { recursive: true });
-    const legacyScript = join(legacyDir, 'org-status.mjs');
-    writeFileSync(legacyScript, gitShow.stdout ?? '');
-    expect(gitShow.stdout, '旧脚本内容为空 = 反向自检失效').toContain('snapshots');
+    cpSync(SCRIPTS_DIR, join(legacyDir, 'scripts'), { recursive: true });
+    const legacyScript = join(legacyDir, 'scripts', 'org-status.mjs');
+    const src = readFileSync(legacyScript, 'utf-8');
+    const qualityBranch = /  return typeof entry\.overBudgetCount === 'number' && entry\.overBudgetCount > 0; \/\/ 质量带形状/;
+    expect(qualityBranch.test(src), 'CB5 判据形态已变——请同步本反向自检锚点').toBe(true);
+    writeFileSync(legacyScript, src.replace(qualityBranch, '  return false; // LEGACY: 只认 band 字段'));
 
     try {
+      // 真实生产形状：旧判据（只认 band）→ 恒 [OK]（fail-open 实锤）
       writeBandHistory([qualityEntry(0), qualityEntry(3), qualityEntry(1)]);
-      // 同一夹具：旧实现（读 history.snapshots）必判 OK —— CB5 在过去永不触发
       const legacy = runAutoFallback(legacyScript);
-      expect(cb5Line(legacy.out), `旧实现竟触发 CB5，夹具失去区分力：\n${legacy.out}`).toContain('[OK] CB5');
+      expect(cb5Line(legacy.out), `回退版竟触发 CB5，夹具失去区分力：\n${legacy.out}`).toContain('[OK] CB5');
       expect(legacy.code).toBe(0);
       // 新实现同夹具触发 ⇒ ① 在旧实现下必红（不是新旧都成立的永真断言）
       expect(cb5Line(runAutoFallback().out)).toContain('[TRIGGERED] CB5');
+      // 回退版在自主带夹具上仍触发 ⇒ 变异点确实在「质量带判据」，不是把整个 CB5 关掉
+      writeBandHistory([{ band: 'stable' }, { band: 'alarm' }, { band: 'alarm' }]);
+      expect(cb5Line(runAutoFallback(legacyScript).out)).toContain('[TRIGGERED] CB5');
     } finally {
       rmSync(legacyDir, { recursive: true, force: true });
     }

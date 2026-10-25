@@ -91,6 +91,8 @@ if (!cycleNumber || !nodeId || !Number.isInteger(cycleNumber) || cycleNumber < 1
 
 **磁盘形状：`<root>/.cycles/gates/ledger.json` 是 `{ entries: [...] }`，不是裸数组。** 这是所有 ledger 端点响应形状的上游 —— 改磁盘形状等于改 API。
 
+**条目 detail 自带循环身份（cycle-79 O-01）**：`gate-check.mjs --record` 的去重键是 `(result, detail)`，所以 detail 必须能区分循环——G1/G2/G3 的 detail 末尾带 ` §cycle-N`（如 `Zero failures, zero errors (测试报告.md) §cycle-79 [Q2:PASS]`，循环身份在质量段之前），G0 的循环身份则写在文本内（`Evaluation report found in cycle-79 (...)`）。因此**跨循环同结论不会被静默去重**：每个循环都有自己的 G0-G3 审计条目；同一循环重复跑仍按 `(result, detail)` 跳过。读账本判断"本循环门禁是否全绿"时必须看带本循环身份的条目，不能直接取该门最新一条（最新一条可能属于更新的循环）。
+
 ### 6.1 GET `/anic/api/ledger`（`ledgerRoute.ts:46`）
 
 **Query**：`offset`（默认 0）、`limit`（默认 `entries.length`），两者都走 `parseInt(_, 10)`。**非法值不做校验** —— `parseInt('abc')` 得到 `NaN`，`slice(NaN, NaN)` 得到空数组，因此畸形 query 返回空 `entries` 而非 400。

@@ -143,3 +143,30 @@ describe('F-04 原生侧同族修复：recordNative 必须消费质量维裁决'
     expect(entry?.detail).toContain('[Q1:PASS,Q5:FAIL]');
   });
 });
+
+describe('O-01 交叉面：循环身份段与质量段的拼接顺序（G1/G2/G3）', () => {
+  it('--gate all 全绿：detail = `<门 detail> §cycle-1 [Qx:PASS]`（身份在前、质量段在后）', () => {
+    // 全绿夹具：四门可过 + 四门质量维全 PASS
+    const dir = mkdtempSync(join(HERE, 'tmp-gate-ledger-'));
+    fixtures.push(dir);
+    const c = join(dir, '.cycles', 'cycles', 'cycle-1');
+    mkdirSync(join(c, 'test-reports'), { recursive: true });
+    writeFileSync(join(dir, '.cycles', 'config.yml'), 'autonomy_level: L4\nbuild_cmd: "exit 0"\n');
+    writeFileSync(join(c, '项目评估报告.md'), [
+      '| E1 | 意图对齐 | PASS | ok |',
+      '| Q1 | 架构 | PASS | ok |', '| Q5 | 复杂度 | PASS | ok |', '| Q7 | 工程 | PASS | ok |',
+      '| Q2 | 测试 | PASS | ok |', '| Q3 | 构建 | PASS | ok |', '| Q4 | 依赖 | PASS | ok |',
+    ].join('\n'));
+    writeFileSync(join(c, '任务清单.md'), '| T-01 | P0 | 任务 | 验证 | lead | 完成 |');
+    writeFileSync(join(c, 'test-reports', 'test-report.md'), '| 结果 | 数量 |\n| --- | --- |\n| 通过 | 10 |\n| 失败 | 0 |\n| 错误 | 0 |');
+
+    const r = spawnSync(process.execPath, [SCRIPT, dir, '--gate', 'all', '--quality', '--record'], { encoding: 'utf-8' });
+    expect(r.status).toBe(0);
+    const byGate = new Map(entryOf(dir).map((e) => [e.gate, e.detail]));
+    expect(byGate.get('G1')).toBe('All 1 tasks completed §cycle-1 [Q7:PASS]');
+    expect(byGate.get('G2')).toBe('Zero failures, zero errors (test-report.md) §cycle-1 [Q2:PASS]');
+    expect(byGate.get('G3')).toBe('Build passed: exit 0 §cycle-1 [Q3:PASS,Q4:PASS]');
+    // G0 例外：循环身份在 detail 文本内，无 § 段
+    expect(byGate.get('G0')).toBe('Evaluation report found in cycle-1 (7 dimension rows) [Q1:PASS,Q5:PASS]');
+  });
+});

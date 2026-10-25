@@ -77,9 +77,9 @@ describe('cycle-72 T-7207 闭环体检（可复算出口）', () => {
   it('已知真实缺口可被报出（棘轮基线：修掉任一缺口必须同步更新本清单）', () => {
     const unconsumedIds = new Set(summary.unconsumed.map((x) => x.cluster + '|' + x.id));
     const known = [
-      'i18n|' + gapKey('state', 'retry'),
-      'i18n|' + gapKey('techdebt', 'title'),
-      'i18n|' + gapKey('gate', 'PASS'),
+      // cycle-79（WS-3）：三条 i18n 死键已按"多余键"清理（state.retry / techdebt.title /
+      // gate.PASS），故从本基线移除——棘轮按纪律收紧而非放宽。i18n 族的零死键
+      // 由 tests/contract/i18nDeadKeyContract.test.ts 独立钉住（集合相等，比本条更严）。
       'routes|' + gapRoute('/anic', 'flows', 'gate-check', 'run'),
       'routes|' + gapRoute('/anic', 'self', 'gate-check'),
       'routes|' + gapRoute('/anic', 'api', 'trust'),

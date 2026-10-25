@@ -25,6 +25,10 @@ import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
 import { runArchiveAction, type ArchiveAction, type ArchiveOutcome } from './archiveEngine.ts';
 import { resolveSkillScriptsDir, invokeSkillScript } from '../skillInvoker.ts';
+// 超时 cap 单一事实源（cycle-79 O-03）：原先本文件独立写死 120000，与技能入口
+// （MAX_SKILL_INVOKE_TIMEOUT_MS=240000）形成「同一语义两套上限」——慢机上 120s 被
+// SIGTERM 掐断会被误读成流程失败。默认值（60s）保持本流程原语义不变，只统一 cap。
+import { MAX_SKILL_INVOKE_TIMEOUT_MS } from '../runtime/bootstrapBudget.ts';
 
 export type ArchiveFlowState = 'IDLE' | 'RUNNING' | 'DONE' | 'BLOCKED';
 
@@ -122,7 +126,8 @@ export function runArchiveFlow(
   opts: { cycle?: number; clean?: boolean; keep?: number; list?: boolean; mode?: ArchiveFlowMode; timeoutMs?: number } = {},
 ): ArchiveFlowRunResult {
   const mode: ArchiveFlowMode = opts.mode ?? 'native';
-  const timeoutMs = Math.min(opts.timeoutMs ?? 60000, 120000);
+  // cap 统一到技能调用上限（cycle-79 O-03）；显式传参优先语义不变，默认 60s 不变
+  const timeoutMs = Math.min(opts.timeoutMs ?? 60000, MAX_SKILL_INVOKE_TIMEOUT_MS);
   const cyclesDir = join(workspaceRoot, '.cycles');
 
   const action: ArchiveAction = opts.list === true

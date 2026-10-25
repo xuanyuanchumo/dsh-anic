@@ -1,6 +1,6 @@
 {
   "name": "dsh-anic",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "private": false,
   "description": "ANIC — AI-Native Iteration Cycle as a standalone DSH plugin (general-purpose workflow visualizer; this repo is only its first verification ground). Docs: docs/anic/",
   "type": "module",
@@ -38,6 +38,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.2.5",
+    "@vitest/coverage-v8": "3.2.7",
     "jsdom": "^30.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -70,6 +71,7 @@
     "build": "node scripts/build-client.mjs",
     "build:watch": "node scripts/build-client.mjs --watch",
     "typecheck": "node scripts/typecheck.mjs",
+    "coverage": "node scripts/coverage.mjs",
     "lint": "node scripts/validate-dsh.mjs",
     "validate:dsh": "node scripts/validate-dsh.mjs",
     "test": "node scripts/run-tests.mjs",

@@ -93,10 +93,10 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
   it('断言② 至少一个真实未消费项能被报出（棘轮基线，先跑真实清单再钉）', () => {
     const ids = new Set(summary.unconsumed.map((x) => x.cluster + '|' + x.id));
     const baseline = [
-      'i18n|' + gk('state', 'retry'),
-      'i18n|' + gk('techdebt', 'title'),
-      'i18n|' + gk('panel', 'refreshing'),
-      'i18n|' + gk('gate', 'PASS'),
+      // cycle-79（WS-3 死键清理）：i18n 侧 4 条基线（state.retry / techdebt.title /
+      // panel.refreshing / gate.PASS）已按"多余键"删除 ⇒ 从基线移除（收紧）。
+      // meta.description 是 RESERVED（类元数据，非 t() 键），仍必须被报为未消费；
+      // i18n 族的零死键由 tests/contract/i18nDeadKeyContract.test.ts 以**集合相等**独立钉住。
       'i18n|' + gk('meta', 'description'),
       'routes|' + gr('/anic', 'flows', 'gate-check', 'run'),
       'routes|' + gr('/anic', 'self', 'gate-check'),

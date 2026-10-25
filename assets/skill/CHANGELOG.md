@@ -1,5 +1,18 @@
 # Changelog — ai-native-iteration-cycle
 
+## 2.6.1 — 账本循环身份 + 账本形状归一（cycle-79）
+
+### 修复
+- **账本循环身份**（gate-check `--record`）：G1/G2/G3 的 detail 追加 `§cycle-N`。此前去重键 `(result, detail)`
+  不含循环身份 ⇒ 跨循环同结论被静默去重（实测 cycle-78 的 G2/G3 仍是 cycle-77 记录，本循环无审计条目）。
+  宿主 `gateEngine` 同语义（逐字全等）。
+- **账本形状归一**（`lib/ledger.mjs` `readLedger`）：包裹 / 裸数组 / 缺失 / 坏 JSON / 形状不认识五态；
+  裸数组不再被误当「0 条 + Valid: YES」（旧实现把 `Array.prototype.entries` 函数当 entries），
+  `appendEntry` 不可读时**拒绝写入**（防覆盖历史），`gate-ledger --list/--verify` 明确 `[SKIP] ledger unavailable — 原因`。
+
+### 兼容性
+- 无 `--record` 时打印文本不变；合法包裹账本 hash 链校验语义不变；`.` 与 `.dsh` 副本需 repair 同步。
+
 ## 2.6.0 — band-detector 告警≠执行失败（cycle-78 WS-B 可观测性诚实化）
 
 ### 修复（feat）

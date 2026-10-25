@@ -93,7 +93,8 @@ describe('checkG0（评估报告裁决行）', () => {
 describe('checkG1（任务表）', () => {
   it('缺任务清单 / 无任务行 → FAIL', () => {
     writeCycle({ '项目评估报告.md': EVAL_PASS });
-    expect(checkG1(tmp).detail).toBe('No task list');
+    // cycle-79 O-01：G1 detail 追加循环身份 §cycle-1（账本去重键必须自带循环）
+    expect(checkG1(tmp).detail).toBe('No task list §cycle-1');
     writeCycle({ '项目评估报告.md': EVAL_PASS, '任务清单.md': '# 空清单\n| 任务 | 优先级 | 内容 | 方式 | 责任 | 状态 |\n' });
     expect(checkG1(tmp).pass).toBe(false);
     expect(checkG1(tmp).detail).toContain('No task entries found');
@@ -102,20 +103,20 @@ describe('checkG1（任务表）', () => {
     writeCycle({ '任务清单.md': '| T-01 | P0 | a | b | c | 完成 |\n| T-02 | P1 | a | b | c | 待办 |' });
     const r = checkG1(tmp);
     expect(r.pass).toBe(false);
-    expect(r.detail).toBe('1 of 2 tasks not completed');
+    expect(r.detail).toBe('1 of 2 tasks not completed §cycle-1');
   });
   it('全完成 → PASS', () => {
     writeCycle({ '任务清单.md': TASKS_DONE });
-    expect(checkG1(tmp)).toEqual({ pass: true, detail: 'All 1 tasks completed' });
+    expect(checkG1(tmp)).toEqual({ pass: true, detail: 'All 1 tasks completed §cycle-1' });
   });
 });
 
 describe('checkG2（测试报告 §2 汇总表契约）', () => {
   it('无 test-reports 目录 / 无报告 → FAIL', () => {
     writeCycle({ '项目评估报告.md': EVAL_PASS });
-    expect(checkG2(tmp).detail).toBe('No test reports directory');
+    expect(checkG2(tmp).detail).toBe('No test reports directory §cycle-1');
     writeCycle({ '项目评估报告.md': EVAL_PASS, 'test-reports/.keep': '' });
-    expect(checkG2(tmp).detail).toBe('No test reports');
+    expect(checkG2(tmp).detail).toBe('No test reports §cycle-1');
   });
   it('汇总表不可识别 → FAIL（格式即契约，无证据 ≠ 通过）', () => {
     writeCycle({ 'test-reports/test-report.md': '自由文本，无汇总表' });
@@ -126,24 +127,26 @@ describe('checkG2（测试报告 §2 汇总表契约）', () => {
   it('失败/错误计数 >0 → FAIL: N failures, M errors', () => {
     writeCycle({ 'test-reports/test-report.md': '| 结果 | 数量 |\n| --- | --- |\n| 通过 | 8 |\n| 失败 | 2 |\n| 错误 | 1 |' });
     // cycle-72：detail 必须回显致证报告名（正典选择可审计）
-    expect(checkG2(tmp).detail).toBe('2 failures, 1 errors (test-report.md)');
+    // cycle-79 O-01：末尾追加 §cycle-1（循环身份进账本）
+    expect(checkG2(tmp).detail).toBe('2 failures, 1 errors (test-report.md) §cycle-1');
   });
   it('零失败零错误 → PASS', () => {
     writeCycle({ 'test-reports/test-report.md': TEST_SUMMARY });
-    expect(checkG2(tmp)).toEqual({ pass: true, detail: 'Zero failures, zero errors (test-report.md)' });
+    expect(checkG2(tmp)).toEqual({ pass: true, detail: 'Zero failures, zero errors (test-report.md) §cycle-1' });
   });
 });
 
 describe('checkG3（build_cmd）', () => {
-  it('未配置 → FAIL: No build command configured', () => {
+  it('未配置 → FAIL: No build command configured（无 cycle → 不追加循环身份）', () => {
     writeConfig('exit 0');
     expect(checkG3(tmp, null).detail).toBe('No build command configured');
   });
-  it('exit 0 → PASS；exit 2 → FAIL（detail 逐字对齐脚本）', () => {
+  it('exit 0 → PASS；exit 2 → FAIL（detail 逐字对齐脚本，含 §cycle-1）', () => {
     writeConfig('exit 0');
-    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: true, detail: 'Build passed: exit 0' });
+    writeCycle({ '任务清单.md': TASKS_DONE }); // 有 cycle-1 才有循环身份可追加
+    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: true, detail: 'Build passed: exit 0 §cycle-1' });
     writeConfig('exit 2');
-    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: false, detail: 'Build failed: exit 2' });
+    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: false, detail: 'Build failed: exit 2 §cycle-1' });
   });
 });
 
@@ -204,5 +207,22 @@ describe('runNativeGateCheck（编排）', () => {
     const r = runNativeGateCheck(tmp, { gate: 'G9' });
     expect(r.gates).toEqual({});
     expect(r.allPass).toBe(true); // 没有跑任何门 = 没有红（与脚本不同点：显式契约）
+  });
+  it('cycle-79 O-01：跨循环同结论 → G1/G2/G3 detail 不同（循环身份使旧去重键失效）', () => {
+    writeConfig('exit 0');
+    const green = { '项目评估报告.md': EVAL_PASS, '任务清单.md': TASKS_DONE, 'test-reports/test-report.md': TEST_SUMMARY };
+    writeCycle(green, 'cycle-1');
+    const c1 = runNativeGateCheck(tmp, { gate: 'all' }).gates;
+    writeCycle(green, 'cycle-2'); // 数值序最新 = cycle-2
+    const c2 = runNativeGateCheck(tmp, { gate: 'all' }).gates;
+    for (const g of ['G1', 'G2', 'G3']) {
+      expect(c1[g]?.detail).toContain('§cycle-1');
+      expect(c2[g]?.detail).toContain('§cycle-2');
+      expect(c1[g]?.detail).not.toBe(c2[g]?.detail); // 去重键 (result, detail) 因此必然不同
+    }
+    // G0 例外：循环身份已在 detail 文本内（无 § 段），且随循环变化
+    expect(c1.G0?.detail).toContain('cycle-1');
+    expect(c2.G0?.detail).toContain('cycle-2');
+    expect(c1.G0?.detail).not.toContain('§');
   });
 });

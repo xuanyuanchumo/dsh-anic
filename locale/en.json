@@ -6,9 +6,7 @@
   "panel": {
     "toolbar": "ANIC workflow toolbar",
     "refresh": "Refresh",
-    "refreshing": "Refreshing…",
     "prefsToggle": "⚙ Settings",
-    "prefs": "Settings",
     "selfInit": "Bootstrap",
     "selfInitTitle": "Run skill init-workflow on the current workspace (idempotent)",
     "selfInitRunning": "Bootstrapping…",
@@ -18,13 +16,6 @@
     "selfInitRetry": "Retry",
     "selfInitOff": "Bootstrap is disabled by switch (flow.selfInit is workspace/deployment layer only)",
     "selfInitOffTitle": "This switch only supports workspace/deployment layers; the user layer cannot write it",
-    "stepTrace": "Step Trace",
-    "diagnostics": "Diagnostics",
-    "noData": "No data",
-    "loading": "Loading…",
-    "liveSource": "Live",
-    "embeddedSource": "Embedded snapshot",
-    "fetchFailed": "Fetch failed",
     "notLoaded": "Not loaded",
     "malformedNotUsed": "malformed response — not used",
     "fetchFailedWith": "fetch failed ({error})",
@@ -36,7 +27,6 @@
     "sourceEmbeddedFetchFailed": "build-time snapshot (live fetch failed: {error})",
     "sourceMalformed": "live response malformed — kept previous data",
     "sourceLive": "live {generatedAt} · {nodes} nodes / {edges} edges",
-    "dataLine": "Data: {line}",
     "traceDataLine": "Step trace data: {line}",
     "traceLine": "{steps} steps · projection {generatedAt}",
     "diagDataLine": "Runtime self-check: {line}",
@@ -58,12 +48,6 @@
   },
   "state": {
     "loading": "Loading…",
-    "empty": "No data",
-    "error": "Load failed",
-    "degraded": "Degraded",
-    "stale": "Showing last known data",
-    "retry": "Retry",
-    "lastSuccess": "Last success: {time}",
     "sectionFailed": "Section data unavailable: {error}",
     "sectionFailedStale": "Last fetch failed: {error} (showing last successful data)"
   },
@@ -78,10 +62,6 @@
     "statusOrphaned": "possibly lost",
     "statusDone": "done",
     "statusError": "failed",
-    "statusInFlightMark": "▶",
-    "statusOrphanedMark": "!",
-    "statusDoneMark": "✓",
-    "statusErrorMark": "✕",
     "pollOff": "Auto refresh is off (flow.autoRefresh) — use Refresh to fetch manually",
     "turnGroup": "Turn {turn} ({count} calls)",
     "ungrouped": "Unlabeled turn ({count} calls)",
@@ -93,7 +73,6 @@
     "turnTimeRange": " · {from}–{to} · span {span}",
     "diagnostics": "channel counts: events {events} · tool calls {calls} · results {results} · anic calls {anicCalls} · anic results {anicResults}",
     "resultPreview": " ⇒ {preview}",
-    "resultPreviewLabel": "returned",
     "turnDensity": " · {rate} calls/min",
     "turnCompletedAt": " · completed at {at}",
     "elapsed": "elapsed {sec}s",
@@ -118,7 +97,6 @@
     "ledger": "ledger: {result}",
     "producedBy": "produced by: {producer}",
     "producedByTitle": "Producer annotation (G-T5 structured map): which script/flow produced this step's artifacts; omitted when not structurally determinable (never guessed)",
-    "line": "{count} steps · projection {generatedAt}",
     "warnings": "{count} projection warnings (honest annotation, not errors)",
     "statusDone": "done",
     "statusActive": "active",
@@ -130,9 +108,7 @@
     "title": "Runtime self-check (Runtime INV Probes)",
     "pass": "PASS",
     "fail": "FAIL",
-    "summary": "{total} probes · {passed} passed · {failed} failed",
-    "requestId": "requestId: {requestId}",
-    "failedRegion": "Failing self-checks"
+    "requestId": "requestId: {requestId}"
   },
   "org": {
     "cyclesTitle": "Cycle overview",
@@ -143,7 +119,6 @@
     "ledgerInvalid": "verification failed",
     "trustTitle": "Trust scores",
     "recommendedBand": "Recommended band: ",
-    "trustBarLabel": "{gate} trust score {score}%",
     "autonomyTitle": "Autonomy band",
     "current": "Current: ",
     "configuredSuffix": " (configured {band})",
@@ -238,11 +213,7 @@
     "disabled": "HITL approval queue is off via switch (flow.approvals) — queue degrades to read-only display; use the skill CLI for repair actions"
   },
   "gate": {
-    "PASS": "Passed",
-    "FAIL": "Failed",
-    "doubt": "Doubtful",
-    "pending": "Pending",
-    "skip": "Skipped"
+    "pending": "Pending"
   },
   "presentation": {
     "skillSummary": "Execute skill script {script}",
@@ -271,7 +242,6 @@
     "title": "Skill health: ",
     "summary": " {total} invocations · overall success {rate}",
     "empty": "No invocation history yet (FlowTracker empty) — health analysis appears after skill scripts are invoked.",
-    "successRate": "Success rate",
     "timeoutRate": "Timeout rate",
     "avgDuration": "Average duration",
     "suggestionsTitle": "Improvement suggestions:",
@@ -308,7 +278,6 @@
     "closure": "Closure audit"
   },
   "techdebt": {
-    "title": "Tech-debt queue: ",
     "summary": "open {open} · resolved {resolved} · skipped {skipped}",
     "empty": "Zero debt — no unconsumed proposals (only failed eval dimensions produce them).",
     "more": "…{count} more not shown (cap)",
@@ -332,7 +301,6 @@
     "evidenceOf": "evidence: {kind}",
     "notesTitle": "Judgement rules:",
     "generatedAt": "audited at: {generatedAt}",
-    "unavailable": "Closure audit data unavailable (route missing or scan failed).",
     "bucketsTitle": "Full counts (these numbers are never truncated):",
     "weakTitle": "Weak evidence (counted as consumed, but not production-code consumption):",
     "weakDynamic": "dynamic-key claims {n} (prefix evidence, no literal consumer)",

@@ -18,6 +18,10 @@ overrides:
   tinypool: '>=2.1.2'
   valibot: '>=1.4.2'
   diff: '>=8.0.3'
+  #   cycle-79：@vitest/coverage-v8@3.2.7 → test-exclude → glob^10 命中 [high]
+  #   "glob CLI: Command injection via -c/--cmd"（<10.5.0）。仅为覆盖率工具链传递依赖，
+  #   钉到 10.5.0（同大版本、API 兼容），不引入行为变化；证据：pnpm audit high 1→0。
+  glob@>=10.2.0 <10.5.0: '10.5.0'
 
 # 允许 esbuild 运行安装脚本（二进制校验，vitest 转译链需要）；其余包无脚本安装。
 allowBuilds:

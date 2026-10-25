@@ -79,14 +79,14 @@ describe('cycle-75 词表证据锚点（definedAt 不许误报）', () => {
 
   it('④ 三例回归钉：曾误报的三个键必须等于磁盘真值', () => {
     // 真值由「该行含叶子名」与「父级归属」同时确定（见 ② 的机械校验）。
-    expect(lineOfKey(INDEX, 'trace.statusDone')).toBe(123);
-    expect(lineOfKey(INDEX, 'state.loading')).toBe(60);
-    // cycle-78：org 分区新增 9 个自主级变更时间线键（locale/zh.json），其后的
-    // gate.pending 随之下移 235 → 244。钉的仍是**磁盘真值**（精度未放宽），
-    // 只是 locale 增长必然移动该行——新增/删除 org 之前的键时须同步本行。
-    expect(lineOfKey(INDEX, 'gate.pending')).toBe(244);
+    // cycle-79（WS-3 死键清理）：locale/zh.json 删除 32 条死键 ⇒ 三个键整体上移
+    // （trace.statusDone 123→101、state.loading 60→50、gate.pending 244→216）。
+    // 钉的仍是**磁盘真值**（精度未放宽）：locale 增删任一在它们之前的键，本行必须同步。
+    expect(lineOfKey(INDEX, 'trace.statusDone')).toBe(101);
+    expect(lineOfKey(INDEX, 'state.loading')).toBe(50);
+    expect(lineOfKey(INDEX, 'gate.pending')).toBe(216);
     // 且 keyAnchor 的对外形态与索引同源
-    expect(keyAnchor(RAW, 'trace.statusDone')).toBe('locale/zh.json:123');
+    expect(keyAnchor(RAW, 'trace.statusDone')).toBe('locale/zh.json:101');
   });
 
   it('⑤ 未定位语义：不存在的键 → locale/zh.json:0（显式，不猜行号）', () => {

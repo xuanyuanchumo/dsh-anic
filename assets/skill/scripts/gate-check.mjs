@@ -26,6 +26,19 @@ function loadConfig(projectDir) {
 // 修字典序缺陷：数值序取最新 cycle（原 .sort().pop() 在 cycle-10 之后选错目录）
 const getLatestCycle = getLatestCycleDir;
 
+// cycle-79 修 O-01（cycle-78 审计日志 §6 / 债务台账 O-01）：账本 `--record` 的去重键是
+// (result, detail)，而 G1/G2/G3 的 detail 原先是**循环无关**字符串（如
+// `Zero failures, zero errors (测试报告.md)`）⇒ 跨循环同结论被**静默 dedup**：
+// 本循环没有自己的 G2/G3 审计条目（实测 cycle-78 的 G2/G3 仍是 cycle-77 05:02 的记录）。
+// 修法：detail 末尾追加本循环身份 `§cycle-N`，让去重键自带循环身份——不同循环必然不同，
+// 同循环重复跑仍命中 dedup。
+// G0 不套本函数：它的 detail 已含 `in cycle-N`（四门因此都自带循环身份）。
+// 无法确定循环（无 cycle 工作区）时不追加——宁可缺省，也不编造循环名。
+function withCycleTag(result, cycleName) {
+  if (!cycleName) return result;
+  return { ...result, detail: `${result.detail} §${cycleName}` };
+}
+
 // cycle-39 T-3903：读嵌套 YAML 布尔（gates.G2.journey_coverage 形态，两空格缩进）。
 // 行级解析，零依赖；未声明 → false（默认不启用——旧行为不变）。
 function getYamlNestedBoolean(content, section, key2, leaf) {
@@ -266,9 +279,11 @@ const configContent = loadConfig(projectDir);
 
 const gates = {
   G0: () => checkG0(projectDir),
-  G1: () => checkG1(projectDir),
-  G2: () => checkG2(projectDir, configContent),
-  G3: () => checkG3(projectDir, configContent),
+  // cycle-79 O-01：G1/G2/G3 追加循环身份（与宿主原生 gateEngine.checkG1/G2/G3 逐字全等，
+  // 差分契约抓漂移）。G0 除外——它的 detail 已含 `in cycle-N`。
+  G1: () => withCycleTag(checkG1(projectDir), getLatestCycle(projectDir)),
+  G2: () => withCycleTag(checkG2(projectDir, configContent), getLatestCycle(projectDir)),
+  G3: () => withCycleTag(checkG3(projectDir, configContent), getLatestCycle(projectDir)),
 };
 
 const gatesToCheck = args.gate === 'all' ? ['G0', 'G1', 'G2', 'G3'] : [args.gate];
@@ -306,6 +321,8 @@ for (const g of gatesToCheck) {
   // org-status 的 CB2 熔断条件依赖账本里的 FAIL 记录）。带去重：该门最新一条
   // 记录的 (result, detail) 与本次相同时跳过，重复运行不会污染账本。
   // cycle-77：result/detail 取**含质量维的最终裁决**（见上方 F-04 段）。
+  // cycle-79（O-01）：detail = `<门 detail（G1-G3 已含 §cycle-N）><质量段>`——去重键因此
+  // 自带循环身份，跨循环同结论不会再被静默 dedup；同循环重复跑仍命中 unchanged 分支。
   if (args.record) {
     const ledgerStatus = finalPass ? 'PASS' : 'FAIL';
     const ledgerDetail = `${result.detail || 'N/A'}${qualitySuffix}`;
