@@ -28,7 +28,7 @@ describe('cycle-74 T-7402 按需激活机制契约（纯逻辑）', () => {
 
   it('约束② indexed 模式 deny 全部已知工具减去加载器', () => {
     const deny = computeDeny('indexed', ALL);
-    // cycle-74：加载器现已注册 ⇒ deny = 21 − 2 = 19（其余全部被遮）
+    // cycle-74：加载器现已注册 ⇒ deny = 全部 − 2（cycle-77 起 22 − 2 = 20，其余全部被遮）
     const expectDeny = ALL.filter((id) => !(INDEX_LOADER_TOOLS as readonly string[]).includes(id));
     expect(deny).toHaveLength(expectDeny.length);
     expect([...deny].sort()).toEqual([...expectDeny].sort());

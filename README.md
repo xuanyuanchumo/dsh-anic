@@ -18,7 +18,7 @@ dsh plugin --profile <你的 profile> add github:<owner>/dsh-anic
 SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration-cycle/`；`anic_install`
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
-- 21 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复）
+- 22 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复 / 自主级升级）
 - 63 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit`）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
 
@@ -271,9 +271,9 @@ dsh-anic/
 - `advanceDualBootstrap`：推进一轮，失败时产跨向提案（不互相改码，R-31）。
 - 3 路由：`POST /anic/self/dual-evaluate` / `POST /anic/self/dual-advance` / `GET /anic/self/dual-status`。
 
-### 19 DSH 工具
+### 22 DSH 工具
 
-`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / **`anic_skill_repair`**（eco P0：技能副本 doctor/repair——只重装差异文件，integrity 清单随修复重写）/ `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）/ **`anic_flows_auto_fix`**（R3 阶段 5：自动修复循环流程——test→失败识别→retest→判定主循环，maxRetries 1-10；报告计数双格式解析 D-1103；ITERATING 自环轨迹进投影可回放）。工具计数权威源：`src/host/toolIds.ts`（双向集合比对，多一个少一个都红）；README 数字由 `tests/contract/readmeNumbers.test.ts` 契约钉死（数字 == glob 计数）。
+`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / **`anic_skill_repair`**（eco P0：技能副本 doctor/repair——只重装差异文件，integrity 清单随修复重写）/ `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_upgrade`**（cycle-77：证据化自主级升级——相邻档 / 无 tripped 熔断 / 信任阈值 / 人类授权四条件机器判定；拒绝零写入并点名缺失前置；成功走 Post-Verify 回读并写结构化 `.cycles/autonomy-history.json`；L3→L4 强制 `humanAuthorized`，信任不足的覆盖以 `trustExemption` 如实入账）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）/ **`anic_flows_auto_fix`**（R3 阶段 5：自动修复循环流程——test→失败识别→retest→判定主循环，maxRetries 1-10；报告计数双格式解析 D-1103；ITERATING 自环轨迹进投影可回放）。工具计数权威源：`src/host/toolIds.ts`（双向集合比对，多一个少一个都红）；README 数字由 `tests/contract/readmeNumbers.test.ts` 契约钉死（数字 == glob 计数）。
 
 ### 透明性 + 连通性增强
 

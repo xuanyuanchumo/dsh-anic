@@ -18,6 +18,7 @@ import {
 import { runHitlAudit, type HitlResult } from '../governance/hitlAudit.ts';
 import { runFactBaseVerify, type FactBaseResult } from '../governance/factBaseVerify.ts';
 import { runSelfBootstrapCycle, type BootstrapCycleResult } from './bootstrapOrchestrator.ts';
+import { BOOTSTRAP_STEP_TIMEOUT_MS } from './bootstrapBudget.ts';
 
 export interface EngineInsights {
   /** eval 结果 → patchEngine 产 tech-debt 条目 */
@@ -96,7 +97,10 @@ export function analyzeBootstrapWithEngines(
 export function runBootstrapWithEngines(
   workspace: string,
   maxRounds = 3,
-  timeoutMs = 60000,
+  // cycle-77（F-06）：第三处裸 60000 收敛——它会把「不传第三参」的调用静默降级到 60s，
+  // 与 BOOTSTRAP_STEP_TIMEOUT_MS(240000) 反向漂移（生产路径总是显式传值，故此前不可达，
+  // 但不可达的第二默认源仍是隐患：任何新调用方都会继承错默认）。
+  timeoutMs = BOOTSTRAP_STEP_TIMEOUT_MS,
 ): { cycle: BootstrapCycleResult; insights: EngineInsights } {
   const cycle = runSelfBootstrapCycle(workspace, maxRounds, timeoutMs);
   const insights = analyzeBootstrapWithEngines(cycle, workspace);

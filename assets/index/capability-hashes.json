@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "bffe374",
+  "commit": "8404bbf",
   "hashes": {
     "anic_evaluate": "sha256:4da859c8705e2a72c576d7572c79af2262ccd133613e64ce518e53fb5d9cbc08",
     "anic_iterate": "sha256:f1dd1ce6883d04c5c8140d88f06d692ff1068d882af52dcb7a545cf80c42f70e",
@@ -10,6 +10,7 @@
     "anic_self_check": "sha256:f02ee523a4043fe0c13b1ba1f0652ecd2eebebbba9be6c7ccc0dd2e88a8e0a0a",
     "anic_hitl": "sha256:05cb49126e6b5c64de5c231778c31bfd721c67b388e0fff4dd966982a4428ec0",
     "anic_autonomy_downgrade": "sha256:3b3a16aad9786691c23f1a10c65fcae9cdd79391e6bcf16ca7cdbe2c40450361",
+    "anic_autonomy_upgrade": "sha256:6c5469608dee00cec6567ff587c488839250837f115adba31238af03b4fdc7d8",
     "anic_flows_gate_check": "sha256:1ba0694d7c5561b8589695f4181ae8429b0b6b79b5bf4066e0abe66a3b76d442",
     "anic_flows_advance": "sha256:9a3270409a9602a9c53d802af64a25712a61fa74a0e55aaaefc80d65bbab4ab0",
     "anic_flows_archive": "sha256:dd00592167cbe44ec5f268047bb9abb7ad46c5c3806588539ea691b811a59232",

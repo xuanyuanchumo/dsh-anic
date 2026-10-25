@@ -29,12 +29,15 @@ import { parseEvalScore, parseGateVerdict, parseFixApplied } from './scriptParse
 import { GATE_CHECK_ARGS, gateVerdictPassed } from './bootstrapSteps.ts';
 import { enterPhase } from './bootstrapPhase.ts';
 import { checkBootstrapPreconditions } from './bootstrapPreflight.ts';
+// cycle-77（F-06）：与同步版同源同一默认值（BOOTSTRAP_STEP_TIMEOUT_MS）——
+// 两版各自写 60000 曾使「显式传参缺省」时的行为与单一事实源分叉。
+import { BOOTSTRAP_STEP_TIMEOUT_MS } from './bootstrapBudget.ts';
 import type { BootstrapCycleResult } from './bootstrapOrchestrator.ts';
 
 export async function runSelfBootstrapCycleAsync(
   workspace: string,
   maxRounds = 3,
-  timeoutMs = 60000,
+  timeoutMs = BOOTSTRAP_STEP_TIMEOUT_MS,
   options?: { signal?: AbortSignal },
 ): Promise<BootstrapCycleResult & { aborted: boolean }> {
   const cyclesDir = join(workspace, '.cycles');

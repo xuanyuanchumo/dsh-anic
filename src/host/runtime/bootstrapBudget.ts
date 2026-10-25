@@ -33,16 +33,18 @@
  * 若把常量放进 gateway，runtime 侧要引它就会反向依赖 gateway（分层倒置）。
  * 本模块零依赖（不 import 任何仓内模块），因此不可能引入 import 环。
  *
- * **真实消费面（cycle-72 更正 · 实测 grep -rln，此前本注释高报过，属「声明>实现」）**：
- *   1. src/host/toolsBootstrapGateway.ts — 唯一消费者：:14 import 常量与解析函数；
+ * **真实消费面（cycle-77 更正 · 实测 grep -rln，逐条可查）**：
+ *   1. src/host/toolsBootstrapGateway.ts — 入口层唯一消费者：:14 import 常量与解析函数；
  *      :52 / :103 调 resolveBootstrapStepTimeout；:42 / :93 用常量渲染工具描述串。
- *   2. runtime/bootstrapOrchestrator.ts / bootstrapOrchestratorAsync.ts **不**引用本条——
- *      它们把 timeoutMs 作为**形参**接收（由 gateway 传入），并非默认参数引用。
- *   3. runtime/bootstrapEngineIntegration.ts:99 仍是**独立字面量** `timeoutMs = 60000`：
- *      生产路径上 gateway 总会显式传第三参（:105），故该字面量在生产不可达；但它
- *      仍是一个未收敛的第二默认源（单测 bootstrapEngineIntegration.test.ts 显式传值绕过它）。
- *      未在本轮收敛：改它属 toolsBootstrapGateway / bootstrapEngineIntegration 的调用约定，
- *      会扩大本任务边界——如实登记为已知缺口，不假装「单一事实源」已覆盖全链。
+ *   2. runtime/bootstrapOrchestrator.ts / bootstrapOrchestratorAsync.ts /
+ *      bootstrapEngineIntegration.ts — cycle-77（F-06）前各自写死 `timeoutMs = 60000`，
+ *      是本常量的**第二个默认源**且与之反向漂移（漏传第三参即按 60s 掐断 eval-runner，
+ *      把预算不足伪装成「评估 0 分」）。现已全部改为引用本常量作形参默认值：
+ *      显式传参优先的语义不变，但「不传就用 60000」这条错误默认已从三处消失
+ *      （静态守卫见 tests/unit/bootstrapBudget.test.ts「不再出现裸 60000 默认值」）。
+ *   3. 已声明但**未在本轮收敛**的缺口：同步入口 invokeSkillScript 内部仍按
+ *      Math.min(timeoutMs, 120000) 收口，故 analyze 入口有效预算 120000ms，与
+ *      async 入口的完整 240000ms 存在已知不对称；放开该 cap 属 skillInvoker.ts 边界。
  */
 
 /**

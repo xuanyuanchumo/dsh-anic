@@ -11,22 +11,27 @@
  * 清单文件 .anic-manifest.json 是插件私有元数据（隐藏文件，不算技能文件），
  * 自身被排除在清单之外（自引用无意义）。extras（安装目录多出的文件）只报告
  * 不删除——用户/其他工具放入的文件不属于本插件的删除权限。
+ *
+ * cycle-77 T3（F-07/F-08，台账 §7/§8）把「报告」升级为「判定」：extraDrift（同名不同
+ * 哈希的散落副本）、manifestStale（清单版本落后于发行源，实测 2.3.0 vs 2.5.2）、
+ * dualTrack（字节+版本+清单新鲜度 → 可断言状态）。判定实现见 skillDrift.ts，
+ * 目录树/hash 原语见 skillFs.ts。
  */
-import { createHash } from 'node:crypto';
 import {
-  existsSync, readFileSync, writeFileSync, readdirSync, statSync,
+  existsSync, readFileSync, writeFileSync, statSync,
   mkdirSync, copyFileSync,
 } from 'node:fs';
-import { join, relative, dirname, sep } from 'node:path';
+import { join, dirname } from 'node:path';
+import {
+  computeExtraDrift, resolveDualTrack, type ExtraDrift, type SkillDualTrackState,
+} from './skillDrift.ts';
+import {
+  SKILL_MANIFEST_FILE, hashFile, walkRelPaths, entryOf, type SkillFileEntry,
+} from './skillFs.ts';
 
-export const SKILL_MANIFEST_FILE = '.anic-manifest.json';
+export { SKILL_MANIFEST_FILE };
 
-export interface SkillManifestEntry {
-  /** POSIX 风格相对路径（跨平台稳定，与安装位置无关）。 */
-  path: string;
-  size: number;
-  sha256: string;
-}
+export interface SkillManifestEntry extends SkillFileEntry {}
 
 export interface SkillManifest {
   skill: 'ai-native-iteration-cycle';
@@ -36,7 +41,8 @@ export interface SkillManifest {
   files: SkillManifestEntry[];
 }
 
-export type MismatchKind = 'missing' | 'size' | 'hash';
+/** 差异类别；`manifest-version` 是清单层判定（cycle-77 F-08），不是文件字节差异。 */
+export type MismatchKind = 'missing' | 'size' | 'hash' | 'manifest-version';
 
 export interface SkillMismatch {
   path: string;
@@ -54,6 +60,17 @@ export interface SkillVerifyResult {
   /** 安装目录里清单未收录的多余文件（不删除，仅报告）。 */
   extras: string[];
   manifestVersion: string | null;
+  // ── cycle-77 T3 新增字段（只增不改：既有消费方读旧字段语义不变）──
+  /** F-08：同名（basename 相同）但 sha256 不同的散落副本；非空即 ok=false，仍不删除。 */
+  extraDrift: ExtraDrift[];
+  /** F-08：清单 version 落后于发行源版本（修复后未重写清单的诚实暴露）。 */
+  manifestStale: boolean;
+  /** F-07：双轨判定（in-sync / live-behind / live-diverged / unknown，见 skillDrift.ts）。 */
+  dualTrack: SkillDualTrackState;
+  /** live 副本版本（SKILL.md 锚点可读时）。 */
+  liveVersion: string | null;
+  /** 发行源版本（inline 锚点；manifest 兜底时为 null——无对照即不猜）。 */
+  inlineVersion: string | null;
 }
 
 /** 读技能版本（单一事实源；skillInstallRoute 原地拷贝已收编于此）。
@@ -71,30 +88,6 @@ export function readSkillVersion(skillDir: string): string | null {
   } catch { return null; }
 }
 
-function hashFile(absPath: string): string {
-  return createHash('sha256').update(readFileSync(absPath)).digest('hex');
-}
-
-/** 递归收集相对 POSIX 路径（排序保确定性；排除清单文件自身）。 */
-function walkRelPaths(root: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.name === SKILL_MANIFEST_FILE) continue;
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) walk(abs);
-      else if (e.isFile()) out.push(relative(root, abs).split(sep).join('/'));
-    }
-  };
-  walk(root);
-  return out;
-}
-
-function entryOf(root: string, rel: string): SkillManifestEntry {
-  const abs = join(root, ...rel.split('/'));
-  return { path: rel, size: statSync(abs).size, sha256: hashFile(abs) };
-}
-
 /** 从 sourceDir 内容构建清单（安装后 source==inline，两处字节一致）。 */
 export function buildSkillManifest(sourceDir: string): SkillManifest {
   return {
@@ -106,7 +99,13 @@ export function buildSkillManifest(sourceDir: string): SkillManifest {
   };
 }
 
-/** 构建自 sourceDir、落盘到 targetDir/.anic-manifest.json（autoInstallSkill 收尾动作）。 */
+/**
+ * 构建自 sourceDir、落盘到 targetDir/.anic-manifest.json（autoInstallSkill 收尾动作）。
+ *
+ * F-08 契约：`version` 恒取 `readSkillVersion(sourceDir)`、`generatedAt` 恒取落盘时刻——
+ * 也就是说清单的版本锚点**只能**来自发行源，不允许外部塞值（旧实现留下过
+ * version=2.3.0 / generatedAt=2026-10-20 与 SKILL.md 锚点 2.5.2 脱节的历史清单）。
+ */
 export function writeSkillManifest(sourceDir: string, targetDir: string): { ok: boolean; fileCount: number } {
   try {
     const manifest = buildSkillManifest(sourceDir);
@@ -130,7 +129,8 @@ function checkAgainst(
   installedDir: string,
   entries: SkillManifestEntry[],
   reference: 'inline' | 'manifest',
-  manifestVersion: string | null,
+  manifest: SkillManifest | null,
+  inlineVersion: string | null,
 ): SkillVerifyResult {
   const installedSet = new Set(walkRelPaths(installedDir));
   const expectedSet = new Set(entries.map((e) => e.path));
@@ -143,13 +143,35 @@ function checkAgainst(
     if (hashFile(abs) !== e.sha256) mismatches.push({ path: e.path, kind: 'hash', expected: e.sha256, actual: hashFile(abs) });
   }
   const extras = [...installedSet].filter((p) => !expectedSet.has(p)).sort();
+  // F-08：同名不同哈希的散落副本判 drift；哈希实现仍只有 hashFile 一处（注入给纯函数）。
+  const extraDrift = computeExtraDrift(extras, entries, (rel) => {
+    try { return hashFile(join(installedDir, ...rel.split('/'))); } catch { return null; }
+  });
+  // F-08：清单新鲜度只在 inline 直比时成立——manifest 兜底没有发行源版本可对照，不猜。
+  const manifestStale = reference === 'inline'
+    && manifest?.version != null && inlineVersion != null && manifest.version !== inlineVersion;
+  const byteMismatchCount = mismatches.length;
+  if (manifestStale && inlineVersion != null && manifest?.version != null) {
+    mismatches.push({
+      path: SKILL_MANIFEST_FILE, kind: 'manifest-version',
+      expected: inlineVersion, actual: manifest.version,
+    });
+  }
+  const liveVersion = readSkillVersion(installedDir);
   return {
-    ok: mismatches.length === 0,
+    ok: mismatches.length === 0 && extraDrift.length === 0,
     reference,
     checked: entries.length,
     mismatches,
     extras,
-    manifestVersion,
+    manifestVersion: manifest?.version ?? null,
+    extraDrift,
+    manifestStale,
+    dualTrack: resolveDualTrack({
+      reference, byteMismatchCount, manifestStale, liveVersion, inlineVersion,
+    }),
+    liveVersion,
+    inlineVersion,
   };
 }
 
@@ -159,18 +181,29 @@ function checkAgainst(
  * 否则回退安装期清单（inline 不可用/独立分发的场景）。
  */
 export function verifySkillInstall(installedDir: string, inlineDir?: string | null): SkillVerifyResult {
+  const manifest = readSkillManifest(installedDir);
   if (inlineDir && existsSync(inlineDir)) {
     const entries = walkRelPaths(inlineDir).map((rel) => entryOf(inlineDir, rel));
-    return checkAgainst(installedDir, entries, 'inline', readSkillManifest(installedDir)?.version ?? null);
+    return checkAgainst(installedDir, entries, 'inline', manifest, readSkillVersion(inlineDir));
   }
-  const manifest = readSkillManifest(installedDir);
-  if (manifest) return checkAgainst(installedDir, manifest.files, 'manifest', manifest.version);
-  return { ok: false, reference: 'none', checked: 0, mismatches: [], extras: [], manifestVersion: null };
+  if (manifest) return checkAgainst(installedDir, manifest.files, 'manifest', manifest, null);
+  // 无 inline 无清单 ⇒ reference=none 且 ok=false：判定不了也绝不静默放行。
+  return {
+    ok: false, reference: 'none', checked: 0, mismatches: [], extras: [], manifestVersion: null,
+    extraDrift: [], manifestStale: false, dualTrack: 'unknown',
+    liveVersion: readSkillVersion(installedDir), inlineVersion: null,
+  };
 }
 
 /**
  * repair 语义：只重装差异文件（inline 为唯一事实源），重写清单后复验。
- * extras 不删除（见文件头注释的权限边界）；inline 缺失时不动作（无法修复）。
+ *
+ * F-07/F-08 增强：
+ * - 清单重写同时刷新 `version`/`generatedAt`（`writeSkillManifest` 从 inline 读版本），
+ *   因此 `manifestStale` 与 `manifest-version` mismatch 在 repair 后必须消失；
+ * - `manifest-version` 是清单层判定（path=.anic-manifest.json，inline 侧无此文件），
+ *   显式跳过，避免把清单自身当文件去 copy（旧实现靠 existsSync 兜住，语义不明）；
+ * - extras / extraDrift **不删除**（见文件头注释的权限边界）；inline 缺失时不动作。
  */
 export function repairSkillInstall(
   installedDir: string,
@@ -180,6 +213,7 @@ export function repairSkillInstall(
   const repaired: string[] = [];
   if (inlineDir && existsSync(inlineDir)) {
     for (const m of before.mismatches) {
+      if (m.kind === 'manifest-version') continue; // 清单层判定：由下方清单重写解决
       const src = join(inlineDir, ...m.path.split('/'));
       const dst = join(installedDir, ...m.path.split('/'));
       if (!existsSync(src)) continue;

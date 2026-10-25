@@ -10,6 +10,12 @@
  *  P4 agent 卡装载：loadAgentCards 无错误（15 张出厂卡）。
  *  P5 投影可重算（INV-18）：stepTrace(workflowGraph) 两次构建结果 JSON 全等。
  *  P6 诊断域隔离（INV-26 源码形态）：本探针自身仅读，不写 `.cycles/`。
+ *  P7 能力索引 ⇄ 注册面（cycle-73）；P8 工具披露模式（cycle-74）。
+ *  P9 双轨漂移（cycle-77 F-07）：`.dsh/skills` live 副本 vs `assets/skill` 发行源——
+ *     台账 §7 的「live 被优先消费、发行源落后」缺口只报告不判，本探针给出可断言结论。
+ *     适用面：仅当 live 副本已装（存在 SKILL.md）才探；未装时**省略**本项（双轨不成立，
+ *     未安装由 skillIntegritySummary.installed=false 表达）；发行源缺失时明确 SKIP
+ *     并置 skipped:true —— 不判红、也不假绿（allOk 不计 skipped 项）。
  *
  * 失败不抛异常：逐项 ok:false + detail，整体 200（诊断端点的诚实形态——
  * 探针本身不可用才是 500）。
@@ -25,6 +31,9 @@ import { checkIndexDrift, loadInjectedIndex } from '../capabilityIndexRuntime.ts
 import { resolveDisclosureMode } from '../toolDisclosure.ts';
 import { activationReady, planActivation } from '../indexActivation.ts';
 import { captureRegisteredFaces } from '../toolsFaceCapture.ts';
+import { inlineSkillRoot } from '../skillInvoker.ts';
+import { verifySkillInstall } from '../skillIntegrity.ts';
+import { nameDriftedFiles } from '../skillDrift.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 
@@ -36,6 +45,8 @@ export interface ProbeResult {
   inv?: string;
   ok: boolean;
   detail: string;
+  /** P9 专用：前置条件不足 → 无判决（ok 恒 true 但不计 allOk，绝不假绿）。 */
+  skipped?: boolean;
 }
 
 export interface SelfCheckInput {
@@ -46,6 +57,8 @@ export interface SelfCheckInput {
   indexDir: string;
   /** 工具披露模式初值（cycle-74 P8；缺省 'full'）。 */
   toolDisclosure?: 'full' | 'indexed';
+  /** P9 双轨路径（cycle-77）：测试/装配可显式注入；缺省按工作区 + 插件内联推导。 */
+  skillPaths?: { inlineDir?: string | null; installedDir?: string | null };
 }
 
 /** 运行六项运行时不变量探针并返回逐项结果。 */
@@ -146,7 +159,37 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
     checks.push({ id: 'P7-capability-index-sync', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });
   }
 
-  const allOk = checks.every((c) => c.ok);
+  // P9 双轨漂移（cycle-77 T3 / F-07）：判据与 skillIntegrity.verifySkillInstall **同源**
+  // （共用模块，不写第二套判定）。台账 §7 的缺口是「live 优先消费 + 发行源落后」无人断言；
+  // 本探针把 live/inline 双轨结论写成可断言的 ok 位，并点名单个漂移文件。
+  try {
+    const installedDir = input.skillPaths?.installedDir
+      ?? join(input.workspaceRoot, '.dsh', 'skills', 'ai-native-iteration-cycle');
+    // 未装技能 → 双轨不成立：本项省略（不是假绿——installed 状态另有诚实表达面）
+    if (existsSync(join(installedDir, 'SKILL.md'))) {
+      const inlineDir = input.skillPaths?.inlineDir ?? inlineSkillRoot();
+      if (!inlineDir || !existsSync(inlineDir)) {
+        checks.push({
+          id: 'P9-skill-dual-track', ok: true, skipped: true,
+          detail: 'SKIP: inline skill root unavailable (no distribution source to compare)',
+        });
+      } else {
+        const v = verifySkillInstall(installedDir, inlineDir);
+        checks.push({
+          id: 'P9-skill-dual-track',
+          ok: v.ok,
+          detail: v.ok
+            ? `in-sync: live=${v.liveVersion ?? '?'} inline=${v.inlineVersion ?? '?'} (${v.checked} files, manifest=${v.manifestVersion ?? 'none'})`
+            : `${v.dualTrack}: ${nameDriftedFiles(v)}`,
+        });
+      }
+    }
+  } catch (e) {
+    checks.push({ id: 'P9-skill-dual-track', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });
+  }
+
+  // skipped 项没有判决，不参与 allOk（否则「前置条件不足」被算成绿灯 = 假绿）
+  const allOk = checks.filter((c) => !c.skipped).every((c) => c.ok);
   log[allOk ? 'info' : 'warn'](`self-check ${allOk ? 'all green' : 'has failures'} (${checks.filter((c) => c.ok).length}/${checks.length})`, requestId);
   return { checks, allOk, requestId };
 }
@@ -161,6 +204,8 @@ export function registerSelfCheckRoute(
     indexDir: string;
     /** 工具披露模式（cycle-74 P8；缺省 'full'）。 */
     toolDisclosure?: 'full' | 'indexed';
+    /** P9 双轨路径注入（cycle-77 F-07）；缺省按工作区 + 插件内联推导。 */
+    skillPaths?: { inlineDir?: string | null; installedDir?: string | null };
   },
 ): (() => void) | null {
   const c = ctx as SnapshotCtx;
@@ -181,6 +226,7 @@ export function registerSelfCheckRoute(
           agentCardsDir: deps.agentCardsDir,
           indexDir: deps.indexDir,
           toolDisclosure: deps.toolDisclosure ?? 'full',
+          skillPaths: deps.skillPaths,
         });
         deps.send(res, 200, result, result.requestId);
       } catch (e) {

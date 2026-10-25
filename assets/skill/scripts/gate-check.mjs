@@ -219,6 +219,12 @@ function checkQualityGate(projectDir, configContent, gateId) {
   const checks = qualityChecks[gateId] || [];
   const failedChecks = [];
   const unevaluatedChecks = [];
+  // cycle-77 修 F-04（cycle-72 债务台账 §4）：逐维裁决必须与账本 detail 同源。
+  // 被守卫缺陷：质量结论原先只打印到 stdout，账本只记门的基本判定——G0 基本 PASS 而
+  // Q5 FAIL 时账本留下 `G0 PASS`，读侧 fail-open（误判"上次 G0 全过"）。
+  // 这里在**同一次解析**里记下每一维的裁决词（PASS/FAIL/SKIP/ABSENT），供 --record
+  // 直接拼进 detail，不再二次解析报告（两次解析 = 两个真相源）。
+  const dimensionRows = [];
 
   for (const q of checks) {
     // 修 iteration-5：三态。原先只有 'FAIL' 会被拦下——行缺失（match=null）与
@@ -227,20 +233,25 @@ function checkQualityGate(projectDir, configContent, gateId) {
     const match = evalContent.match(pattern);
     if (!match) {
       unevaluatedChecks.push(`${q}(row absent)`);
+      dimensionRows.push(`${q}:ABSENT`); // 行缺失 ≠ PASS：账本必须能读出"没有证据"
     } else if (match[1] === 'SKIP') {
       unevaluatedChecks.push(`${q}(SKIP)`);
+      dimensionRows.push(`${q}:SKIP`);
     } else if (match[1] === 'FAIL') {
       failedChecks.push(q);
+      dimensionRows.push(`${q}:FAIL`);
+    } else {
+      dimensionRows.push(`${q}:PASS`);
     }
   }
 
   if (failedChecks.length > 0) {
-    return { pass: false, detail: `Quality dimensions failed: ${failedChecks.join(', ')}` };
+    return { pass: false, detail: `Quality dimensions failed: ${failedChecks.join(', ')}`, dimensionRows };
   }
   if (unevaluatedChecks.length > 0) {
-    return { pass: false, detail: `Quality dimensions not evaluated — gate cannot close without evidence: ${unevaluatedChecks.join(', ')}` };
+    return { pass: false, detail: `Quality dimensions not evaluated — gate cannot close without evidence: ${unevaluatedChecks.join(', ')}`, dimensionRows };
   }
-  return { pass: true, detail: `Quality dimensions passed: ${checks.join(', ')}` };
+  return { pass: true, detail: `Quality dimensions passed: ${checks.join(', ')}`, dimensionRows };
 }
 
 const args = parseCliArgs(process.argv, {
@@ -269,26 +280,43 @@ for (const g of gatesToCheck) {
   console.log(`[${status}] ${g}: ${result.detail}`);
   if (!result.pass) allPass = false;
 
-  // 修 N-2（v1.8.0）：--record 时把门禁结果写入账本（PASS 与 FAIL 都记——
-  // org-status 的 CB2 熔断条件依赖账本里的 FAIL 记录）。带去重：该门最新一条
-  // 记录的 (result, detail) 与本次相同时跳过，重复运行不会污染账本。
-  if (args.record) {
-    const ledger = loadLedger(projectDir);
-    const lastForGate = [...ledger.entries].reverse().find(e => e.gate === g);
-    const detail = result.detail || 'N/A';
-    if (lastForGate && lastForGate.result === status && lastForGate.detail === detail) {
-      console.log(`  [LEDGER] ${g} unchanged, not re-recorded`);
-    } else {
-      const entry = appendEntry(projectDir, g, status, detail);
-      console.log(`  [LEDGER] ${g} ${entry.result} recorded (hash ${entry.hash.substring(0, 16)}...)`);
-    }
-  }
-
+  // ── cycle-77 修 F-04（cycle-72 债务台账 §4「质量维不入账」）──────────────
+  // 被守卫缺陷：旧顺序是「先 --record 记门的基本判定 → 之后才跑质量检查」，质量维结论
+  // 只进 stdout 并置 allPass=false。于是 G0 基本 PASS / Q5 FAIL 时账本留下一条 `G0 PASS`，
+  // 与最终裁决（exit 1 / FAILED）**是两个答案**——账本读侧 fail-open。
+  // 修法：把质量裁决上移到落账**之前**（同源同刻），逐维裁决并入账本 detail
+  // （形如 `... 3 dimension rows [Q1:PASS,Q5:FAIL]`），且质量维 FAIL 时账本结果记 FAIL。
+  // 不带 --quality 时 detail 逐字节不变；退出码语义不变（仍有 FAIL 即 exit 1）。
+  let finalPass = result.pass;
+  let qualitySuffix = '';
   if (args.quality && result.pass) {
     const qResult = checkQualityGate(projectDir, configContent, g);
     const qStatus = qResult.pass ? 'PASS' : 'FAIL';
     console.log(`  [${qStatus}] ${g}-Quality: ${qResult.detail}`);
-    if (!qResult.pass) allPass = false;
+    if (!qResult.pass) {
+      allPass = false;
+      finalPass = false;
+    }
+    if (Array.isArray(qResult.dimensionRows) && qResult.dimensionRows.length > 0) {
+      qualitySuffix = ` [${qResult.dimensionRows.join(',')}]`;
+    }
+  }
+
+  // 修 N-2（v1.8.0）：--record 时把门禁结果写入账本（PASS 与 FAIL 都记——
+  // org-status 的 CB2 熔断条件依赖账本里的 FAIL 记录）。带去重：该门最新一条
+  // 记录的 (result, detail) 与本次相同时跳过，重复运行不会污染账本。
+  // cycle-77：result/detail 取**含质量维的最终裁决**（见上方 F-04 段）。
+  if (args.record) {
+    const ledgerStatus = finalPass ? 'PASS' : 'FAIL';
+    const ledgerDetail = `${result.detail || 'N/A'}${qualitySuffix}`;
+    const ledger = loadLedger(projectDir);
+    const lastForGate = [...ledger.entries].reverse().find(e => e.gate === g);
+    if (lastForGate && lastForGate.result === ledgerStatus && lastForGate.detail === ledgerDetail) {
+      console.log(`  [LEDGER] ${g} unchanged, not re-recorded`);
+    } else {
+      const entry = appendEntry(projectDir, g, ledgerStatus, ledgerDetail);
+      console.log(`  [LEDGER] ${g} ${entry.result} recorded (hash ${entry.hash.substring(0, 16)}...)`);
+    }
   }
 }
 

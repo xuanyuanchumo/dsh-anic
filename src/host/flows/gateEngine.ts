@@ -130,27 +130,68 @@ export function checkG3(workspaceRoot: string, configContent: string | null): Ga
     : { pass: false, detail: `Build failed: ${buildCmd}` };
 }
 
-/** 质量门（gate-check.mjs:133-174 同构：三态——缺行/SKIP 都不能关门）。 */
-export function checkQualityGate(workspaceRoot: string, gateId: string): GateCheckResult {
+/**
+ * 质量门完整判定（含**逐维裁决**——cycle-77 修 F-04，cycle-72 债务台账 §4）。
+ *
+ * 被守卫的缺陷：原生侧判定面把「门的 pass/detail」和「质量维结论」分成两个字段返回，
+ * 账本写入（recordNative）原先只消费前者 ⇒ 质量维 FAIL 时账本仍可能记 PASS，
+ * 与脚本侧同一个账本 fail-open 面。
+ * 这里把逐维裁决词与 pass/detail 一起算出来（**同一次解析**，不二次读报告），
+ * 使账本 detail 能带上 `[Q1:PASS,Q5:FAIL]` 这类证据；`checkQualityGate` 保留
+ * `{pass, detail}` 纯形状（既有调用方与 toEqual 契约不变）。
+ */
+export interface QualityGateEvaluation {
+  pass: boolean;
+  detail: string;
+  /** 逐维裁决词（PASS / FAIL / SKIP / ABSENT）；无 cycle 目录或无报告时 null = 无可评估证据。 */
+  dimensionRows: string[] | null;
+}
+
+/** 质量门结果 + 账本合流证据（附加字段不改变 {pass, detail} 契约；差分测试只比这两字段）。 */
+export interface QualityGateDetail extends GateCheckResult {
+  dimensionRows?: string[];
+}
+
+/** 质量门完整判定（gate-check.mjs checkQualityGate + dimensionRows 同构）。 */
+export function evaluateQualityGate(workspaceRoot: string, gateId: string): QualityGateEvaluation {
   const latest = latestCycle(workspaceRoot);
-  if (!latest) return { pass: false, detail: 'No cycle directory' };
+  if (!latest) return { pass: false, detail: 'No cycle directory', dimensionRows: null };
   const evalResultsPath = join(latest.dir, '项目评估报告.md');
-  if (!existsSync(evalResultsPath)) return { pass: false, detail: 'No eval results (run eval-runner first)' };
+  if (!existsSync(evalResultsPath)) return { pass: false, detail: 'No eval results (run eval-runner first)', dimensionRows: null };
   const evalContent = readFileSync(evalResultsPath, 'utf-8');
   const checks = QUALITY_CHECKS[gateId] ?? [];
   const failedChecks: string[] = [];
   const unevaluatedChecks: string[] = [];
+  const dimensionRows: string[] = [];
   for (const q of checks) {
     const row = parseQualityRow(evalContent, q);
-    if (row === null) unevaluatedChecks.push(`${q}(row absent)`);
-    else if (row === 'SKIP') unevaluatedChecks.push(`${q}(SKIP)`);
-    else if (row === 'FAIL') failedChecks.push(q);
+    if (row === null) {
+      unevaluatedChecks.push(`${q}(row absent)`);
+      dimensionRows.push(`${q}:ABSENT`); // 行缺失 ≠ PASS：账本必须能读出"没有证据"
+    } else if (row === 'SKIP') {
+      unevaluatedChecks.push(`${q}(SKIP)`);
+      dimensionRows.push(`${q}:SKIP`);
+    } else if (row === 'FAIL') {
+      failedChecks.push(q);
+      dimensionRows.push(`${q}:FAIL`);
+    } else {
+      dimensionRows.push(`${q}:PASS`);
+    }
   }
-  if (failedChecks.length > 0) return { pass: false, detail: `Quality dimensions failed: ${failedChecks.join(', ')}` };
+  if (failedChecks.length > 0) {
+    return { pass: false, detail: `Quality dimensions failed: ${failedChecks.join(', ')}`, dimensionRows };
+  }
   if (unevaluatedChecks.length > 0) {
-    return { pass: false, detail: `Quality dimensions not evaluated — gate cannot close without evidence: ${unevaluatedChecks.join(', ')}` };
+    return { pass: false, detail: `Quality dimensions not evaluated — gate cannot close without evidence: ${unevaluatedChecks.join(', ')}`, dimensionRows };
   }
-  return { pass: true, detail: `Quality dimensions passed: ${checks.join(', ')}` };
+  return { pass: true, detail: `Quality dimensions passed: ${checks.join(', ')}`, dimensionRows };
+}
+
+/** 质量门判定（gate-check.mjs:133-174 同构：三态——缺行/SKIP 都不能关门）。 */
+export function checkQualityGate(workspaceRoot: string, gateId: string): GateCheckResult {
+  // 薄包装：只暴露 {pass, detail}（既有测试用 toEqual 钉死该形状，逐维证据走 evaluateQualityGate）
+  const { pass, detail } = evaluateQualityGate(workspaceRoot, gateId);
+  return { pass, detail };
 }
 
 const GATE_FN: Record<string, (ws: string, cfg: string | null) => GateCheckResult> = {
@@ -179,9 +220,14 @@ export function runNativeGateCheck(
     gates[g] = result;
     if (!result.pass) allPass = false;
     if (opts.quality && result.pass) {
-      const qResult = checkQualityGate(workspaceRoot, g);
+      const qEval = evaluateQualityGate(workspaceRoot, g);
+      // F-04：逐维裁决随质量结果一起返回，供 recordNative 拼进账本 detail。
+      // 注意只加**附加字段**：pass/detail 与脚本逐字节一致（差分契约只在比这两项）。
+      const qResult: QualityGateDetail = qEval.dimensionRows
+        ? { pass: qEval.pass, detail: qEval.detail, dimensionRows: qEval.dimensionRows }
+        : { pass: qEval.pass, detail: qEval.detail };
       quality[g] = qResult;
-      if (!qResult.pass) allPass = false;
+      if (!qEval.pass) allPass = false;
     }
   }
   return { gates, quality, allPass, exitCode: allPass ? 0 : 1 };

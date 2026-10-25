@@ -36,6 +36,7 @@ export const SUMMARY_MAX_CHARS = 40;
  */
 export const TOOL_SUMMARIES: Record<string, string> = {
   anic_autonomy_downgrade: '降级自主级别（熔断回退路径）',
+  anic_autonomy_upgrade: '升级自主级别：前置条件核定+留痕',
   anic_bootstrap: '插件自举：评估自身并产出改进提案',
   anic_bootstrap_analyze: '自举编排 + 模块引擎深度分析',
   anic_bootstrap_cycle: '自举链：评估→门禁→修复 自动驱动循环',

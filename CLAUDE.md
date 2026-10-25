@@ -4,7 +4,7 @@
 
 ## Commands
 - Build: `pnpm run build`（client bundle + host bundle，tsdown）
-- Test: `pnpm run test`（validate + vitest + smoke 三层金字塔）
+- Test: `pnpm run test`（validate + vitest + smoke + trigger 四层离线金字塔；`--live` 追加第 5 层真实宿主 J0）
 - Lint: `pnpm run lint`（DSH 规范符合性门 validate-dsh.mjs）
 - Typecheck: `pnpm run typecheck`（tsconfig.client + tsconfig.host，向上查 tsc）
 - Live probe: `pnpm run j0`（真实宿主 J0 六步协议探针，绝不启停宿主）

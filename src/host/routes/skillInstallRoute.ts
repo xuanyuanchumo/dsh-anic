@@ -9,6 +9,10 @@
  * - 安装插件即用：resolveSkillScriptsDir 已有内联兜底，此路由是"显式安装到工作区"
  * - getWorkspaceRoot(req)（cycle-22）：X-ANIC-Workspace 头参与解析（多会话纠偏）——
  *   install/repair 是写侧路由，错工作区代价最高。
+ * - cycle-77（F-07/F-08）：integrity 字段只增不改——新增 extraDrift（同名不同哈希的
+ *   散落副本，判红但**不删除**：删除权限属于人类）、manifestStale + mismatch
+ *   kind=manifest-version（清单版本落后于发行源）、dualTrack（in-sync/live-behind/
+ *   live-diverged/unknown）。三个路由直接透传该对象，无需各自拼装判定。
  */
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';

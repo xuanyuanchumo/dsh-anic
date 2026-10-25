@@ -27,6 +27,11 @@ import { loadFlowTracker, type FlowTrackerState } from './flowTracker.ts';
 import { runEvalStep, runGateStep, runFixStep, gateVerdictPassed } from './bootstrapSteps.ts';
 import { enterPhase, type PhaseTrigger } from './bootstrapPhase.ts';
 import { checkBootstrapPreconditions, type PreflightResult } from './bootstrapPreflight.ts';
+// cycle-77（F-06）：默认超时不再写裸 60000——那是**第二个默认源**，与
+// bootstrapBudget.BOOTSTRAP_STEP_TIMEOUT_MS(240000) 分叉：真实调用方漏传第三参时，
+// 编排器会按 60s 掐断 eval-runner（整条测试金字塔 ≈57s + spawn 开销必超），
+// 把「预算不足」伪装成「评估 0 分」并污染债务队列。显式传参仍优先（形参默认值语义不变）。
+import { BOOTSTRAP_STEP_TIMEOUT_MS } from './bootstrapBudget.ts';
 
 export interface BootstrapCycleResult {
   state: BootstrapState;
@@ -63,7 +68,7 @@ export interface BootstrapCycleResult {
 export function runSelfBootstrapCycle(
   workspace: string,
   maxRounds = 3,
-  timeoutMs = 60000,
+  timeoutMs = BOOTSTRAP_STEP_TIMEOUT_MS,
 ): BootstrapCycleResult {
   const cyclesDir = join(workspace, '.cycles');
   if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });

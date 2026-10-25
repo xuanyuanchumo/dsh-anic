@@ -11,12 +11,23 @@ import { checkBreakers, decideAction, type BreakerInput } from './autonomyGovern
 import { loadHistoryScores } from './bandHistory.ts';
 import { classifyBand, detectTrend, detectWeViolations, type WeViolation } from './bandDetector.ts';
 import { collectBreakerSignals } from './breakerSignals.ts';
+import { readHistory, summarizeHistory } from './autonomyHistory.ts';
 
 export interface OrgStatus {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
-  autonomy: { currentBand: string; configuredBand: string; breakers: string[]; action: string };
+  autonomy: {
+    currentBand: string;
+    configuredBand: string;
+    breakers: string[];
+    action: string;
+    /** cycle-77：自主级变更账的最近 5 条摘要（只追加字段，既有字段语义不变）。 */
+    history: Array<{ from: string; to: string; at: string; actor: string; authorization: string; reason: string }>;
+    /** 账本总条数（坏 JSON 时为 0，并由 historyError 点名根因，不静默吞）。 */
+    historyCount: number;
+    historyError?: string;
+  };
   band: { current: string; trend: string; weViolations: WeViolation[]; recent: number[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
@@ -107,11 +118,24 @@ export function runOrgStatus(workspaceRoot: string, options: {
   // 空历史 → 空数组（客户端省略火花线，不伪造平线）。
   const recentScores = historyScores.slice(-12);
 
+  // 自主级变更账（cycle-77 P0「自主级变更不可审计」）：org-status 是用户的观测面，
+  // 账本存在却不可见等于「写了没人读」的第二个死端。只读 + 有界投影（最近 5 条），
+  // 坏 JSON 时 historyCount 归零但 historyError 响亮点名（不假绿）。
+  const historyRead = readHistory(cyclesDir);
+
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
     trust: { scores: trustScores, recommendedBand },
-    autonomy: { currentBand: band, configuredBand, breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id), action },
+    autonomy: {
+      currentBand: band,
+      configuredBand,
+      breakers: breakerResults.filter((b) => b.tripped).map((b) => b.id),
+      action,
+      history: summarizeHistory(historyRead.entries, 5),
+      historyCount: historyRead.entries.length,
+      ...(historyRead.error !== null ? { historyError: historyRead.error } : {}),
+    },
     band: { current: bandCurrent, trend: bandTrend, weViolations, recent: recentScores },
     flows: options.flows ?? { selfInit: true, agentsOrchestration: true },
     timestamp: new Date().toISOString(),

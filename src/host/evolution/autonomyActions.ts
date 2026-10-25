@@ -15,7 +15,7 @@
  *     org-status.mjs:511 execSync 未 import）——R3 阶段 4 再补。
  */
 
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
 import { collectBreakerSignals } from './breakerSignals.ts';
@@ -24,9 +24,11 @@ import {
   decideAction,
   downgradeBand,
   type BreakerInput,
-  type BreakerResult,
 } from './autonomyGovernor.ts';
 import type { AutonomyBand } from './trustModel.ts';
+import { appendHistory } from './autonomyHistory.ts';
+import { collectAutonomyEvidence, latestCycleNumber } from './autonomyEvidence.ts';
+import { writeFallbackIncident } from './autonomyIncident.ts';
 
 /** 自主级回退结局（对齐技能 exit 码语义：downgrade 系 = exit 2，floor = exit 1） */
 export type FallbackAction = 'maintained' | 'downgraded' | 'downgrade-failed' | 'refused';
@@ -43,6 +45,9 @@ export interface AutonomyFallbackResult {
   trippedBreakers: Array<{ id: string; detail: string }>;
   /** 事故记录落盘路径；未写降级路径时为 null */
   incidentPath: string | null;
+  /** cycle-77：本次是否向 `.cycles/autonomy-history.json` 追加了变更记录（只追加字段）。 */
+  historyPath?: string | null;
+  historyRecorded?: boolean;
   reason: string;
 }
 
@@ -53,10 +58,11 @@ export function parseConfiguredAutonomyLevel(content: string): AutonomyBand | nu
 }
 
 /**
- * 降级一步：L4→L3 或 L3→L2（对齐技能 applyAutonomyDowngrade:120-134）。
- * 只接受 L4/L3 起点——L2/L1 是技能同款地板（cmdAutoFallback:656-658 exit 1）。
+ * 把 config.yml 的 autonomy_level 从 fromLevel 原子改写为 toLevel，并回读断言。
+ * 升级与降级共用本函数——两条路径若各写一份正则，引号容错语义必然漂移
+ * （cycle-77：升级路径新增时不再复制 S-8 的引号容错逻辑，而是复用这一处）。
  */
-export function applyAutonomyDowngrade(
+export function rewriteAutonomyLevel(
   configPath: string,
   fromLevel: AutonomyBand,
   toLevel: AutonomyBand,
@@ -84,56 +90,13 @@ export function applyAutonomyDowngrade(
   };
 }
 
-function writeFallbackIncident(
-  workspaceRoot: string,
-  result: {
-    currentBand: AutonomyBand;
-    targetBand: AutonomyBand;
-    ok: boolean;
-    observedBand: AutonomyBand | null;
-    reason: string;
-    tripped: BreakerResult[];
-  },
-): string {
-  const incidentsDir = join(workspaceRoot, '.cycles', 'incidents');
-  if (!existsSync(incidentsDir)) mkdirSync(incidentsDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const incidentPath = join(incidentsDir, `incident-auto-fallback-${timestamp}.md`);
-  const triggeredStr = result.tripped
-    .map((b) => `- ${b.id}: ${b.detail}`)
-    .join('\n');
-  // 事故记录只陈述回读到的真实级别（修 S-7：不再声称未发生的降级）
-  const eventLine = result.ok
-    ? `熔断自动回退 ${result.currentBand} → ${result.observedBand}`
-    : '熔断触发，但自动回退未生效（config 未按预期改写）';
-  const downgradeLine = result.ok
-    ? `自主级别回退：${result.currentBand} → ${result.observedBand}（已回读验证）`
-    : `自主级别回退失败：期望 ${result.targetBand}，实际仍为 ${result.observedBand ?? 'none'}（${result.reason}）`;
-  const incidentContent = [
-    '# 事故记录：熔断自动回退（插件 anic autonomy-fallback）',
-    '',
-    '## 基本信息',
-    '| 字段 | 值 |',
-    '|---|---|',
-    `| 时间 | ${timestamp} |`,
-    `| 事件 | ${eventLine} |`,
-    `| 触发条件 | ${result.tripped.length} 个 |`,
-    '',
-    '## 触发条件',
-    triggeredStr,
-    '',
-    '## 影响范围',
-    `- ${downgradeLine}`,
-    '- 需要人类介入诊断',
-    '',
-    '## 恢复条件',
-    '- 根因已定位且修复已验证',
-    '- 人类确认问题已修复',
-    `- 手动恢复 autonomy_level 为 ${result.currentBand}`,
-    '',
-  ].join('\n');
-  atomicWriteFileSync(incidentPath, incidentContent);
-  return incidentPath;
+/** 降级一步：L4→L3 或 L3→L2（语义与 rewriteAutonomyLevel 相同，保留旧导出名兼容）。 */
+export function applyAutonomyDowngrade(
+  configPath: string,
+  fromLevel: AutonomyBand,
+  toLevel: AutonomyBand,
+): { ok: boolean; observedLevel: AutonomyBand | null; reason: string } {
+  return rewriteAutonomyLevel(configPath, fromLevel, toLevel);
 }
 
 /**
@@ -235,6 +198,33 @@ export function runAutonomyFallback(
     tripped,
   });
 
+  // cycle-77（P0「自主级变更不可审计」）：降级此前只写自由文本 incident，
+  // 机器可读账本里 0 条记录——「上次为什么从 L4 掉到 L3」无法用结构化事实回答。
+  // 现在只有**回读成功**（applied.ok）时才追加 history：观测≠意图时不写
+  // 「已降级」，否则又是一条与效果解耦的伪记录。
+  let historyPath: string | null = null;
+  let historyRecorded = false;
+  if (applied.ok && applied.observedLevel !== null) {
+    const evidence = collectAutonomyEvidence(workspaceRoot, currentBand);
+    const appended = appendHistory(join(workspaceRoot, '.cycles'), {
+      from: currentBand,
+      to: applied.observedLevel,
+      at: new Date().toISOString(),
+      actor: 'anic_autonomy_downgrade',
+      reason: `熔断回退：${trippedView.map((b) => b.id).join(', ')}`,
+      authorization: 'system',
+      evidence: {
+        trust: evidence.trust,
+        breakers: evidence.breakers,
+        gates: evidence.gates,
+        recommendedBand: evidence.recommendedBand,
+      },
+      atCycle: latestCycleNumber(join(workspaceRoot, '.cycles')),
+    });
+    historyPath = appended.path;
+    historyRecorded = appended.ok;
+  }
+
   return {
     action: applied.ok ? 'downgraded' : 'downgrade-failed',
     currentBand,
@@ -243,5 +233,7 @@ export function runAutonomyFallback(
     trippedBreakers: trippedView,
     incidentPath,
     reason: applied.ok ? '' : applied.reason,
+    historyPath,
+    historyRecorded,
   };
 }

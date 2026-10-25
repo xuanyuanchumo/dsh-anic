@@ -82,7 +82,7 @@ interface TraceStep {
 interface ProbeResult { id: string; inv?: string; ok: boolean; detail: string }   // selfCheckRoute.ts
 ```
 
-**六个只读探针**（`runSelfChecks(input: { workspaceRoot, agentCardsDir })`）：
+**九个只读探针**（`runSelfChecks(input: { workspaceRoot, agentCardsDir, inlineSkillRoot?, installedSkillRoot? })`）：
 
 | id | 不变量 | 判定 |
 | --- | --- | --- |
@@ -92,8 +92,13 @@ interface ProbeResult { id: string; inv?: string; ok: boolean; detail: string } 
 | P4 | agent 卡可加载 | `loadAgentCards(input.agentCardsDir)` 且 `agents.errors.length === 0` |
 | P5 | INV-18 step-trace 可复现 | 仅当 `<cyclesDir>/workflow-graph.yaml` 存在时跑，同一固定时间戳；否则空过 |
 | P6 | INV-26 诊断域隔离 | **硬编码 `ok: true`**，detail `'self-check is read-only by construction (no write path in this module)'` |
+| P7 | 能力索引同步 | `capabilityIndex` 漂移检查：索引与工具面集合一致（`drift.ok`） |
+| P8 | 工具披露模式 | 渐进式披露模式（`full` / `index`）与索引字节数；默认 `full` 零行为变更 |
+| P9 | **技能双轨一致性**（cycle-77） | `verifySkillInstall(live, inline)`：`dualTrack=in-sync` 才 ok；`extraDrift`/`manifestStale`/字节不符即红；**inline 或 live 缺失时 `skipped: true`（不假绿）** |
 
 P6 是形态声明而非运行时探测 —— 它不检验任何东西，只是把「本模块无写路径」写进响应。真正的保证来自源码守卫与评审。
+P9 是 cycle-77 新增：把「发行源 `assets/skill` ↔ 运行副本 `.dsh/skills/…`」漂移变成可读回的探针结果，
+`skipped` 项不计入 `allOk`（缺证据 ≠ 通过）。
 
 **每个探针独立 try/catch**，抛错转成 `ok: false` + `detail: 'threw: …'`，不向上传播。
 

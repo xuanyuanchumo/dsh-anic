@@ -1,5 +1,118 @@
 # dsh-anic CHANGELOG
 
+## v0.43.0 — 2026-10-25（cycle-77：L4 自主级可审计 + 账本质量维入账 + 完整性/连接性缺口六连修）
+
+> 本轮由 **L4 全自主模式**（用户指令授权，`humanAuthorized` + `trustExemption` 如实入账）
+> 驱动自举循环，按用户限定的质量评审体系（功能性 + 非功能性 + 设计约束 + UX/UI + 工程化规范）
+> 从**项目自己的机器**取证缺口，修完复跑复验。4 名 teammate 并行实施（写作用域互斥）。
+
+### ① F-04 质量维裁决入账（P0：账本 fail-open）
+
+**被守卫缺陷**：`gate-check.mjs` 的 `--record` 落账发生在质量检查**之前** ⇒ G0 基本判定 PASS、
+Q5 FAIL 时账本留下 `G0 PASS`，与最终裁决矛盾——读账本会误判「上次全过」。
+**修法**：质量先行；账本 `result`=最终裁决、`detail` 追加逐维证据。
+真实账本条目（本轮 G0-G3 复跑）：
+
+```
+G0 PASS | Evaluation report found in cycle-77 (16 dimension rows) [Q1:PASS,Q5:PASS]
+G1 PASS | All 14 tasks completed [Q7:PASS]
+G2 PASS | Zero failures, zero errors (测试报告.md + journey coverage verified) [Q2:PASS]
+G3 PASS | Build passed: node scripts/build-client.mjs [Q3:PASS,Q4:PASS]
+```
+
+原生侧同族修复：`gateEngine.evaluateQualityGate` + `gateCheckRunners.recordNative` 消费质量裁决
+（`finalPass = gate.pass && quality.pass`），差分契约逐字节全等。回归：`gateQualityLedgerContract` 6 例
+（真跑脚本 + 账本读回；用 HEAD 旧脚本同夹具实测旧行为判红）。
+
+### ② 自主级变更可审计（P0：L4 激活不再手改配置）
+
+**被守卫缺陷**（`docs/anic/spike/evolution-replay-simulation.md` P0）：incidents 声称 2 次 L4→L3，
+账本 0 条；本次实测配置又已悄悄变成 L2 —— **级别变更发生在任何可审计载体之外**，且只有降级工具、无升级路径。
+
+- 新增 `src/host/evolution/autonomyHistory.ts`：`.cycles/autonomy-history.json`，结构化身份
+  `{from,to,at,actor,reason,authorization,evidence,trustExemption?,atCycle}`；原子写 + 写后回读；
+  坏 JSON **响亮拒绝覆盖**（不抹既有审计线索）；有界 50 条 FIFO 并返回 `dropped`。
+- 新增工具 **`anic_autonomy_upgrade`**（第 22 个）：相邻档 / 无 tripped 熔断 / 信任阈值 / 人类授权
+  四条件机器判定；拒绝**零写入**并点名缺失前置；成功走 Post-Verify（observed≠intent ⇒ `upgrade-failed`
+  且不写成功记录）。降级路径同步留痕（补齐"降级无审计"）。
+- `org-status` 追加 `autonomy.history`（最近 5 条）+ `historyCount` + 坏账 `historyError`。
+- **本仓实际激活（两步相邻）**：L2→L3（信任 84 ≥ 70，`authorization: system`）→
+  L3→L4（84 < 85，**人类显式授权豁免**，`authorization: human` + `trustExemption: {avg:84,threshold:85}`）。
+  当前 `org-status` 实测 `currentBand=L4 / configuredBand=L4 / historyCount=2`。
+
+### ③ 双轨漂移 + extras + manifest 新鲜度（F-07/F-08，P1）
+
+线上复现：`skillIntegrity.ok=false`（`mcp-server.mjs` hash、`quick-validate.mjs` size 不符），
+extras 三个顶层旧副本、manifest 停在 2.3.0（真实版本 2.5.2）。
+
+- `verifySkillInstall` 新增只增字段：`extraDrift[]`（同名不同哈希的散落副本 ⇒ **判红但不删除**）、
+  `manifestStale` + `MismatchKind 'manifest-version'`、`dualTrack`（`in-sync`/`live-behind`/`live-diverged`/`unknown`）。
+- `repairSkillInstall` 重写清单并刷新 `version`/`generatedAt`；显式跳过清单层 mismatch（不当普通文件复制）。
+- self-check 新增 **P9-skill-dual-track**：真装才探；inline 缺失 ⇒ `skipped:true` 不计 `allOk`（缺证据 ≠ 通过）。
+- **工作区实修**：`repair` 同步 3 文件（`scripts/gate-check.mjs` / `scripts/mcp-server.mjs` / `scripts/quick-validate.mjs`），
+  清理顶层**旧版** `mcp-server.mjs`（16,093 B，仍是 `execSync` 命令注入前形态；`scripts/` 版 20,109 B 为 `spawnSync` 修复版，
+  且全仓无任何引用）⇒ 复验 `ok=true / dualTrack=in-sync / manifestVersion=2.5.2 / extraDrift=0`。
+
+### ④ build 删窗消除（F-09，P1）
+
+**被守卫缺陷**：`build-client.mjs` 非 watch 路径先 `rmSync(distDir)` 再构建 ⇒ 构建失败时宿主运行目录
+`dist/` 被整体删除（2026-10-23 真实事故）。
+**修法**：staging 目录构建 → 失败 `exit(1)` 且 `dist/` **零动作** → 成功才逐文件 `renameSync` 同卷原子替换。
+新增 `buildWindowContract` 6 例：词法感知解析语句顺序（非整文件字符串位置猜测），断言非 watch 路径
+`dist` 删除=0、client/host 构建 < exit < promote、cleanup > promote；反向自检三类违例判红。
+
+### ⑤ 连接性：`?workspace=` 查询选择器被忽略（P1）
+
+工具面（`anic_status` / `anic_snapshot` / `anic_self_check`）宣传 `/anic/...?workspace=<abs>`，
+而 `resolveWorkspaceRoots` 只读 `X-ANIC-Workspace` 头 ⇒ 查询参数被静默忽略、回落宿主 cwd。
+实测：查询参数 → `cycles.total=0`；加头 → `73`。**修法**：查询参数升为**同等级选择器**，
+与头**共用同一个** `acceptClaim` 校验（`knownRoots ∪ 真含 .cycles`），优先级 头 > 查询 > registry > sessions > cwd；
+"选择器不是任意路径入口"的安全边界不变。`workspaceSelector` 7 例（每例带反向自检）。
+
+### ⑥ 自举超时默认值收敛（F-06，P2）
+
+`bootstrapOrchestrator.ts` / `bootstrapOrchestratorAsync.ts` / `bootstrapEngineIntegration.ts` 三处裸
+`timeoutMs = 60000` → 引用单一事实源 `BOOTSTRAP_STEP_TIMEOUT_MS`（240000，4× 测试金字塔）。
+新增静态守卫：runtime 编排器不得再出现裸 `60000` 默认值。
+
+### ⑦ 测试编排器自述漂移（F-05，P2）
+
+`run-tests.mjs` 头注自称 `[1/3]…[3/3]` 三层 + "21 断言"，实现是 4/5 层、smoke 20 条 PASS。
+修法：头注只描述能力不重复数字；`testRunnerSelfDescriptionContract` 6 例静态守卫
+（A 类禁硬编码层编号/层数/断言数；B 类要求横幅由 `STEPS.length` 派生）+ 反向自检。
+
+### ⑧ 质量属性量化与工程化同步
+
+- `非功能验证报告.md`（cycle-77）：19 项质量属性量化——工具 22/22 消费、路由 63（ghost 0）、
+  技能 16/16、连通性 6 跳全通、闭环体检 423–460 ms（并发负载最差 21.96 s，如实披露）、
+  中文注释 222/222 文件（100%，7,995 行）、0 个 >250 行文件、运行时 import 环 0、high/critical 漏洞 0。
+- 生产/消费三态矩阵：**420 注册 / 335 消费 / 85 未消费 / ghost 0**；46 条未消费路由为**通道独占**
+  （外部 HTTP / 运维 / MCP 客户端），39 条未消费 locale 键为**声明未消费**（无幽灵键）。
+- 文档同步：README（22 工具 + `### 22 DSH 工具` + 升级工具条目）、`测试指南.md`（四层离线 + 第 5 层 live）、
+  `docs/agents/README.md`、`CLAUDE.md`、`API参考-数据面.md`（P7/P8/P9 探针）。
+- 配置补齐：`.cycles/config.yml` 显式 `complexity_budget: 100`（消除 band-detector 的"未设预算"提示噪声）。
+
+### 验证基线（本轮收口）
+
+```
+typecheck: tsconfig.client + tsconfig.host 双配置 0 错
+validate:  12/12 PASS（dsh-anic@0.43.0）
+vitest:    159 files / 1969 tests 全绿
+smoke:     ALL PASS（20 条 PASS）
+trigger:   22 tools · recall 27/27 = 100% · FPR 0/14 = 0%
+eval:      E1-E8 + Q1-Q8 共 16 维全 PASS
+gates:     G0-G3 全 PASS（账本含逐维质量裁决）
+build:     dist/client.js 287,211 B + dist/host.js 547,572 B（staging 原子替换）
+```
+
+### 已知边界（诚实登记）
+
+- 真实宿主 J0 探针未跑（需重启宿主加载本轮 dist；纪律禁止本会话启停宿主）。
+- `tsdown` 失败路径无端到端测试（静态守卫 + 零动作实现兜底）。
+- `skillInvoker` 同步入口 120s cap 与异步 240s 仍不对称（既有登记）。
+- `band-detector` 报警语义未与执行失败区分（WARNING/WE ⇒ exit 1 ⇒ FlowTracker FAILED）——
+  本轮登记为 `.cycles/tech-debt/cycle-77-band-detector-alarm-semantics.md`，未改判定语义。
+
 ## v0.42.0 — 2026-10-25（cycle-76：连通性维度 + 质量属性评审缺口补齐 + 扫描算法提速 17.5×）
 
 ### ⓪ 质量属性与全生命周期评审（Q1-Q8），用**项目自己的机器**取证并补缺

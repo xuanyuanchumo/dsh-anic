@@ -37,9 +37,9 @@
 ```bash
 pnpm run build       # client bundle + host bundle（tsdown）
 pnpm run typecheck   # tsconfig.client + tsconfig.host（向上查父工程 tsc）
-pnpm run test        # 第 1–3 层：validate + vitest + smoke
+pnpm run test        # 第 1–4 层（离线）：validate + vitest + smoke + trigger
 pnpm run lint        # = validate-dsh.mjs（DSH 规范符合性门）
-pnpm run j0          # 第 4 层：真实宿主 J0 探针（需先 test:dsh:start）
+pnpm run j0          # 第 5 层：真实宿主 J0 探针（需先 test:dsh:start）
 ```
 
 完整命令与每层的边界见 [测试指南.md](测试指南.md) §6。

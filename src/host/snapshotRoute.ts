@@ -10,8 +10,14 @@
  * - 路由注册：src/host/routes/statusRoutes.ts:11-25 —— ctx.effect(() =>
  *   ctx.webServer.register({kind:'exact', path, handler}))，effect 返回值即清理。
  *
- * 安全面：只读；路径来自宿主服务（registry/sessions），绝不来自用户输入
- * （与 M0-③ 结论一致：白名单只来自宿主）；响应带 no-store（数据即最新）。
+ * 安全面：只读；路径来自宿主服务（registry/sessions）或**经校验的客户端选择器**
+ * （X-ANIC-Workspace 头 / ?workspace= 查询参数），不接受任意路径；响应带 no-store。
+ *
+ * Q-1（cycle-77 修复，连接性缺陷）：工具面（toolsStatusGateway/toolsPointerGateway）
+ * 宣传 `?workspace=<abs>` 形态的 URL，而本文件解析器只读 `X-ANIC-Workspace` 头——查询
+ * 参数被完全忽略，后果不是报错而是**静默读错工作区**（curl `?workspace=dsh-anic` 得
+ * `cycles.total=0 / band=L2`，换成请求头才 73）。修法：查询参数成为与头**同等级**的
+ * 选择器（共用 acceptClaim 校验），优先级 头 > 查询 > registry > sessions > cwd。
  *
  * CORS（P0-8 修订）：原文写「CORS（桌面/远程 UI 跨源可见）」并据此发了
  * `Access-Control-Allow-Origin: '*'` —— 该推理是错的。**桌面端不走本服务器**
@@ -56,15 +62,12 @@ export interface SnapshotCtx {
  * 或含 .cycles 目录，才被采信——头是"选择器"不是"任意路径入口"（安全面不变）。
  */
 export function resolveWorkspaceRoots(ctx: SnapshotCtx, req?: unknown): string {
-  // 0) 客户端声明的工作区（桌面多会话纠偏）；须过合法集校验，失败静默回落。
-  const claimed = workspaceOfReq(req);
-  if (claimed) {
-    const known = knownRoots(ctx);
-    if (known.has(claimed)) return claimed;
-    // 合法集不含时也接受"确实含 .cycles 的路径"（单会话 web 宿主可能只报一个）。
-    try {
-      if (existsSync(join(claimed, '.cycles'))) return claimed;
-    } catch { /* 越权/不存在 → 回落 */ }
+  // 0) 客户端声明的工作区：两个选择器、同一校验、严格优先级 头 > 查询 > registry >
+  //    sessions > cwd。头优先→旧客户端零行为变化；查询次之→补上被忽略的宣传通道；
+  //    头未过校验才轮到查询（被拒声明本就是客户端错误，回落下一选择器比静默读错更诚实）。
+  for (const claim of [workspaceOfReq(req), workspaceOfQuery(req)]) {
+    const accepted = acceptClaim(ctx, claim);
+    if (accepted !== null) return accepted;
   }
   try {
     const wsr = ctx.workspaceRegistry;
@@ -95,17 +98,53 @@ function knownRoots(ctx: SnapshotCtx): Set<string> {
   return set;
 }
 
+/**
+ * 选择器采信判定（头与查询参数**共用**——两份校验迟早漂移，这是"同等级"的实现含义）。
+ * 采信条件（安全边界：选择器不是任意路径入口）：① 命中宿主已知工作区集合；或
+ * ② 该路径确实存在 `.cycles`。其余返回 null 让调用方回落。existsSync 包在 try 里：
+ * 越权/不可达路径在 Windows 上可能抛错，不能让选择器本身炸掉请求。
+ */
+function acceptClaim(ctx: SnapshotCtx, claimed: string | null): string | null {
+  if (claimed === null) return null;
+  if (knownRoots(ctx).has(claimed)) return claimed;
+  try {
+    if (existsSync(join(claimed, '.cycles'))) return claimed;
+  } catch { /* 越权/不存在 → 不接受 */ }
+  return null;
+}
+
+/** URL 解码容错：畸形百分号转义回落原始串（不抛——选择器由 acceptClaim 判定）。 */
+function decodeTolerant(raw: string): string {
+  try { return decodeURIComponent(raw); } catch { return raw; }
+}
+
 /** 从请求头取 X-ANIC-Workspace（URL 解码；缺失/空白返回 null）。 */
 function workspaceOfReq(req: unknown): string | null {
   if (req === null || req === undefined) return null;
   const raw = (req as { headers?: Record<string, string | string[] | undefined> }).headers?.['x-anic-workspace'];
   const val = Array.isArray(raw) ? raw[0] : raw;
   if (typeof val !== 'string' || val.trim() === '') return null;
-  try {
-    return decodeURIComponent(val);
-  } catch {
-    return val;
+  return decodeTolerant(val);
+}
+
+/**
+ * 从请求 URL 查询串取 `?workspace=`（Q-1，与请求头同等级的选择器）。
+ * 手写解析而非 URLSearchParams：后者把 `+` 当空格（表单语义），而 Windows 合法路径
+ * 可含 `+`，这里按路径语义只做 decodeURIComponent；畸形转义由 decodeTolerant 兜底。
+ * 缺失/空值/无 `?` → null（回落下一选择器）。
+ */
+function workspaceOfQuery(req: unknown): string | null {
+  const url = (req as { url?: unknown } | null | undefined)?.url;
+  if (typeof url !== 'string') return null;
+  const q = url.indexOf('?');
+  if (q < 0) return null;
+  for (const pair of url.slice(q + 1).split('&')) {
+    const eq = pair.indexOf('=');
+    if (eq <= 0 || pair.slice(0, eq) !== 'workspace') continue;
+    const raw = pair.slice(eq + 1);
+    return raw.trim() === '' ? null : decodeTolerant(raw);
   }
+  return null;
 }
 
 /**

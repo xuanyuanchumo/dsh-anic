@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
- * dsh-anic 测试编排器 —— 一条命令跑完可离线执行的全部层：
+ * dsh-anic 测试编排器 —— 一条命令跑完可离线执行的层。
  *
- *   [1/3] validate-dsh    DSH 规范符合性门（清单/exports/locale/icon/产物）
- *   [2/3] vitest          单元（snapshotCore/snapshotRoute/apply）+ 契约守卫
- *   [3/3] offline-smoke   机制冒烟（stub 宿主 21 断言）
+ * 离线层覆盖：DSH 规范符合性门、单元 + 契约守卫、stub 宿主机制冒烟、触发评估；
+ * `--live` 追加真实宿主 J0 probe（E2E）。
+ *
+ * **层数与断言数不在本注释里声明**：层序/层数由下方 `STEPS` 数组决定，运行期逐层
+ * 打印 `=== [i/N] … ===`、结尾打印汇总表——两者是唯一事实源。F-05（cycle-77）的教训：
+ * 本注释曾写死层数与冒烟断言数；`--live` 让层数可变之后，实现变了而注释没变，
+ * 于是注释与真实执行各说一套（文档漂移）。此处只描述能力，不重复任何数字。
  *
  * 用法：
- *   node scripts/run-tests.mjs            # 全部离线层
- *   node scripts/run-tests.mjs --live     # 追加 [4/4] j0-probe（需 start-dsh-test.mjs 环境）
+ *   node scripts/run-tests.mjs            # 默认离线层
+ *   node scripts/run-tests.mjs --live     # 追加真实宿主 E2E（需 start-dsh-test.mjs 环境）
  *   node scripts/run-tests.mjs --only=vitest
  *
  * 任一层失败即停后续层（fail-fast）并退出 1；全绿打印汇总表退出 0。

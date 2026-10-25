@@ -3,7 +3,7 @@
   "_meta": {
     "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：正例覆盖全部 19 工具、负例取「关键词相近但应触发其他工具」的险些误触、确定性代理评分每次 description 改动可复跑。静态数据文件（研究产物，非源码）。",
     "createdAt": "2026-10-18",
-    "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）",
+    "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）；cycle-77：40 → 41 条——pos-22 覆盖新增的 anic_autonomy_upgrade（22 工具全覆盖；train/test = 21/20）",
     "source": "skill-ecosystem.md P0-2 设计（.cycles/cycles/cycle-16/research/skill-ecosystem.md）",
     "designRules": [
       "正例（pos-*）：真实用户口吻（具体、带细节、可能有口语/缩写），cycle-16 版覆盖 19 工具中最重要的 10 个；cycle-35 扩容至全部 19 个（每工具恰 1 条）",
@@ -294,23 +294,30 @@
       "query": "索引模式下我需要某个 anic 工具的完整定义，请用 tool detail 取回它的工具参数",
       "expectedTool": "anic_tool_detail",
       "rationale": "正例：按需取回工具完整定义（参数）——anic_tool_detail 的正典场景"
+    },
+    {
+      "id": "pos-22",
+      "split": "test",
+      "query": "自举循环想跑得更自主一点，请按人类明确授权把项目的自主级升级到 L4，并把这笔授权写进审计记录",
+      "expectedTool": "anic_autonomy_upgrade",
+      "rationale": "正例（cycle-77 增补）：带人类授权与审计留痕要求的自主级升级——与 anic_autonomy_downgrade（回退一档）方向相反，是本轮新增升级入口的正典场景"
     }
   ],
   "_stats": {
-    "total": 40,
-    "positiveIds": 21,
+    "total": 41,
+    "positiveIds": 22,
     "negativeIds": 19,
     "negativeBreakdown": {
       "shouldTriggerNone": 14,
       "shouldTriggerOtherTool": 5
     },
     "scoringCounts": {
-      "positives": 26,
+      "positives": 27,
       "negatives": 14
     },
     "splitBreakdown": {
       "train": 21,
-      "test": 19
+      "test": 20
     },
     "positiveToolsCovered": [
       "anic_evaluate",
@@ -333,7 +340,8 @@
       "anic_hitl",
       "anic_skill_repair",
       "anic_tools_search",
-      "anic_tool_detail"
+      "anic_tool_detail",
+      "anic_autonomy_upgrade"
     ],
     "distinguishingPairsExercised": [
       "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08 + pos-11/pos-12）",

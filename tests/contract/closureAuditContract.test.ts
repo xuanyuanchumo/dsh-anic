@@ -121,12 +121,13 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
     }
   });
 
-  it('工具消费面分级：全部 21 项为 code 级（生产代码内消费），channel-only 如实计数', () => {
+  it('工具消费面分级：22 项（cycle-77）按 code/channel 如实分级，不变量不依赖具体条数', () => {
     const channelOnly = (tcl?.items ?? []).filter((x) => x.evidenceKind === 'channel').map((x) => x.id).sort();
     const codeLevel = (tcl?.items ?? []).filter((x) => x.evidenceKind === 'code').length;
     console.log('CLOSURE_TOOL_EVIDENCE ' + JSON.stringify({ codeLevel, channelOnly: channelOnly.length }));
     // 基线：code 级 >0（确有生产代码消费方）；channel-only 如实计数。
     // cycle-75 同步：旧标题「13 项仅 channel」是陈旧描述——实测 codeLevel=21 / channelOnly=0。
+    // cycle-77：工具面 21 → 22（新增 anic_autonomy_upgrade），故标题不再写死条数。
     // 断言本体（分级不变量）未变，此处补齐逐项分级自洽。
     expect(codeLevel).toBeGreaterThan(0);
     expect(codeLevel + channelOnly.length).toBe(tcl?.total ?? 0);

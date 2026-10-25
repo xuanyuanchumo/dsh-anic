@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "bffe374",
+  "commit": "8404bbf",
   "tools": [
     [
       "anic_evaluate",
@@ -33,6 +33,10 @@
     [
       "anic_autonomy_downgrade",
       "降级自主级别（熔断回退路径）"
+    ],
+    [
+      "anic_autonomy_upgrade",
+      "升级自主级别：前置条件核定+留痕"
     ],
     [
       "anic_flows_gate_check",
