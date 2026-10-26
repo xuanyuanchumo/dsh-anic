@@ -333,6 +333,8 @@ describe('宿主入口 apply', () => {
     '/anic/api/invocations/live',
     // cycle-72 T-7207 闭环体检（注册↔生产↔消费 三态矩阵）只读面
     '/anic/api/closure-audit',
+    // cycle-80：热更新重载运维通道（POST /anic/api/reload，ctx.hmr 的 HTTP 消费面）
+    '/anic/api/reload',
     '/anic/cycle/init', '/anic/cycle/advance', '/anic/cycle/close', '/anic/cycle/state', '/anic/cycle/list',
     '/anic/api/ledger', '/anic/api/ledger/append', '/anic/api/ledger/verify',
     '/anic/api/stack-probe',
@@ -377,7 +379,8 @@ describe('宿主入口 apply', () => {
     apply(ctx);
     // cycle-74：5 层 = skill(cycle-97) + routes + tools + flows(R3 阶段 2) + 工具面按需加载接线。
     // 末层在默认 full 模式下**不注册任何监听器**（内部直接返回），零行为变更。
-    expect(effect).toHaveBeenCalledTimes(5);
+    // cycle-80：+1 = 热更新握手（finalize in-flight + 冷启动 staleness 记录）⇒ 6 层。
+    expect(effect).toHaveBeenCalledTimes(6);
     // label 必须点明是聚合注册（少一层即功能面缺失）
     expect(effect.mock.calls[0]?.[1]).toContain('dsh-anic: runtime skill');
     expect(effect.mock.calls[1]?.[1]).toContain('dsh-anic: routes');
@@ -385,6 +388,8 @@ describe('宿主入口 apply', () => {
     expect(effect.mock.calls[1]?.[1]).toContain('child fiber');
     expect(effect.mock.calls[3]?.[1]).toContain('dsh-anic: builtin flows');
     expect(effect.mock.calls[4]?.[1]).toContain('dsh-anic: tool disclosure');
+    // cycle-80：末层是热更新握手——它必须独立成层，不能塞进工具面接线（观测性 ≠ 功能开关）。
+    expect(effect.mock.calls[5]?.[1]).toContain('hot-reload handshake');
     // M1 全功能面：四条路由一次注册齐（少一条即功能面缺失）
     expect(registered.map((r) => r.path).sort()).toEqual([...ALL_ROUTES].sort());
     // effect 返回的清理被宿主拿走：调用 ROUTES 层（results[1]）必须**逐个**清掉

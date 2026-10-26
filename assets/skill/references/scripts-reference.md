@@ -95,6 +95,13 @@ node scripts/gate-check.mjs <project-dir> [--gate G0|G1|G2|G3|all] [--record]
 去重键是 `(result, detail)`——带上循环身份后，**跨循环同结论不再被静默去重**（此前实测：cycle-78 的 G2/G3 仍是
 cycle-77 记录，本循环无审计条目）；同一循环重复运行仍正常去重。宿主 `gateEngine` 的 native 侧 detail 与脚本**逐字全等**。
 
+**构建产物新鲜度（cycle-80 WS-3 G-04）**：G3 的 detail 末尾再追加 `[dist=<revision 前 8 位>]`（如
+`Build passed: node scripts/build-client.mjs §cycle-79 [dist=f13efd1c]`）。revision 是**内容哈希**：
+`sha256( sha256(dist/host.js) + ":" + sha256(dist/client.js) ).slice(0, 16)`，展示取前 8 位；`dist/` 缺失或不可读
+⇒ `[dist=absent]`（诚实标注，不伪造）。该证据只增不改——G3 的 pass/fail 仍只由 `build_cmd` 决定，但 detail 变化会
+改变 `--record` 去重键（每份新产物＝新证据，这是预期）。被守卫缺陷＝「源码改了忘 build」：dist 被 gitignore，
+旧产物照样能让门禁"看起来全绿"。
+
 **输出格式**：
 ```
 [PASS|FAIL] G0: <详情>
@@ -479,12 +486,13 @@ Auto-fallback completed. Autonomy level maintained: L4
 
 **输入参数**：
 ```
-node scripts/quick-validate.mjs <skill-dir>
+node scripts/quick-validate.mjs <skill-dir> [--freshness]
 ```
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `<skill-dir>` | 是 | Skill 包根目录路径 |
+| `--freshness` | 否 | 发行新鲜度检查（默认关闭；开启时任何一项过期 ⇒ exit 1） |
 
 **检查内容**：
 - 必需文件：`SKILL.md`
@@ -494,6 +502,14 @@ node scripts/quick-validate.mjs <skill-dir>
 - 预期 assets 子目录：`templates/`, `config/`, `hooks/`
 - evals JSON 文件格式验证
 - SKILL.md 内容长度和格式检查
+
+**`--freshness`（cycle-80 WS-3 G-04：发行新鲜度）**：
+被守卫缺陷＝「assets 改了忘 repair / 文档与发行源脱钩」也全绿——判据里原先没有"发行面与自身是否一致"的证据。只做**可机械判定**的项（不做模糊语义检查）：
+- `scripts index complete`：`scripts/*.mjs` 必须全部出现在本文件的目录索引（TOC）里；反向也查——索引里登记的脚本必须真实存在（ghost entry = FAIL）。
+- `version anchor consistent`：`SKILL.md` 的 `MCP Tools (vX.Y.Z)` 必须等于 `CHANGELOG.md` 顶部 `## X.Y.Z`；不一致 = 发行源与变更日志脱钩。
+- `references declare skill vX.Y.Z`：本文件里 `技能 vX.Y.Z` 的自述版本必须与上述同号（同一次发布的文档面）。
+- `SKILL.md line-count`：仅当 CHANGELOG 顶部条声明了「SKILL.md（N 行）」时机械比对实际行数；未声明则明示 `nothing to verify`（不猜"应该多少行"）。
+- 关闭 `--freshness` 时输出与旧版**逐字节一致**，退出码语义不变。
 
 **输出格式**：
 ```
@@ -510,10 +526,13 @@ WARNINGS (N):
 INFO (N):
   [OK] <描述>
 
+FRESHNESS (N):            ← 仅 --freshness 时出现
+  [OK|FAIL] freshness: <逐项>
+
 VALIDATION PASSED|FAILED.
 ```
 
-**退出码**：0=验证通过, 1=有 ERROR
+**退出码**：0=验证通过, 1=有 ERROR（`--freshness` 时含任一 freshness FAIL）
 
 ---
 

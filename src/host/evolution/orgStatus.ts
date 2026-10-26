@@ -12,6 +12,15 @@ import { loadHistoryScores } from './bandHistory.ts';
 import { classifyBand, detectTrend, detectWeViolations, type WeViolation } from './bandDetector.ts';
 import { collectBreakerSignals } from './breakerSignals.ts';
 import { readHistory, summarizeHistory } from './autonomyHistory.ts';
+import { reloadSummary } from '../runtime/hotReload.ts';
+import { resolvePluginRoot } from '../pluginRoot.ts';
+
+/**
+ * 给读者的**诚实提示**：hmr 可用性无法在只读快照里断言（headless/SDK profile 没有
+ * hmr 服务，桌面 profile 有；只有真正调用 `anic_reload_self` 时才会按请求探测）。
+ * 面板把这句话原样显示，避免把"本段是只读快照"误读成"重载能力可用"。
+ */
+const HMR_PROBE_HINT = 'hmr availability is probed at request time by anic_reload_self; org-status is read-only';
 
 export interface OrgStatus {
   cycles: { total: number; latest: string | null; converged: number; failed: number };
@@ -30,6 +39,22 @@ export interface OrgStatus {
   };
   band: { current: string; trend: string; weViolations: WeViolation[]; recent: number[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
+  /**
+   * cycle-80：热更新只读投影（构建新鲜度 + 最近一次重载）。
+   *
+   * 只增字段，既有字段语义不变。为什么必须在 org-status 里：观测到的「当前状态」
+   * 若不带「这是哪一版 dist 产出的」，则"改了代码没生效"与"代码本来就该这样"在
+   * 白盒面上无法区分。纯只读：不触发重载、不写文件（写入只发生在 anic_reload_self）。
+   */
+  reload: {
+    stale: boolean;
+    revision: string | null;
+    historyCount: number;
+    lastStatus: string | null;
+    lastAt: string | null;
+    error: string | null;
+    hmrProbeHint: string;
+  };
   timestamp: string;
 }
 
@@ -123,6 +148,11 @@ export function runOrgStatus(workspaceRoot: string, options: {
   // 坏 JSON 时 historyCount 归零但 historyError 响亮点名（不假绿）。
   const historyRead = readHistory(cyclesDir);
 
+  // 热更新只读投影（cycle-80）：把「我跑的是哪一版 dist / 上次重载成没成」接到用户
+  // 观测面。pluginRoot 用标记驱动解析（src 布局与 dist bundle 布局自适应），解析失败
+  // 时 reloadSummary 按"dist 缺失"诚实返回 stale=true + reason，而不是假装新鲜。
+  const reloadRead = reloadSummary(cyclesDir, resolvePluginRoot());
+
   return {
     cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
@@ -138,6 +168,15 @@ export function runOrgStatus(workspaceRoot: string, options: {
     },
     band: { current: bandCurrent, trend: bandTrend, weViolations, recent: recentScores },
     flows: options.flows ?? { selfInit: true, agentsOrchestration: true },
+    reload: {
+      stale: reloadRead.stale,
+      revision: reloadRead.revision,
+      historyCount: reloadRead.historyCount,
+      lastStatus: reloadRead.last?.status ?? null,
+      lastAt: reloadRead.last?.at ?? null,
+      error: reloadRead.error,
+      hmrProbeHint: HMR_PROBE_HINT,
+    },
     timestamp: new Date().toISOString(),
   };
 }

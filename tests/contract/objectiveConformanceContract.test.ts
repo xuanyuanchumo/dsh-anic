@@ -123,8 +123,8 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
 
   it('⑧ 真值：路由注册点与 README 独立计数器一致且逐项有真注册点', () => {
     const defs = scanRouteDefs(FILES);
-    expect(defs.length).toBe(63); // README 契约口径（readmeNumbersContract 独立复算同一数）
-    expect(defs.filter((d) => d.producedAt !== null).length).toBe(63);
+    expect(defs.length).toBe(64); // README 契约口径（readmeNumbersContract 独立复算同一数）；cycle-80 新增 /anic/api/reload
+    expect(defs.filter((d) => d.producedAt !== null).length).toBe(64);
   });
 
   /* ── 以下四条对应 objective 的**扩展限定**（质量属性与全生命周期评审体系）── */

@@ -96,6 +96,8 @@ export const CHANNEL_DECLARATIONS: readonly ChannelDeclaration[] = [
   { route: '/anic/flows/archive/run', owner: '流程状态机面（运维/MCP 客户端）', docRef: 'docs/agents/API参考-评审进化与治理.md#/anic/flows/archive/run', reason: '运维归档循环产物；本仓工具走 in-process' },
   { route: '/anic/flows/hitl/run', owner: '流程状态机面（运维/MCP 客户端）', docRef: 'docs/agents/API参考-评审进化与治理.md#/anic/flows/hitl/run', reason: '运维跑 HITL 三段修复；工具面走 anic_flows_hitl' },
   { route: '/anic/flows/auto-fix/run', owner: '流程状态机面（运维/MCP 客户端）', docRef: 'docs/agents/API参考-评审进化与治理.md#/anic/flows/auto-fix/run', reason: '运维跑自动修复循环；工具面走 anic_flows_auto_fix' },
+  /* ── 运行时面：热更新重载（cycle-80；docs/agents/API参考-数据面.md §6）── */
+  { route: '/anic/api/reload', owner: '运行时面（人类运维/外部脚本）', docRef: 'docs/agents/API参考-数据面.md#/anic/api/reload', reason: '外部运维在部署新 dist 后触发插件重载；本仓消费方是 anic_reload_self 工具（in-process），HTTP 面自身无本仓代码调用点' },
 ];
 
 /** 路由 → 声明索引（一次建表；声明表本身保持只读顺序）。 */

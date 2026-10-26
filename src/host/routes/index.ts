@@ -36,6 +36,8 @@ import { registerInvocationRoute } from './invocationRoute.ts';
 import { registerFlowsRoute } from './flowsRoute.ts';
 // cycle-72 T-7207：闭环体检（注册↔生产↔消费 三态矩阵）只读查询面。
 import { registerClosureAuditRoute } from './closureAuditRoute.ts';
+// cycle-80：热更新重载运维通道（POST /anic/api/reload，ctx.hmr 的 HTTP 消费面）。
+import { registerHotReloadRoute } from './hotReloadRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
@@ -153,6 +155,11 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   // ── flows 域（R3 阶段 2：流程状态流转机观测面 + 运行面）──
   disposers.push(...registerFlowsRoute(c, send, { getWorkspaceRoot }));
+
+  // ── runtime 域（cycle-80：热更新重载运维通道）──
+  // 为什么进 self/runtime 面而非 data：它会触发宿主拆装插件（有副作用），属运维动作；
+  // 与 anic_reload_self 共用 reloadSelf 同一实现，状态码语义见 hotReloadRoute 头注。
+  disposers.push(...registerHotReloadRoute(c, { send, getWorkspaceRoot }));
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;

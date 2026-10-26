@@ -165,7 +165,7 @@ describe('O-01 交叉面：循环身份段与质量段的拼接顺序（G1/G2/G3
     const byGate = new Map(entryOf(dir).map((e) => [e.gate, e.detail]));
     expect(byGate.get('G1')).toBe('All 1 tasks completed §cycle-1 [Q7:PASS]');
     expect(byGate.get('G2')).toBe('Zero failures, zero errors (test-report.md) §cycle-1 [Q2:PASS]');
-    expect(byGate.get('G3')).toBe('Build passed: exit 0 §cycle-1 [Q3:PASS,Q4:PASS]');
+    expect(byGate.get('G3')).toBe('Build passed: exit 0 §cycle-1 [dist=absent] [Q3:PASS,Q4:PASS]');
     // G0 例外：循环身份在 detail 文本内，无 § 段
     expect(byGate.get('G0')).toBe('Evaluation report found in cycle-1 (7 dimension rows) [Q1:PASS,Q5:PASS]');
   });

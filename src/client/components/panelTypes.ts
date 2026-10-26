@@ -55,4 +55,28 @@ export interface OrgStatusJson {
   band: { current: string; trend: string; weViolations?: Array<{ rule: number; index?: number; value?: number; desc?: string }>; recent?: number[] };
   flows: { selfInit: boolean; agentsOrchestration: boolean };
   timestamp: string;
+  /**
+   * cycle-80 新增的**可选** reload 段（与 host `orgStatus.ts` 的 `reload` 同形）。
+   *
+   * 被守卫缺陷：热更新链路（WS-1 的 `anic_reload_self` / `reload-history.json`）
+   * 落地后，"我这次看到的面板到底是哪一版 dist 跑出来的、上一次重载成没成"
+   * 在 UI 上完全不可见——用户只能靠"改了没生效"来猜。可选字段：旧宿主 /
+   * 未部署 reload 能力时整体缺省，渲染侧必须优雅退场（不得崩、不得假绿）。
+   */
+  reload?: {
+    /** dist 是否落后于 src（构建新鲜度；true = 需要重新 build）。 */
+    stale: boolean;
+    /** 当前 dist 的构建 revision（sha256(host:client) 前 16 位）；dist 缺失=null。 */
+    revision: string | null;
+    /** 重载史总条数（0 = 冷启动/从未触发）。 */
+    historyCount: number;
+    /** 最近一次重载的终态：in-flight/reloaded/refused/unavailable/failed。 */
+    lastStatus: string | null;
+    /** 最近一次重载的 ISO 时间。 */
+    lastAt: string | null;
+    /** 重载史读取失败根因（坏 JSON 等）——存在即须在 UI 上响亮显示。 */
+    error: string | null;
+    /** 给读者的诚实提示：hmr 可用性只能按请求探测，本段是只读快照。 */
+    hmrProbeHint: string;
+  };
 }

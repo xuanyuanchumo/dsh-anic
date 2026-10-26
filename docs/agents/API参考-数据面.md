@@ -213,6 +213,47 @@ spawnSync(process.execPath, [join(scriptsDir, 'init-workflow.mjs'), root, ...nam
 | 200 | feed 可用 | 环回缓冲快照 |
 | 500 | `feed` 为 null（插件装配未传入） | 诚实失败，不伪造空列表 |
 
+## 6. POST `/anic/api/reload`
+
+| 项 | 值 |
+| --- | --- |
+| 路径常量 | `hotReloadRoute.ts` 的 `HOT_RELOAD_ROUTE` |
+| 注册签名 | `registerHotReloadRoute(ctx, { send, getWorkspaceRoot })` |
+| 聚合位置 | `src/host/routes/index.ts`（runtime 域） |
+| 同源实现 | 与工具 `anic_reload_self` 共用 `runtime/hotReload.ts` 的 `reloadSelf`（单一实现） |
+
+**运维/外部触发插件热重载**（cycle-80）：本插件是 `link:` 安装，`dist/` 正是宿主 hmr 服务
+`reconcileProfile` 命中的 linked package target。新 dist 部署后，本端点让「改完代码生效」不必
+进模型会话，也不必人工重启宿主。
+
+**请求体**（可选字段，均可省略）：`{ reason?: string, force?: boolean, requiredIds?: string[] }`。
+`reason` 会写入 `.cycles/reload-history.json`；`force` 仅测试/演示用（dist 已最新时仍重载）。
+
+### 响应体与状态码
+
+| 码 | `action` | 含义 |
+| --- | --- | --- |
+| 200 | `scheduled` | 已受理并调度重载（重载异步执行；200 = 请求被接受） |
+| 409 | `unavailable` | 当前 profile 无 hmr 服务（headless/SDK）——**零写入**，不假装成功 |
+| 412 | `refused` | 前置条件不成立：dist 已最新，或史账不可写（无审计证据则不重载） |
+| 404 | — | 解析不到工作区（与其余路由同口径） |
+| 500 | — | 重载编排抛错（响亮失败，不返回半截结论） |
+
+体形状（`ReloadResult` + 回显）：`{ action, reason, fromRevision, stale, handshake,
+revision?, scheduledAt?, history?, workspace, requestId }`。
+
+### 跨实例 in-flight 握手（为什么 200 不代表「已重载」）
+
+重载会卸载/替换本实例，**事后没有进程能补写「我请求过重载」**。因此顺序被钉死：
+①先写 `status:'in-flight'` 进 `.cycles/reload-history.json` → ②`setTimeout(0)` 触发
+`ctx.hmr.runExclusive(() => ctx.hmr.reconcileProfile(requiredIds))`（不 await：续体可能永不执行）
+→ ③新实例启动时 `finalizeInFlight` 把它改写成 `reloaded`（`toRevision` = 新 dist 指纹）。
+**证据在史账里，不在响应里**——响应只说「已调度」。
+
+`ctx.hmr` 只经 `ctx.get('hmr', false)` 可选探测，**绝不写进 `inject`**（headless profile 无 hmr，
+硬 inject 会让整条 fiber pending，cycle-74 P0 教训）。只读投影见 `org-status.reload`
+（`stale` / `revision` / 最近一次重载），它不触发任何重载。
+
 ## 相关文档
 
 - 公共约定与端点总索引 → [API参考.md](API参考.md)

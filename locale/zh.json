@@ -142,7 +142,19 @@
     "autonomyMore": "……另有 {count} 条变更未展示",
     "autonomyHistoryError": "变更账读取失败：{error}",
     "authHuman": "人类授权",
-    "authSystem": "系统授权"
+    "authSystem": "系统授权",
+    "reloadTitle": "构建与重载",
+    "reloadAria": "构建新鲜度与最近一次重载（只读快照 · 共 {count} 条记录）",
+    "reloadFresh": "dist 与源码一致",
+    "reloadStale": "dist 落后于源码（需重新构建）",
+    "reloadRevision": "revision {revision}",
+    "reloadLast": "最近一次重载：{status} · {at}",
+    "reloadNone": "无重载记录（冷启动或从未触发重载）",
+    "reloadError": "重载史读取失败：{error}",
+    "reloadAgoJustNow": "刚刚",
+    "reloadAgoMin": "{n} 分钟前",
+    "reloadAgoHour": "{n} 小时前",
+    "reloadAgoDay": "{n} 天前"
   },
   "prefs": {
     "ariaLabel": "ANIC 功能开关",

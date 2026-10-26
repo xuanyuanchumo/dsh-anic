@@ -135,10 +135,10 @@ describe('BootstrapGateway：错误路径 + 展示层接线（正派路径由 bo
   });
 });
 
-describe('聚合契约：registerAnicTools 全量 22 工具恰好一次', () => {
-  it('stub 宿主上注册 22 个 anic_ 工具，名字唯一且与市场草稿清单一致', () => {
+describe('聚合契约：registerAnicTools 全量 23 工具恰好一次', () => {
+  it('stub 宿主上注册 23 个 anic_ 工具，名字唯一且与市场草稿清单一致', () => {
     const registered: Tool[] = [];
-    const disposers = Array.from({ length: 32 }, () => vi.fn());
+    const disposers = Array.from({ length: 40 }, () => vi.fn());
     let call = 0;
     const ctx = {
       tools: { register: (t: Tool) => { registered.push(t); return disposers[call++] ?? vi.fn(); } },
@@ -147,15 +147,15 @@ describe('聚合契约：registerAnicTools 全量 22 工具恰好一次', () => 
     const dispose = registerAnicTools(ctx);
     expect(typeof dispose).toBe('function');
     const names = registered.map((t) => t.name).sort();
-    expect(new Set(names).size).toBe(22);
+    expect(new Set(names).size).toBe(23);
     expect(names).toEqual([
       'anic_autonomy_downgrade', 'anic_autonomy_upgrade', 'anic_bootstrap', 'anic_bootstrap_analyze', 'anic_bootstrap_cycle',
       'anic_evaluate', 'anic_flows_advance', 'anic_flows_archive', 'anic_flows_auto_fix',
       'anic_flows_gate_check', 'anic_flows_hitl', 'anic_gate_check', 'anic_hitl', 'anic_install',
-      'anic_iterate', 'anic_self_check', 'anic_skill', 'anic_skill_repair', 'anic_snapshot', 'anic_status',
+      'anic_iterate', 'anic_reload_self', 'anic_self_check', 'anic_skill', 'anic_skill_repair', 'anic_snapshot', 'anic_status',
       'anic_tool_detail', 'anic_tools_search',
     ]);
     dispose?.();
-    expect(disposers.filter((d) => d.mock.calls.length === 1)).toHaveLength(22);
+    expect(disposers.filter((d) => d.mock.calls.length === 1)).toHaveLength(23);
   });
 });

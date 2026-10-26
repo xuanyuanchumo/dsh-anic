@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "8404bbf",
+  "commit": "6c4f402",
   "tools": [
     [
       "anic_evaluate",
@@ -59,6 +59,10 @@
       "自动修复循环：失败→根因→重试"
     ],
     [
+      "anic_reload_self",
+      "热重载本插件"
+    ],
+    [
       "anic_status",
       "插件运行状态、调用流与技能健康"
     ],
@@ -68,7 +72,7 @@
     ],
     [
       "anic_tool_detail",
-      "取某工具的完整参数 schema（索引模式必需）"
+      "取某工具的完整参数 schema（必需）"
     ],
     [
       "anic_install",
@@ -76,15 +80,15 @@
     ],
     [
       "anic_skill_repair",
-      "修复技能安装副本与内联版本的差异"
+      "修复技能安装副本与内联版本差异"
     ],
     [
       "anic_skill",
-      "按白名单直调技能脚本（唯一全量可见通道）"
+      "按白名单直调技能脚本（唯一全通道）"
     ],
     [
       "anic_bootstrap_cycle",
-      "自举链：评估→门禁→修复 自动驱动循环"
+      "自举链：评估→门禁→修复循环"
     ],
     [
       "anic_bootstrap_analyze",

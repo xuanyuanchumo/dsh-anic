@@ -20,12 +20,14 @@
  *   被允许调用它」——授权判定是 `autonomyBand` 与调用点的职责，本表不做。
  */
 
-/** 本插件注册的全部 DSH 工具 id（22 个，字典序）。
+/** 本插件注册的全部 DSH 工具 id（23 个，字典序）。
  *
  * cycle-74：19 → 21 —— 新增两个**渐进式披露加载器**（anic_tool_detail / anic_tools_search）。
  * 它们是 indexed 模式下模型取回 schema 的唯一通道，缺则自锁（见 indexActivation.activationReady）。
  * cycle-77：21 → 22 —— 新增 `anic_autonomy_upgrade`（升级此前无任何入口，只能手改 config，
- * 与「人类授权的 L4」无法区分；现在升级能力进工具面才可被计数/索引/自检消费）。 */
+ * 与「人类授权的 L4」无法区分；现在升级能力进工具面才可被计数/索引/自检消费）。
+ * cycle-80：22 → 23 —— 新增 `anic_reload_self`（宿主 hmr 服务消费面：此前 `grep ctx.hmr src/`
+ * 零命中，能力注册了却从不使用，于是改代码只能人工重启宿主）。 */
 export const ANIC_TOOL_IDS: readonly string[] = [
   'anic_autonomy_downgrade',
   'anic_autonomy_upgrade',
@@ -42,6 +44,7 @@ export const ANIC_TOOL_IDS: readonly string[] = [
   'anic_hitl',
   'anic_install',
   'anic_iterate',
+  'anic_reload_self',
   'anic_self_check',
   'anic_skill',
   'anic_skill_repair',

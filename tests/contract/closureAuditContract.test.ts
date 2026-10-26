@@ -254,7 +254,10 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
    * 该结论有**独立守卫**兜住（下方「证据锚点不得落在注释行」用例）——若将来又有人把
    * 注释当证据，那条会红，所以这里的上调不是「让套件变绿」的妥协。
    */
-  const BASELINE: Record<string, number> = { i18n: 39, routes: 46 };
+  // cycle-80：routes 46 → 47 —— 新增 `POST /anic/api/reload` 是**通道独占**（外部运维/脚本调用；
+  // 本仓消费方是 anic_reload_self 工具 in-process，HTTP 面自身无调用点）。已按纪律补 owner/docRef/reason
+  // 声明（channelRegistry），故按本文件自身要求「显式上调基线并说明理由」上调，不是放宽。
+  const BASELINE: Record<string, number> = { i18n: 39, routes: 47 };
 
   /**
    * 棘轮判据（**抽成纯函数**，好让反向自检能对着同一判据证明它两态可分）。
@@ -275,7 +278,7 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
     }
   });
 
-  it('总量未消费数不得超过基线之和（85）', () => {
+  it('总量未消费数不得超过基线之和（86）', () => {
     const limit = Object.values(BASELINE).reduce((a, b) => a + b, 0);
     expect(summary.totals.unconsumed).toBeLessThanOrEqual(limit);
   });

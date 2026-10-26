@@ -17,8 +17,8 @@ import { defineConfig } from 'vitest/config';
  *   - include 只含 src 下的 .ts 源码（被测面就是插件源码本身；dist/ 构建产物不计）；
  *   - reporter text-summary（人读）+ json-summary（机器读，契约测试真读 JSON）；
  *   - reportsDirectory 落**循环工件目录**，不污染仓库根（`coverage/` 不进 git）。
- * 注意：报告目录按循环固定为 cycle-79；后续循环由该循环任务改这一行（或 Lead 统一改），
- * 契约测试读同一路径——两处漂移会被 coverageEvidenceContract 判红。
+ * 注意：报告目录按循环滚动；**本行与 coverageEvidenceContract 的路径断言必须同轮一起改**
+ * （cycle-80 已从 cycle-79 滚动到 cycle-80）——两处漂移会被契约判红。
  */
 export default defineConfig({
   test: {
@@ -31,7 +31,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       reporter: ['text-summary', 'json-summary'],
-      reportsDirectory: '.cycles/cycles/cycle-79/coverage',
+      reportsDirectory: '.cycles/cycles/cycle-80/coverage',
       // all 默认 true：未被任何测试导入的源码文件也计入分母（否则"没测到"会被隐藏）
       all: true,
       // 关键：vitest 默认 reportOnFailure=false —— 测试一红就**不生成任何覆盖率报告**，

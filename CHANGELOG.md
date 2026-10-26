@@ -1,5 +1,95 @@
 # dsh-anic CHANGELOG
 
+## v0.46.0 — 2026-10-27（cycle-80：热更新重载插件 —— ctx.hmr 消费闭环 + 部署一致性守卫）
+
+> 用户本轮新增限定：**热更新重载插件**。起点是**真机取证**（不是猜）：
+> `plugin_manager list` 显示宿主 `@deepseek-ai/dsh-hmr` **fiberPhase=active**，
+> 服务契约为 `ctx.hmr.runExclusive(op)` + `ctx.hmr.reconcileProfile(requiredIds?)`（cordis inspect 原文）；
+> 而本插件 `grep -rn "ctx.hmr" src/` **零命中** —— 宿主有能力、插件从不使用，于是每次改代码都要人工重启宿主
+> （README 此前自认"新面受 Node 模块缓存限制需宿主自然重启生效"）。
+
+### ① 热重载核心：注册 → 生产 → 消费全链闭环（P0）
+
+新增三文件（一域一文件，全部 ≤250 行、单向依赖）+ barrel：
+
+```
+runtime/buildRevision.ts    (98)  computeBuildRevision / buildFreshness
+runtime/reloadHistory.ts   (110)  readReloadHistory / appendReloadHistory / finalizeInFlight（有界 50 条 FIFO + 原子写）
+runtime/reloadOrchestrator.ts (174)  probeHmr / reloadSelf / reloadSummary
+runtime/hotReload.ts        (20)  barrel（消费者 import 零变更）
+```
+
+`reloadSelf` 的四步语义（每条都被测试钉住）：
+
+1. `probeHmr` 不可用 ⇒ `action='unavailable'`，**零写入**（headless/SDK 诚实降级，绝不假装成功）；
+2. `buildFreshness().stale === false` 且无 `force` ⇒ `action='refused'`，**零写入**（dist 已是最新，没必要重载）；
+3. **先**写 `in-flight` 记录，**再**触发重载 —— 重载会杀掉当前实例，事后没有任何活着的实例能写这条记录；
+4. `setTimeout(() => hmr.runExclusive(() => hmr.reconcileProfile(ids)))` **不 await** —— 续体可能永不执行；
+   状态由**新实例启动时的 `finalizeInFlight`** 补全（`in-flight → reloaded` + `toRevision` + `finalizedAt`）。
+
+**为什么 `hmr` 不进硬 `inject`**：headless/SDK profile 无此服务，硬依赖会让整条 fiber PENDING
+（cycle-74 P0 真实事故），因此用 `ctx.get('hmr', false)` 可选探测。
+
+**接入面**（三处同一实现）：
+- 工具 **`anic_reload_self`**（第 23 个）：参数 `reason`（必填）/`force?`/`workspace?`/`requiredIds?`；
+- 路由 **`POST /anic/api/reload`**（运维/外部通道，响应即结果对象；已进 `channelRegistry` 四元组声明）；
+- `org-status.reload` + 面板小节（见 ②）。
+
+### ② 可观测性：构建新鲜度 + 重载史 + 面板（P1）
+
+- `org-status` 只增 `reload` 段：`{stale, revision, historyCount, lastStatus, lastAt, error, hmrProbeHint}`；
+- 面板新小节「构建新鲜度 / 最近重载」（`renderOrgReload.ts`，127 行）：锚点 `data-anic-org-reload`、
+  `data-anic-reload-row=freshness|last`、stale=警示色 / fresh=通过色 / 失败 `role="alert"`、
+  行 flex-wrap、**空历史不渲染空壳但 fresh 状态必显**（它是当前事实而非历史）；
+- 启动握手：`src/index.ts` 第 6 个 `c.effect` 调 `finalizeInFlight`（info 日志）+ `stale` warn（含 newestSrcFile），全程 scoped logger 无裸 console。
+
+### ③ 部署一致性守卫：把"改 src 忘 build"变成红（P1，本轮最有价值的一条）
+
+`deployFreshnessContract` 4 例：真实仓库 **`stale` 必须为 false**、tmp 夹具反向自检、dist 缺失诚实。
+**本轮实证**：收口期间该守卫**真实抓到 3 次**「改了 src 没重建」（`capabilityIndex.ts` / `reloadOrchestrator.ts`），
+迫使按序 build —— 它抓的是事实，不是误报。
+
+插件**不自动重建 dist**（设计选择，已写进注释与文档）：会引入 tsdown 运行时依赖与 `build-client` 的 F-09 删窗风险；
+`stale` 只做「可见 + 契约红 + 日志 warn」，构建仍由人/CI 决定。
+
+### ④ 技能侧同类守卫（P2）
+
+- `quick-validate --freshness`（默认关闭、纯增量、关闭时 stdout 逐字节一致）：scripts 索引双向完整性 + 版本锚一致 + 行数声明比对；
+- `gate-check` 的 G3 detail 追加 **`[dist=<rev8>]`**（与宿主同口径：`sha256(host)+":"+sha256(client)` 前 16 取前 8），
+  `dist` 缺失 ⇒ `[dist=absent]` 诚实标注；native(`gateEngine`) 与 script **逐字全等**（差分契约钉死）。
+- 真实账本：`G3 PASS | Build passed: node scripts/build-client.mjs §cycle-80 [dist=69380d77] [Q3:PASS,Q4:PASS]`。
+
+### ⑤ 工程化收口
+
+- 注入面体积：23 工具后 2062 B > 2048 上限 → 精简 4 条 summary → **2025 B**（A9 硬棘轮 2304 仍留余量）；
+- README「热加载与热更新」**三层 → 四层**（新增 host bundle 热重载层，headless unavailable 诚实说明）；
+- 工具面参考补第 23 工具；能力索引重生成（23 工具、`--check` OK、**幂等验证通过**）；
+- 新增 locale 键 12 个（zh/en 等键）。
+
+### 验证基线（本轮收口）
+
+```
+typecheck: 双 tsconfig 0 错
+validate:  12/12 PASS
+vitest:    171 files / 2092 tests 全绿（本轮 +26）
+smoke:     ALL PASS
+trigger:   23 tools · recall 28/28 = 100% · FPR 0/14
+eval:      E1-E8 + Q1-Q8 16 维全 PASS
+gates:     G0-G3 全 PASS（四门带 §cycle-80，G3 带 [dist=69380d77]）
+freshness: stale=false · revision 69380d778aad8953
+lifecycle: cycle-80 close → plan→design→build→test→deploy→maintain
+skill:     2.6.1 · --freshness 4/4 OK · live in-sync
+build:     client.js 303,031 B + host.js 592,949 B（原子替换）
+```
+
+### 已知边界（诚实登记）
+
+- **真机热重载未自证**：调用链/握手有 9 例测试，但"真实宿主上换掉代码"必须由人确认；
+  GUI `GET /` → **401**（宿主 web 认证，agent 无会话 token）⇒ 浏览器级验证仍受阻。
+- 面板新小节视觉/位置未真机核对；`force` 仅演示用、`requiredIds` 未真机验证。
+- 覆盖率未重跑（沿用 cycle-79 87.27/83.26）。
+- **过程债**：多 agent 并发写在同一文件冲突一次（`capabilityIndex.ts`），收口前冻结写面 + 顺序 build 解决，已登记。
+
 ## v0.45.0 — 2026-10-26（cycle-79：账本循环身份 + 覆盖证据链 + 词表零死键 + 账本形状归一）
 
 > L4 全自主第 79 轮。起点是**宿主重启后的真机复核**：v0.44.0 已生效（closure `channelDeclared=46`、

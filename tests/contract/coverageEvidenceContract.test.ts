@@ -1,5 +1,5 @@
 /**
- * cycle-79 WS-2 · coverage 证据链契约（测量面 → 判定面）
+ * cycle-80 WS-2 · coverage 证据链契约（测量面 → 判定面）
  *
  * 被守卫缺陷：`.cycles/config.yml` 的 `gates.G2.coverage_threshold` 声明 lines 80 / branches 65，
  * 但 `@vitest/coverage-v8` 从未安装（require.resolve 直接失败），G2 实际只查测试报告与
@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG_TS = join(ROOT, 'vitest.config.ts');
 const GATE_CONFIG = join(ROOT, '.cycles', 'config.yml');
-const SUMMARY = join(ROOT, '.cycles', 'cycles', 'cycle-79', 'coverage', 'coverage-summary.json');
+const SUMMARY = join(ROOT, '.cycles', 'cycles', 'cycle-80', 'coverage', 'coverage-summary.json');
 
 /** 声明阈值的承诺值：config.yml 与这两个数字必须一致（两侧任一被改都判红）。 */
 const PROMISED = { lines: 80, branches: 65 };
@@ -101,13 +101,13 @@ function evidenceProblems(summary: Summary, thresholds: { lines: number; branche
   return problems;
 }
 
-describe('cycle-79 WS-2 coverage 证据链', () => {
+describe('cycle-80 WS-2 coverage 证据链', () => {
   it('① wiring：config 声明 v8 + 双 reporter + 循环工件目录 + reportOnFailure + clean:false；脚本与 npm script 存在', () => {
     const cfg = readFileSync(CONFIG_TS, 'utf8');
     expect(cfg).toContain("provider: 'v8'");
     expect(cfg).toContain("'text-summary'");
     expect(cfg).toContain("'json-summary'");
-    expect(cfg).toContain("reportsDirectory: '.cycles/cycles/cycle-79/coverage'");
+    expect(cfg).toContain("reportsDirectory: '.cycles/cycles/cycle-80/coverage'");
     // 红套件也必须产摘要（vitest 默认 false，实测会整份摘要消失）
     expect(cfg).toContain('reportOnFailure: true');
     // clean 默认 true 会先删上一轮摘要 → 同一次 coverage 运行里的本契约假红（实测 3 红）

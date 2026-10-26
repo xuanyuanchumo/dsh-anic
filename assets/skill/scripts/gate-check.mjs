@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { parseCliArgs } from './lib/args.mjs';
 import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
@@ -37,6 +38,34 @@ const getLatestCycle = getLatestCycleDir;
 function withCycleTag(result, cycleName) {
   if (!cycleName) return result;
   return { ...result, detail: `${result.detail} §${cycleName}` };
+}
+
+// cycle-80 WS-3 G-04：构建产物「新鲜度」证据。被守卫缺陷＝「源码改了忘 build」：
+// G3 原先只跑 build_cmd 就判 PASS，**不记录它到底产出哪一份字节** ⇒ dist/ 是旧的
+// （cycle-71 非功能报告实录两次：改完 src 未 build 即跑真机探针，测的是旧字节码，
+// 而 dist/ 被 gitignore，提交清单里看不到它）也会"看起来全绿"。
+// 修法：detail 追加 `[dist=<revision 前 8 位>]`——revision 内容哈希口径与宿主侧**同一算法**：
+//   sha256( sha256(dist/host.js) + ":" + sha256(dist/client.js) ).slice(0, 16)，展示取前 8 位。
+// dist 缺失/不可读 ⇒ `[dist=absent]`（诚实标注，绝不伪造位数）。该证据只增不改：G3 的
+// pass/fail 仍只由 build_cmd 决定（新鲜度不是第二条判据），但 detail 变化会让 --record
+// 去重键变化——这是预期：每份新产物都是新证据。
+function distRevision(projectDir) {
+  const hostPath = join(projectDir, 'dist', 'host.js');
+  const clientPath = join(projectDir, 'dist', 'client.js');
+  if (!existsSync(hostPath) || !existsSync(clientPath)) return null;
+  try {
+    const fileHash = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+    const revision = createHash('sha256').update(`${fileHash(hostPath)}:${fileHash(clientPath)}`).digest('hex');
+    return revision.slice(0, 16);
+  } catch {
+    return null;
+  }
+}
+
+// 把产物证据拼在门 detail 末尾（与循环身份 §cycle-N 的先后顺序：cycle 先、dist 后）
+function withDistEvidence(result, projectDir) {
+  const revision = distRevision(projectDir);
+  return { ...result, detail: `${result.detail} [dist=${revision ? revision.slice(0, 8) : 'absent'}]` };
 }
 
 // cycle-39 T-3903：读嵌套 YAML 布尔（gates.G2.journey_coverage 形态，两空格缩进）。
@@ -283,7 +312,8 @@ const gates = {
   // 差分契约抓漂移）。G0 除外——它的 detail 已含 `in cycle-N`。
   G1: () => withCycleTag(checkG1(projectDir), getLatestCycle(projectDir)),
   G2: () => withCycleTag(checkG2(projectDir, configContent), getLatestCycle(projectDir)),
-  G3: () => withCycleTag(checkG3(projectDir, configContent), getLatestCycle(projectDir)),
+  // cycle-80 WS-3：G3 再追加 dist revision 证据（cycle 身份在前、产物证据在后）
+  G3: () => withDistEvidence(withCycleTag(checkG3(projectDir, configContent), getLatestCycle(projectDir)), projectDir),
 };
 
 const gatesToCheck = args.gate === 'all' ? ['G0', 'G1', 'G2', 'G3'] : [args.gate];

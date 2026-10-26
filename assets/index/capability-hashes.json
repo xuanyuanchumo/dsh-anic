@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "8404bbf",
+  "commit": "6c4f402",
   "hashes": {
     "anic_evaluate": "sha256:4da859c8705e2a72c576d7572c79af2262ccd133613e64ce518e53fb5d9cbc08",
     "anic_iterate": "sha256:f1dd1ce6883d04c5c8140d88f06d692ff1068d882af52dcb7a545cf80c42f70e",
@@ -16,6 +16,7 @@
     "anic_flows_archive": "sha256:dd00592167cbe44ec5f268047bb9abb7ad46c5c3806588539ea691b811a59232",
     "anic_flows_hitl": "sha256:162c5846cd154cf87e7f9c54084769ee94b6aab26d75f166bcf50babd39889a1",
     "anic_flows_auto_fix": "sha256:e2eb80fabe0e6b999d19737a36ec8df18ebad01375d04914cf634b0933ec4bec",
+    "anic_reload_self": "sha256:728e4f3065416e79e6cab7fa3f98164ac70f56d49c3ba4790e9fb94df76d60ca",
     "anic_status": "sha256:ae3eecc122c663e91929de9e2a718ea0ca29f0ef6b49c32d4453c03aa3c393b4",
     "anic_tools_search": "sha256:9d609b5f7ffb24503f71bab3119d0911746d71ca3a113977b52d8ce203a8d3c5",
     "anic_tool_detail": "sha256:ffad5c18cdd40d209a2872a353690b628c848d967b35d86e52dacd22972898e5",

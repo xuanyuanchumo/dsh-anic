@@ -61,33 +61,33 @@ const faces = loadToolFaces();
 const byName = new Map(faces.map((f) => [f.name, f]));
 
 describe('数据集结构不变量（cycle-35 扩容后）', () => {
-  it('41 条 = 22 pos-* 正例 + 5 neg-*(otherTool) 区分度对 + 14 neg-*(none) 纯负例', () => {
+  it('42 条 = 23 pos-* 正例 + 5 neg-*(otherTool) 区分度对 + 14 neg-*(none) 纯负例', () => {
     const pos = dataset.queries.filter((q: { id: string }) => q.id.startsWith('pos-'));
     const negOther = dataset.queries.filter((q: { id: string; expectedTool: string | null }) => q.id.startsWith('neg-') && q.expectedTool !== null);
     const negNone = dataset.queries.filter((q: { expectedTool: string | null }) => q.expectedTool === null);
-    expect(pos).toHaveLength(22);
+    expect(pos).toHaveLength(23);
     expect(negOther).toHaveLength(5);
     expect(negNone).toHaveLength(14);
-    expect(dataset.queries).toHaveLength(41);
+    expect(dataset.queries).toHaveLength(42);
   });
 
-  it('22 个 pos-* 正例覆盖全部 22 个 anic_* 工具（每工具恰 1 条）', () => {
+  it('23 个 pos-* 正例覆盖全部 23 个 anic_* 工具（每工具恰 1 条）', () => {
     const covered = new Set(dataset.queries.filter((q: { id: string }) => q.id.startsWith('pos-')).map((q: { expectedTool: string }) => q.expectedTool));
-    expect(covered.size).toBe(22);
-    // 与源码 faces 对账：源码 22 工具全在正例集
+    expect(covered.size).toBe(23);
+    // 与源码 faces 对账：源码 23 工具全在正例集
     for (const f of faces) expect(covered.has(f.name)).toBe(true);
   });
 
-  it('split 比例维持 ~60/40（21 train / 20 test）', () => {
+  it('split 比例维持 ~52/48（22 train / 20 test；cycle-80 增补 1 条 train）', () => {
     const train = dataset.queries.filter((q: { split: string }) => q.split === 'train');
     const test = dataset.queries.filter((q: { split: string }) => q.split === 'test');
-    expect(train).toHaveLength(21);
+    expect(train).toHaveLength(22);
     expect(test).toHaveLength(20);
   });
 
   it('id 唯一且前缀语义正确（pos-=肯定；neg-=否定检验：none 或 otherTool 对）', () => {
     const ids = dataset.queries.map((q: { id: string }) => q.id);
-    expect(new Set(ids).size).toBe(41);
+    expect(new Set(ids).size).toBe(42);
     for (const q of dataset.queries) {
       // neg-* 可能 expectedTool=null（不触发任何）或非 null（必须触发指定的「正确」工具而非词面近邻）
       expect(q.id.startsWith('pos-') || q.id.startsWith('neg-')).toBe(true);
@@ -142,7 +142,7 @@ describe('cycle-35 修复的 Triggers 增补必须留在位', () => {
 });
 
 describe('全量数据集离线重放（与 trigger-eval.mjs 同判定）', () => {
-  it('recall 100% / FPR 0%（27 正 = 22 pos + 5 negOther；14 纯负例）', () => {
+  it('recall 100% / FPR 0%（28 正 = 23 pos + 5 negOther；14 纯负例）', () => {
     let pass = 0, total = 0, fp = 0, negTotal = 0;
     for (const q of dataset.queries) {
       const scored = faces.map((f) => ({ name: f.name, s: score(q.query, f) })).sort((a, b) => b.s - a.s);
@@ -155,7 +155,7 @@ describe('全量数据集离线重放（与 trigger-eval.mjs 同判定）', () =
         if (top !== null) fp++;
       }
     }
-    expect(total).toBe(27);
+    expect(total).toBe(28);
     expect(negTotal).toBe(14);
     expect(pass / total).toBe(1);
     expect(fp / negTotal).toBe(0);

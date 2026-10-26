@@ -161,8 +161,8 @@ describe('cycle-75 T5 路由族双向真值（扫描器 ⇄ 代码，逐 id 双�
     // 变异只影响被删的那一条（不误伤邻居）—— 集合差恰好 = {/anic/flows}
     expect(new Set(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).map((d) => d.id)))
       .not.toEqual(new Set(stillScanned.map((d) => d.id)));
-    expect(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).length).toBe(63);
-    expect(stillScanned.length).toBe(62);
+    expect(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).length).toBe(64);
+    expect(stillScanned.length).toBe(63);
   });
 
   it('纪律② 反向自检（幽灵腿）：删掉**有真实消费者**的注册 ⇒ 幽灵必现（非空转）', () => {

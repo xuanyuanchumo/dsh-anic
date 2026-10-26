@@ -3,14 +3,14 @@
   "_meta": {
     "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：正例覆盖全部 19 工具、负例取「关键词相近但应触发其他工具」的险些误触、确定性代理评分每次 description 改动可复跑。静态数据文件（研究产物，非源码）。",
     "createdAt": "2026-10-18",
-    "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）；cycle-77：40 → 41 条——pos-22 覆盖新增的 anic_autonomy_upgrade（22 工具全覆盖；train/test = 21/20）",
+    "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）；cycle-77：40 → 41 条——pos-22 覆盖新增的 anic_autonomy_upgrade（22 工具全覆盖；train/test = 21/20）；cycle-80：41 → 42 条——pos-23 覆盖新增的 anic_reload_self（23 工具全覆盖；train/test = 22/20）；评分口径正例计分改为 28 条（23 pos + 5 区分度对）",
     "source": "skill-ecosystem.md P0-2 设计（.cycles/cycles/cycle-16/research/skill-ecosystem.md）",
     "designRules": [
       "正例（pos-*）：真实用户口吻（具体、带细节、可能有口语/缩写），cycle-16 版覆盖 19 工具中最重要的 10 个；cycle-35 扩容至全部 19 个（每工具恰 1 条）",
       "负例（neg-*）：shouldTriggerOtherTool（关键词相近但语义指向别的 anic 工具，expectedTool 为「正确」工具）或 shouldTriggerNone（与 anic 无关的相近关键词，expectedTool=null）",
       "split: train ~60% / test ~40%（原 12/8；扩容后 20/18）",
       "query 风格参照 skill-creator：非抽象请求，带文件路径/项目背景/口语化细节",
-      "评分口径：pos-* 与 neg-*(otherTool) 按正例计分（24 条）；neg-*(none) 命中任何 anic_* 即误触（14 条）"
+      "评分口径：pos-* 与 neg-*(otherTool) 按正例计分（28 条）；neg-*(none) 命中任何 anic_* 即误触（14 条）"
     ],
     "usage": "脚本对每条 query 做确定性代理评分（description 触发词面加权匹配），取 top-1 工具 vs expectedTool。pos-* 与 neg-*（expectedTool 非 null 的区分度对）按正例计分；neg-*（expectedTool=null）命中任何 anic_* 工具即为误触（false positive）。"
   },
@@ -301,6 +301,13 @@
       "query": "自举循环想跑得更自主一点，请按人类明确授权把项目的自主级升级到 L4，并把这笔授权写进审计记录",
       "expectedTool": "anic_autonomy_upgrade",
       "rationale": "正例（cycle-77 增补）：带人类授权与审计留痕要求的自主级升级——与 anic_autonomy_downgrade（回退一档）方向相反，是本轮新增升级入口的正典场景"
+    },
+    {
+      "id": "pos-23",
+      "split": "train",
+      "query": "我刚把 dsh-anic 插件的源码改完并重新构建了 dist，帮我把插件热更新重载一下，让宿主马上用上新版本，别让我手动重启",
+      "expectedTool": "anic_reload_self",
+      "rationale": "正例（cycle-80 增补）：改完代码后要求插件热更新重载——此前只能人工重启宿主（插件从不消费 ctx.hmr），本轮新增 anic_reload_self 的正典场景"
     }
   ],
   "_stats": {

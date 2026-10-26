@@ -26,6 +26,16 @@ const STATUS: OrgStatusJson = {
   autonomy: { currentBand: 'L3', breakers: ['cost-budget'], action: 'allow-with-review' },
   band: { current: 'warn', trend: 'improving' },
   flows: { selfInit: true, agentsOrchestration: false },
+  // cycle-80：reload 段（host 侧必填；客户端侧可选——旧宿主/未部署时缺省）。
+  reload: {
+    stale: false,
+    revision: 'abcdef0123456789',
+    historyCount: 0,
+    lastStatus: null,
+    lastAt: null,
+    error: null,
+    hmrProbeHint: 'hmr availability is probed at request time by anic_reload_self; org-status is read-only',
+  },
   timestamp: '2026-10-05T00:00:00.000Z',
 };
 
@@ -208,5 +218,81 @@ describe('renderOrgStatus 自主级变更时间线（cycle-78）', () => {
     // 行内 flex-wrap + baseline 是窄面板不溢出的唯一保证（无新 CSS 文件可依赖）
     expect(html).toMatch(/data-anic-autonomy-transition="[^"]*" style="[^"]*display:flex[^"]*flex-wrap:wrap/);
     expect(html).toContain('aria-label="自主级变更时间线：显示最近 2 条 / 共 2 条"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cycle-80：构建新鲜度 + 最近一次重载（热更新链路的可观测面）
+//
+// 缺口：热更新落地后，「面板这张图是哪一版 dist 跑出来的 / 上次重载成没成」
+// 在 UI 上不可见——"改了没生效"的三种原因（dist 没重建 / 重载被拒 / hmr 不可用）
+// 无法区分。下面每条都钉一个**用户可见**事实。
+// ---------------------------------------------------------------------------
+
+/** 以 STATUS.reload 为底，只覆盖指定字段。 */
+function withReload(reload: Partial<NonNullable<OrgStatusJson['reload']>>): OrgStatusJson {
+  return { ...STATUS, reload: { ...STATUS.reload!, ...reload } };
+}
+
+describe('renderOrgStatus 构建新鲜度与重载（cycle-80）', () => {
+  it('① stale=true → 出现 data-anic-org-reload 且用警示色（不是绿色）', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(withReload({ stale: true, revision: 'deadbeefdeadbeef' })));
+    expect(html).toContain('data-anic-org-reload="true"');
+    expect(html).toContain('data-anic-reload-stale="true"');
+    expect(html).toContain('dist 落后于源码（需重新构建）');
+    // 警示色：stale 行必须是 warn 令牌，绿色会让"旧 dist"看起来像健康态
+    expect(html).toMatch(/data-anic-reload-stale="true" style="[^"]*var\(--anic-warn-text/);
+    expect(html).toContain('revision deadbeefdeadbeef');
+  });
+
+  it('② fresh 且无历史 → fresh 行必须显示，且不渲染"最近一次重载"空壳', () => {
+    const html = renderToStaticMarkup(renderOrgStatus(withReload({ stale: false })));
+    expect(html).toContain('data-anic-reload-fresh="true"');
+    expect(html).toContain('dist 与源码一致');
+    // 无历史：不出现 last 行（空壳），但用一行如实说明代替静默
+    expect(html).not.toContain('data-anic-reload-row="last"');
+    expect(html).toContain('data-anic-reload-none="true"');
+    expect(html).toContain('无重载记录');
+    // fresh 行用通过色（与 stale 的警示色构成可判别的两态）
+    expect(html).toMatch(/data-anic-reload-fresh="true" style="[^"]*var\(--anic-pass/);
+  });
+
+  it('③ 有历史（count=2）→ 显示最近一条 status + 相对时间，aria 里带总数', () => {
+    const at = new Date(Date.now() - 3 * 60_000).toISOString(); // 3 分钟前
+    const html = renderToStaticMarkup(
+      renderOrgStatus(withReload({ historyCount: 2, lastStatus: 'reloaded', lastAt: at })),
+    );
+    expect(html).toContain('data-anic-reload-row="last"');
+    expect(html).toContain('reloaded'); // 终态原样透出（机器可读状态不翻译）
+    expect(html).toContain('分钟前'); // 相对时间："这是不是刚才那次"
+    expect(html).not.toContain('data-anic-reload-none="true"'); // 有历史就不该说"无记录"
+    expect(html).toContain('共 2 条记录');
+  });
+
+  it('④ historyError → 错误行 role=alert；failed 终态也 role=alert', () => {
+    const errHtml = renderToStaticMarkup(
+      renderOrgStatus(withReload({ error: 'reload-history.json is not valid JSON: x', historyCount: 0 })),
+    );
+    expect(errHtml).toContain('data-anic-reload-error="true"');
+    expect(errHtml).toContain('role="alert"');
+    expect(errHtml).toContain('重载史读取失败');
+    expect(errHtml).toContain('is not valid JSON'); // 根因原文透出，不糊成"没有记录"
+    const failedHtml = renderToStaticMarkup(
+      renderOrgStatus(withReload({ historyCount: 1, lastStatus: 'failed', lastAt: '2026-10-05T10:00:00.000Z' })),
+    );
+    // 异步重载失败必须可被读屏感知（否则与"点了没反应"同形）
+    expect(failedHtml).toMatch(/data-anic-reload-row="last" role="alert"/);
+  });
+
+  it('⑤ 反向自检：缺 reload 字段 → 整节退场但不崩；正向断言必须判红', () => {
+    const legacy: OrgStatusJson = { ...STATUS };
+    delete (legacy as { reload?: unknown }).reload;
+    const html = renderToStaticMarkup(renderOrgStatus(legacy));
+    /** ② 中使用的可见性断言本体（同一谓词跑好/坏两份 fixture）。 */
+    const freshRowVisible = (h: string): boolean => h.includes('data-anic-reload-fresh="true"');
+    expect(freshRowVisible(renderToStaticMarkup(renderOrgStatus(withReload({ stale: false }))))).toBe(true);
+    expect(freshRowVisible(html)).toBe(false); // 篡改后必红，否则 ② 是空转
+    expect(html).not.toContain('data-anic-org-reload'); // 旧宿主：整节退场，不留空壳
+    expect(html).toContain('data-anic-org-snapshot-at'); // 其余分区照常渲染（不得整块崩）
   });
 });

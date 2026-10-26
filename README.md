@@ -18,8 +18,8 @@ dsh plugin --profile <你的 profile> add github:<owner>/dsh-anic
 SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration-cycle/`；`anic_install`
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
-- 22 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复 / 自主级升级）
-- 63 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit`）
+- 23 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复 / 自主级升级 / 热重载 `anic_reload_self`）
+- 64 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit` + cycle-80 热重载 `POST /anic/api/reload`）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
@@ -121,13 +121,19 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **R3 阶段 5 自动修复循环流程（v0.13.0）**：`evolution/autoFixAnalyze.ts`（纯函数：报告计数解析/失败识别/repeating-cascading-transient 三模式，技能 mjs:57-140 逐字）+ `autoFixEngine.ts`（IO+编排：test→失败识别→retest→判定主循环 + onProgress 逐轮回调）+ `autoFixReport.ts`（落盘三件：审计行/incident/修复报告）+ `flows/autoFixFlow.ts`（**第 5 流程状态机**：IDLE→RUNNING→ITERATING↺→CONVERGED/CIRCUIT；ITERATING 自环轨迹进投影历史——迭代过程可回放；终态重入边 CONVERGED/CIRCUIT→RUNNING——真机发现「终态不可重入」框架级 P1 后当场修复）+ 路由 `POST /anic/flows/auto-fix/run` + 第 17 工具 `anic_flows_auto_fix` + 差分孪生契约；**双 fork 修复（上游技能缺陷）**：H3 per-gate-latest（gate-check 去重×末4条窗口互斥——cycle-10 发现的结构性误熔断，双侧同步修）+ auto-fix-loop readdirSync 未 import（test-reports 目录存在时 ReferenceError，真机复现修复）；**面板轮询修复**（`usePolledSection.ts`）：org/flows 分区从静态单拉改 4s 轮询——POST 后 6s 内卡片 CIRCUIT→CONVERGED 实时更新实证（动态白盒补全）。
 - 冒烟 21/21 PASS · 规范门 12/12 · vitest 105 文件全绿（见测试体系表） · typecheck 0/0 ·（历史 v0.3.0 时点行，当前以 CHANGELOG 为准）。
 
-## 热加载与热更新（三层机制）
+## 热加载与热更新（四层机制）
 
 | 层 | 机制 | 生效方式 |
 |---|---|---|
+| **host bundle 热重载** | 宿主 `ctx.hmr`（`dsh-hmr` 已启用时）重组合 profile 并替换运行中的插件实例——`link:` 安装下 `dist/` 正是它的 "linked package targets" 命中面 | `anic_reload_self`（工具，参数 `reason`）或 `POST /anic/api/reload`；**先 build**（dist 落后 src 会被 `refused` 拒绝，可用 `force` 仅演示时跳过）→ 触发后新实例自动完成 in-flight 握手；headless/SDK profile 无 hmr ⇒ 返回 `unavailable`（诚实降级，**绝不假装成功**） |
 | **bundle 热更新** | `link:` 安装（Junction 指向本工程）——宿主加载的就是 `dist/client.js` 本体 | `pnpm --dir dsh-anic run build:watch`（tsdown `--watch` 重建 + 自动重 wrap）→ 保存源码 → 浏览器刷新即生效；**无需重装/重启宿主** |
 | **数据热更新** | 宿主路由现场构建快照 + 面板 live fetch + 「刷新」按钮 | `.cycles/` 一变（新 cycle/新账本事件），点刷新即见；路由不可用时自动回退嵌入快照 |
 | **运行时热卸载** | 遥测句柄 + kill-switch | DevTools：`__ANIC_TAB_SPIKE__.unregister()` / `.reregister()`；`localStorage['anic-workflow-tab']='off'` 零注册 |
+
+> 四层各自的"我到底有没有生效"都可观测：`org-status.reload`（面板「构建与重载」小节）
+> 显示当前 dist revision、是否 stale（dist 比 src 旧）、最近一次重载的终态。
+> 重载史落 `.cycles/reload-history.json`；`tests/contract/deployFreshnessContract.test.ts`
+> 保证"改了 src 忘 build"这一点在 CI/离线金字塔里必红。
 
 ## 构建
 
@@ -271,9 +277,9 @@ dsh-anic/
 - `advanceDualBootstrap`：推进一轮，失败时产跨向提案（不互相改码，R-31）。
 - 3 路由：`POST /anic/self/dual-evaluate` / `POST /anic/self/dual-advance` / `GET /anic/self/dual-status`。
 
-### 22 DSH 工具
+### 23 DSH 工具
 
-`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / **`anic_skill_repair`**（eco P0：技能副本 doctor/repair——只重装差异文件，integrity 清单随修复重写）/ `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_upgrade`**（cycle-77：证据化自主级升级——相邻档 / 无 tripped 熔断 / 信任阈值 / 人类授权四条件机器判定；拒绝零写入并点名缺失前置；成功走 Post-Verify 回读并写结构化 `.cycles/autonomy-history.json`；L3→L4 强制 `humanAuthorized`，信任不足的覆盖以 `trustExemption` 如实入账）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）/ **`anic_flows_auto_fix`**（R3 阶段 5：自动修复循环流程——test→失败识别→retest→判定主循环，maxRetries 1-10；报告计数双格式解析 D-1103；ITERATING 自环轨迹进投影可回放）。工具计数权威源：`src/host/toolIds.ts`（双向集合比对，多一个少一个都红）；README 数字由 `tests/contract/readmeNumbers.test.ts` 契约钉死（数字 == glob 计数）。
+`anic_evaluate` / `anic_iterate` / `anic_gate_check` / `anic_bootstrap` / `anic_snapshot` / `anic_self_check` / `anic_hitl` / `anic_install` / **`anic_skill_repair`**（eco P0：技能副本 doctor/repair——只重装差异文件，integrity 清单随修复重写）/ `anic_status` / **`anic_skill`**（15 脚本通用网关，M10-a 流程跟踪）/ **`anic_bootstrap_cycle`** / **`anic_bootstrap_analyze`**（M10-b/c 自举链）/ **`anic_autonomy_upgrade`**（cycle-77：证据化自主级升级——相邻档 / 无 tripped 熔断 / 信任阈值 / 人类授权四条件机器判定；拒绝零写入并点名缺失前置；成功走 Post-Verify 回读并写结构化 `.cycles/autonomy-history.json`；L3→L4 强制 `humanAuthorized`，信任不足的覆盖以 `trustExemption` 如实入账）/ **`anic_autonomy_downgrade`**（R3 阶段 1：证据化自主级回退——评估八熔断信号，仅证据支持时降一级，Post-Verify 回读 + 事故留痕；无熔断维持不动，L1/L2 地板拒绝）/ **`anic_flows_gate_check`**（R3 阶段 2：gate-check 流程状态机运行入口，mode=script 正典 / native 原生 / diff 双跑对账）/ **`anic_flows_advance`**（R3 阶段 3：宏观循环相位推进，6 相 15 条前向边 + phase-gates-passed 守卫，mode=native/script，dryRun 仅 native）/ **`anic_flows_archive`**（R3 阶段 3 后半：归档流程——cycle 归档已完成循环 / clean 清旧 / list 清单；完成判定与 G1 共用解析器；账本永不触碰 INV-9）/ **`anic_flows_hitl`**（R3 阶段 4 后半：HITL 三段修复流程——Phase0 审计 → Phase1 仅熔断门修复 → Phase2 全修复才重审；gate=all|H1..H4；mode=native 缺省/script）/ **`anic_flows_auto_fix`**（R3 阶段 5：自动修复循环流程——test→失败识别→retest→判定主循环，maxRetries 1-10；报告计数双格式解析 D-1103；ITERATING 自环轨迹进投影可回放）/ **`anic_reload_self`**（cycle-80：宿主 HMR 热重载——`reason` 必填；先探测 `ctx.hmr`（headless/SDK 无服务 ⇒ `unavailable` 诚实降级、零写入）→ dist 落后 src 则 `refused`（`force` 仅演示）→ **触发前**落 `in-flight` 凭据 → `runExclusive(reconcileProfile)` 换实例，新实例启动时 `finalizeInFlight` 闭环；重载史落 `.cycles/reload-history.json`，`org-status.reload` 只读投影给面板）。工具计数权威源：`src/host/toolIds.ts`（双向集合比对，多一个少一个都红）；README 数字由 `tests/contract/readmeNumbers.test.ts` 契约钉死（数字 == glob 计数）。
 
 ### 透明性 + 连通性增强
 

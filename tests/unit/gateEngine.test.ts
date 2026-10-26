@@ -4,7 +4,8 @@
  * fixture 形态对齐真实 cycle 工件（.cycles/cycles/cycle-1/…）。
  * 判定语义与 gate-check.mjs 同构（差分契约见 flowDifferential.test.ts）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -137,16 +138,33 @@ describe('checkG2（测试报告 §2 汇总表契约）', () => {
 });
 
 describe('checkG3（build_cmd）', () => {
-  it('未配置 → FAIL: No build command configured（无 cycle → 不追加循环身份）', () => {
+  it('未配置 → FAIL: No build command configured（无 cycle → 无 §cycle；dist 缺失 → [dist=absent]）', () => {
     writeConfig('exit 0');
-    expect(checkG3(tmp, null).detail).toBe('No build command configured');
+    expect(checkG3(tmp, null).detail).toBe('No build command configured [dist=absent]');
   });
-  it('exit 0 → PASS；exit 2 → FAIL（detail 逐字对齐脚本，含 §cycle-1）', () => {
+  it('exit 0 → PASS；exit 2 → FAIL（detail 含 §cycle-1 + [dist=absent]；无 dist 夹具）', () => {
     writeConfig('exit 0');
     writeCycle({ '任务清单.md': TASKS_DONE }); // 有 cycle-1 才有循环身份可追加
-    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: true, detail: 'Build passed: exit 0 §cycle-1' });
+    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: true, detail: 'Build passed: exit 0 §cycle-1 [dist=absent]' });
     writeConfig('exit 2');
-    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: false, detail: 'Build failed: exit 2 §cycle-1' });
+    expect(checkG3(tmp, loadGateConfig(tmp).content)).toEqual({ pass: false, detail: 'Build failed: exit 2 §cycle-1 [dist=absent]' });
+  });
+  it('cycle-80 WS-3：dist 存在 → [dist=<8 位 hex>] 且 revision 与独立复算全等（口径钉死）', () => {
+    writeConfig('exit 0');
+    writeCycle({ '任务清单.md': TASKS_DONE });
+    mkdirSync(join(tmp, 'dist'), { recursive: true });
+    writeFileSync(join(tmp, 'dist', 'host.js'), 'host-bytes-v1');
+    writeFileSync(join(tmp, 'dist', 'client.js'), 'client-bytes-v1');
+    const hex = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+    const expected = createHash('sha256')
+      .update(`${hex(join(tmp, 'dist', 'host.js'))}:${hex(join(tmp, 'dist', 'client.js'))}`)
+      .digest('hex').slice(0, 8);
+    const detail = checkG3(tmp, loadGateConfig(tmp).content).detail;
+    expect(detail).toBe(`Build passed: exit 0 §cycle-1 [dist=${expected}]`);
+    expect(detail).toMatch(/\[dist=[0-9a-f]{8}\]$/);
+    // 反向：产物字节变化 ⇒ revision 变化（内容哈希而非 mtime/大小）
+    writeFileSync(join(tmp, 'dist', 'host.js'), 'host-bytes-v2');
+    expect(checkG3(tmp, loadGateConfig(tmp).content).detail).not.toBe(detail);
   });
 });
 

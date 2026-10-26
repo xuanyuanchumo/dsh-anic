@@ -142,7 +142,19 @@
     "autonomyMore": "…{count} more changes not shown",
     "autonomyHistoryError": "History read failed: {error}",
     "authHuman": "human-authorized",
-    "authSystem": "system-authorized"
+    "authSystem": "system-authorized",
+    "reloadTitle": "Build & reload",
+    "reloadAria": "Build freshness and last reload (read-only snapshot · {count} records)",
+    "reloadFresh": "dist matches source",
+    "reloadStale": "dist is older than source (rebuild needed)",
+    "reloadRevision": "revision {revision}",
+    "reloadLast": "Last reload: {status} · {at}",
+    "reloadNone": "No reload history (cold start or never triggered)",
+    "reloadError": "Reload history read failed: {error}",
+    "reloadAgoJustNow": "just now",
+    "reloadAgoMin": "{n} min ago",
+    "reloadAgoHour": "{n} h ago",
+    "reloadAgoDay": "{n} d ago"
   },
   "prefs": {
     "ariaLabel": "ANIC feature switches",

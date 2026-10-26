@@ -1,17 +1,14 @@
 /**
- * gateEngine —— G0-G3 收敛门禁原生引擎（阶段 2 首个 ModuleEngine 实例）。
- *
- * 定位（R3 阶段 2）：gate-check.mjs 的**原生等价物**，不是替代——script 模式仍走
- * 技能脚本（正典写入者），native 模式走本引擎，diff 模式双跑对账。判定逻辑
- * 逐字对齐 gate-check.mjs:39-174（差分测试钉死）；唯一有意差异：
- *  - 脚本在 config 缺失时于任何门禁前 exit(1)（loadConfig :27-34）——本引擎
- *    以 fatal 字段复现同一行为（gates 空 + exitCode 1），不静默改判。
- *
- * 引擎不持有流程状态（状态归 FlowMachine）；不写账本（record 归流程层）。
+ * gateEngine —— G0-G3 收敛门禁原生引擎（R3 阶段 2）。
+ * 定位：gate-check.mjs 的**原生等价物**（script 模式仍走脚本=正典写入者；native 走本引擎；
+ * diff 双跑对账）。判定逻辑逐字对齐 gate-check.mjs（差分测试钉死）；唯一有意差异：脚本在
+ * config 缺失时于任何门禁前 exit(1)，本引擎以 fatal 复现（gates 空 + exitCode 1），不静默改判。
+ * 引擎不持有流程状态（归 FlowMachine）；不写账本（record 归流程层）。
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { latestCycleDir } from '../llm/gateEvidence.ts';
 import {
   countEvalVerdictRows,
@@ -39,13 +36,8 @@ export function loadGateConfig(workspaceRoot: string): { content: string | null;
   };
 }
 
-/**
- * 最新 cycle 目录解析（两形态一起给）。
- *
- * 注意：gateEvidence.latestCycleDir 的入参是 **`.cycles` 根**（内部自拼 `cycles`），
- * 返回值是**完整路径**（`join(parent, best)`）。此前把它当 `.cycles/cycles` 传入、
- * 又把返回值当目录名拼接，是同源双误——测试的 "No cycle workspace" 连锁由此而来。
- */
+/** 最新 cycle 解析（两形态）。注意 latestCycleDir 入参是 **`.cycles` 根**、返回**完整路径**——
+ *  此前当 `.cycles/cycles` 传入又当目录名拼接，是同源双误（"No cycle workspace" 连锁）。 */
 function latestCycle(workspaceRoot: string): { name: string; dir: string } | null {
   const found = latestCycleDir(join(workspaceRoot, '.cycles'));
   if (found === null) return null;
@@ -61,9 +53,7 @@ export function checkG0(workspaceRoot: string): GateCheckResult {
   const evalReport = join(latest.dir, '项目评估报告.md');
   if (!existsSync(evalReport)) return { pass: false, detail: 'No evaluation report' };
   const rows = countEvalVerdictRows(readFileSync(evalReport, 'utf-8'));
-  if (rows === 0) {
-    return { pass: false, detail: `Evaluation report has no dimension verdict rows (${latest.name}/项目评估报告.md)` };
-  }
+  if (rows === 0) return { pass: false, detail: `Evaluation report has no dimension verdict rows (${latest.name}/项目评估报告.md)` };
   return { pass: true, detail: `Evaluation report found in ${latest.name} (${rows} dimension rows)` };
 }
 
@@ -122,11 +112,27 @@ function gateG2(ws: string, latest: { name: string; dir: string } | null, cfg: s
   }
   return { pass: true, detail: `Zero failures, zero errors (${latestReport}${journeyCoverage ? ' + journey coverage verified' : ''})${ignoredNote}` };
 }
-/** G3（gate-check.mjs 同构：build_cmd 走 shell，timeout 120s）。cycle-79 O-01：detail 追加 §cycle-N。 */
+/** G3（gate-check.mjs 同构：build_cmd 走 shell）。cycle-79 O-01 §cycle-N + cycle-80 WS-3 dist revision。 */
 export function checkG3(workspaceRoot: string, configContent: string | null): GateCheckResult {
-  return withCycleTag(gateG3(workspaceRoot, configContent), latestCycle(workspaceRoot));
+  const result = withCycleTag(gateG3(workspaceRoot, configContent), latestCycle(workspaceRoot));
+  // cycle-80 WS-3 G-04：构建产物新鲜度证据。缺陷＝「源码改了忘 build」：G3 只跑 build_cmd、不记录
+  // 产出哪份字节 ⇒ 旧 dist 也"看起来全绿"。detail 只增不改（pass 仍只由 build_cmd 决定）。
+  return { ...result, detail: `${result.detail} [dist=${distRevision8(workspaceRoot)}]` };
 }
-/** G3 判定核心（不含循环身份）。 */
+/** 构建产物 revision 前 8 位。口径与脚本 gate-check.mjs::distRevision 逐字一致：
+ *  sha256(sha256(dist/host.js)+":"+sha256(dist/client.js)).slice(0,16)；缺失/不可读 ⇒ 'absent'。 */
+function distRevision8(ws: string): string {
+  const hostPath = join(ws, 'dist', 'host.js');
+  const clientPath = join(ws, 'dist', 'client.js');
+  if (!existsSync(hostPath) || !existsSync(clientPath)) return 'absent';
+  try {
+    const fileHash = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+    return createHash('sha256').update(`${fileHash(hostPath)}:${fileHash(clientPath)}`).digest('hex').slice(0, 8);
+  } catch {
+    return 'absent';
+  }
+}
+/** G3 判定核心（不含循环身份/产物证据）。 */
 function gateG3(ws: string, cfg: string | null): GateCheckResult {
   const buildCmd = readYamlString(cfg, 'build_cmd');
   if (!buildCmd) return { pass: false, detail: 'No build command configured' };
@@ -137,10 +143,9 @@ function gateG3(ws: string, cfg: string | null): GateCheckResult {
 }
 /**
  * 质量门完整判定（含**逐维裁决**——cycle-77 修 F-04，cycle-72 债务台账 §4）。
- * 被守卫缺陷：原生侧把「门的 pass/detail」与「质量维结论」分成两个字段返回，账本写入
- * （recordNative）原先只消费前者 ⇒ 质量维 FAIL 时账本仍可能记 PASS（与脚本侧同一个
- * fail-open 面）。修法：逐维裁决词与 pass/detail **同一次解析**算出，供账本 detail 拼接
- * `[Q1:PASS,Q5:FAIL]`；`checkQualityGate` 仍返回 `{pass, detail}` 纯形状（既有契约不变）。
+ * 被守卫缺陷：原生侧把「门的 pass/detail」与「质量维结论」分成两字段，账本写入只消费前者
+ * ⇒ 质量维 FAIL 时账本仍可能记 PASS（fail-open）。修法：逐维裁决词与 pass/detail 同一次解析
+ * 算出，供账本拼 `[Q1:PASS,Q5:FAIL]`；`checkQualityGate` 仍返回 `{pass,detail}` 纯形状。
  */
 export interface QualityGateEvaluation {
   pass: boolean;
@@ -195,12 +200,9 @@ export function checkQualityGate(workspaceRoot: string, gateId: string): GateChe
 }
 
 /**
- * 循环身份后缀（cycle-79 修 O-01，cycle-78 审计日志 §6 / 债务台账 O-01）。
- * 被守卫缺陷：账本 `--record` 的去重键是 (result, detail)，而 G1/G2/G3 的 detail 原先
- * **与循环无关**（如 `Zero failures, zero errors (测试报告.md)`）⇒ 跨循环同结论被静默
- * dedup，本循环没有自己的门禁审计条目（实测 cycle-78 的 G2/G3 仍是 cycle-77 记录）。
- * 修法：detail 末尾追加 `§cycle-N`，让去重键自带循环身份。G0 不套：其 detail 已含
- * `in cycle-N`。必须与脚本 `gate-check.mjs::withCycleTag` 逐字全等（差分契约抓 drift）。
+ * 循环身份后缀（cycle-79 修 O-01）。被守卫缺陷：账本去重键是 (result, detail)，而 G1/G2/G3
+ * 的 detail 原与循环无关 ⇒ 跨循环同结论被静默 dedup（cycle-78 的 G2/G3 仍是 cycle-77 记录）。
+ * 修法：追加 `§cycle-N`。G0 不套（detail 已含 `in cycle-N`）；须与脚本同名函数逐字全等。
  */
 function withCycleTag(result: GateCheckResult, latest: { name: string } | null): GateCheckResult {
   if (!latest) return result;
@@ -209,10 +211,9 @@ function withCycleTag(result: GateCheckResult, latest: { name: string } | null):
 
 const GATE_FN: Record<string, (ws: string, cfg: string | null) => GateCheckResult> = {
   G0: (ws) => checkG0(ws),
-  // cycle-79 O-01：循环身份已在 checkG1/G2/G3 内追加（单点，避免编排层二次加 §）
-  G1: (ws) => checkG1(ws),
+  G1: (ws) => checkG1(ws), // cycle-79 O-01：循环身份在 checkG1/G2/G3 内单点追加
   G2: (ws, cfg) => checkG2(ws, cfg),
-  G3: (ws, cfg) => checkG3(ws, cfg),
+  G3: (ws, cfg) => checkG3(ws, cfg), // cycle-80 WS-3：G3 另追加 dist revision 证据
 };
 
 /** 原生门禁编排（gate-check.mjs:185-228 主流程同构，不含 --record）。 */
@@ -235,8 +236,7 @@ export function runNativeGateCheck(
     if (!result.pass) allPass = false;
     if (opts.quality && result.pass) {
       const qEval = evaluateQualityGate(workspaceRoot, g);
-      // F-04：逐维裁决随质量结果一起返回，供 recordNative 拼进账本 detail。
-      // 注意只加**附加字段**：pass/detail 与脚本逐字节一致（差分契约只在比这两项）。
+      // F-04：逐维裁决供 recordNative 拼账本 detail；只加附加字段（pass/detail 与脚本逐字节一致）
       const qResult: QualityGateDetail = qEval.dimensionRows
         ? { pass: qEval.pass, detail: qEval.detail, dimensionRows: qEval.dimensionRows }
         : { pass: qEval.pass, detail: qEval.detail };

@@ -5,23 +5,21 @@
  *
  * 接口形状对齐 src/host/evolution/orgStatus.ts OrgStatus。
  *
- * P0-ORG-STRING 修因：本模块原先 `return string`（拼 HTML 串），调用点
- * WorkflowGraphPanel 把它当 **React 子节点**传入
- * （`createElement('div', {...}, renderOrgStatus(orgStatus))`）。
- * React 会转义字符串子节点，于是整段 `<section class="anic-org-cycles">…`
- * 以**可见的字面标记文本**渲染出来，org 分区实际上从来没有成为 UI。
- * 转义只发生在"字符串作为文本子节点"这一条路径上，所以任何字符串返回型
- * 渲染器都不可能在 React 下工作（除非走 dangerouslySetInnerHTML）。
+ * P0-ORG-STRING 修因：本模块原先 `return string`（拼 HTML 串），调用点 WorkflowGraphPanel
+ * 把它当 **React 子节点**传入（`createElement('div', {...}, renderOrgStatus(orgStatus))`）。
+ * React 会转义字符串子节点，于是整段 `<section class="anic-org-cycles">…` 以**可见的
+ * 字面标记文本**渲染，org 分区实际上从来没有成为 UI。转义只发生在"字符串作为文本
+ * 子节点"这条路径上，所以任何字符串返回型渲染器都不可能在 React 下工作。
  *
- * 修法：改为返回 ReactElement（与 renderDiagnostics / renderStepTrace 同形），
- * 并把 `esc()` 一并删除——React 自身转义文本子节点，手工转义在 React 路径下
- * 是死代码，且它只转义 `&<>` 而不转义引号，一旦将来有人改用
- * `dangerouslySetInnerHTML` 就会变成属性注入面。删掉它同时消除了这个陷阱。
+ * 修法：改为返回 ReactElement（与 renderDiagnostics / renderStepTrace 同形），并把 `esc()`
+ * 一并删除——React 自身转义文本子节点；手工转义只覆盖 `&<>` 不覆盖引号，一旦将来有人
+ * 改用 dangerouslySetInnerHTML 就是属性注入面，删掉它同时消除了这个陷阱。
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import type { OrgStatusJson } from '../../components/panelTypes.ts';
+import { renderOrgReload } from './renderOrgReload.ts';
 
 export type { OrgStatusJson } from '../../components/panelTypes.ts';
 
@@ -241,6 +239,8 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
         createElement('li', { style: P }, `${t('org.orchestration')}: ${status.flows.agentsOrchestration ? t('org.enabledMark') : t('org.disabledMark')}`),
       ),
     ),
+    // cycle-80：「这份快照是哪一版代码产出的」——构建新鲜度 + 最近一次重载（放在快照时间之前）。
+    renderOrgReload(status.reload),
     // P1-5：时间戳——org 全景是"快照"而非"实时"，不带时间戳的快照会让陈旧数据
     // 被当成现状（与 live 分区的 generatedAt 同一纪律）。
     createElement('p', { style: { ...P, color: token('anic-text-faint') }, 'data-anic-org-snapshot-at': status.timestamp }, t('org.snapshotAt', { timestamp: status.timestamp })),

@@ -34,6 +34,48 @@ import { createInvocationAttributor } from './host/runtime/invocationAttribution
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
 import { registerBuiltinFlows } from './host/flows/builtin.ts';
 import { wireToolDisclosureFromConfig } from './host/toolDisclosureWiringRuntime.ts';
+import { join } from 'node:path';
+import { createScoped } from './host/logger.ts';
+import { resolvePluginRoot } from './host/pluginRoot.ts';
+import { resolveWorkspaceRoots } from './host/snapshotRoute.ts';
+import { buildFreshness, computeBuildRevision, finalizeInFlight } from './host/runtime/hotReload.ts';
+
+const reloadLog = createScoped('hot-reload');
+
+/**
+ * 热更新握手 + 冷启动新鲜度（cycle-80 WS-2）。
+ *
+ * ① 握手：`anic_reload_self` 在**触发重载之前**写一条 `in-flight`（重载会杀掉旧实例，
+ *    事后没人能写这条）。新实例启动时把它 finalize 成 `reloaded`，"上次重载成没成"
+ *    才有闭环答案；非 null 返回值 = 真的换了实例（而不只是冷启动碰巧有历史）。
+ * ② 冷启动自愈：`dist` 落后 `src`（stale）时**只记录、不自动重建**。
+ *    为什么不自愈构建：那要在插件运行时里引入 tsdown 依赖，并撞上 build-client.mjs 的
+ *    F-09 删窗（先删 dist 再构建，失败即整目录消失）——构建职责不在本插件运行时里；
+ *    正确动作是把 stale 事实暴露给 org-status/面板（用户可见），重建由人在
+ *    `anic_reload_self` 之前显式完成。
+ *
+ * 任何失败都只记 warn 不抛：可观测性附加项不得影响插件激活。
+ */
+function runReloadHandshake(ctx: unknown): void {
+  try {
+    const ws = resolveWorkspaceRoots(ctx as Parameters<typeof resolveWorkspaceRoots>[0]);
+    const pluginRoot = resolvePluginRoot();
+    if (ws === '' || pluginRoot === '') return;
+    const revision = computeBuildRevision(pluginRoot)?.revision ?? null;
+    const completed = finalizeInFlight(join(ws, '.cycles'), revision);
+    if (completed !== null) {
+      reloadLog.info(`reload handshake completed: in-flight → ${completed.status} `
+        + `(from=${String(completed.fromRevision ?? 'unknown')}, to=${String(completed.toRevision ?? 'unknown')})`);
+    }
+    const freshness = buildFreshness(pluginRoot);
+    if (freshness.stale) {
+      reloadLog.warn(`dist is stale (newest src = ${String(freshness.newestSrcFile ?? 'unknown')}); `
+        + 'not rebuilding automatically — run build before anic_reload_self');
+    }
+  } catch (e) {
+    reloadLog.warn(e instanceof Error ? e.message : String(e));
+  }
+}
 
 export const name = 'dsh-anic';
 // cycle-74 P0：webServer 已移交路由子插件（anicRoutesPlugin），本插件不再硬依赖它。
@@ -60,11 +102,14 @@ export function apply(ctx: unknown): void {
     c.effect(() => registerBuiltinFlows() ?? undefined, 'dsh-anic: builtin flows (gate-check + macro-phase)');
     // cycle-74 工具面按需加载接线：默认 full 时**内部直接返回不注册监听器**（零行为变更）。
     c.effect(() => { wireToolDisclosureFromConfig(ctx); }, 'dsh-anic: tool disclosure (agent/created, indexed only)');
+    // cycle-80：热更新握手（finalize in-flight）+ 冷启动新鲜度记录（构建职责不在运行时）。
+    c.effect(() => { runReloadHandshake(ctx); }, 'dsh-anic: hot-reload handshake (finalize in-flight + staleness)');
   } else {
     registerRuntimeSkill(ctx);
     wireRoutes(ctx, { invocationFeed: feed });
     registerAnicTools(ctx);
     registerBuiltinFlows();
     wireToolDisclosureFromConfig(ctx);
+    runReloadHandshake(ctx);
   }
 }

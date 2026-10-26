@@ -26,6 +26,7 @@ import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
 import { registerFlowsTools } from './toolsFlowsGateway.ts';
 import { registerHitlTools } from './toolsHitlGateway.ts';
 import { registerAutoFixTools } from './toolsAutoFixGateway.ts';
+import { registerReloadTools } from './toolsReloadGateway.ts';
 
 interface HostContext {
   tools?: ToolsSlot;
@@ -228,7 +229,8 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   // 自动修复循环工具（anic_flows_auto_fix，R3 阶段 5）拆分至 toolsAutoFixGateway.ts
   disposers.push(...registerAutoFixTools(tools, { getRoot, register: reg }));
-
+  // cycle-80：anic_reload_self = ctx.hmr 消费面（ctx 仅传入供可选探测，绝不进硬 inject）
+  disposers.push(...registerReloadTools(tools, { getRoot, register: reg, ctx: c }));
   // 状态全景工具（anic_status）拆分至 toolsStatusGateway.ts（cycle-39 T3：
   // presentCall 补齐后 tools.ts 264 行超限——一域一文件纪律，聚合面不变）
   disposers.push(...registerStatusTool(reg, getRoot));

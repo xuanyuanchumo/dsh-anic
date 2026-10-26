@@ -200,6 +200,77 @@ function checkDimensionVocabulary(skillDir) {
   return errors;
 }
 
+// ---------- cycle-80 WS-3 G-04：发行新鲜度（--freshness，默认关闭）----------
+// 被守卫缺陷：本脚本原先只校验四锚与目录结构 ⇒「assets 改了忘 repair / 文档与发行源脱钩」
+// 依旧全绿，因为判据里**没有**"发行面是否与自身一致"的证据（cycle-72 F-07 实事故：live 副本
+// 落后发行源、manifest 版本滞留，而 quick-validate 照常说 PASS）。
+// 只做**可机械判定**的两类，不做模糊语义检查：
+//  ① scripts 索引完整性（双向）：scripts/*.mjs ↔ references/scripts-reference.md 的目录索引；
+//  ② 版本锚一致性：SKILL.md 的 `MCP Tools (vX.Y.Z)` == CHANGELOG.md 顶部 `## X.Y.Z`，
+//     且 references 里 `技能 vX.Y.Z` 自述版本必须同号（同一次发布的文档面）。
+// 附：若 CHANGELOG 顶部条声明了「SKILL.md（N 行）」，机械比对实际行数；未声明则明示 skip
+// （不猜"应该多少行"——那属于语义判断，会变成噪音）。
+function checkFreshness(skillDir) {
+  const items = [];
+  const readIf = (rel) => {
+    const p = join(skillDir, rel);
+    return existsSync(p) ? readFileSync(p, 'utf-8') : null;
+  };
+  const ref = readIf(join('references', 'scripts-reference.md'));
+  const scriptsDir = join(skillDir, 'scripts');
+  const actual = existsSync(scriptsDir)
+    ? readdirSync(scriptsDir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.mjs'))
+      .map((e) => e.name)
+      .sort()
+    : [];
+
+  // ① scripts 索引（双向：真实脚本都要被登记；登记项都必须真实存在）
+  if (!ref) {
+    items.push({ ok: false, text: 'references/scripts-reference.md missing — cannot verify scripts index' });
+  } else {
+    const indexed = [...ref.matchAll(/^\s*-\s*\[scripts\/([^\]]+\.mjs)\]/gm)].map((m) => m[1]);
+    const missing = actual.filter((n) => !indexed.includes(n));
+    const ghost = indexed.filter((n) => !actual.includes(n));
+    items.push(missing.length === 0
+      ? { ok: true, text: `scripts index complete (${actual.length}/${actual.length} scripts documented)` }
+      : { ok: false, text: `scripts index missing: ${missing.map((n) => `scripts/${n}`).join(', ')} — add a TOC entry in references/scripts-reference.md` });
+    if (ghost.length > 0) {
+      items.push({ ok: false, text: `scripts index has ghost entries: ${ghost.map((n) => `scripts/${n}`).join(', ')} — files do not exist` });
+    }
+  }
+
+  // ② 版本锚一致性（发行源本体 ↔ 变更日志顶部；references 自述版本同号）
+  const skillV = (readIf('SKILL.md') || '').match(/MCP Tools \(v(\d+\.\d+\.\d+)\)/);
+  const changelog = readIf('CHANGELOG.md') || '';
+  const clV = changelog.match(/^##\s+(\d+\.\d+\.\d+)/m);
+  if (!skillV || !clV) {
+    const which = !skillV ? 'SKILL.md "MCP Tools (vX.Y.Z)"' : 'CHANGELOG.md top "## X.Y.Z"';
+    items.push({ ok: false, text: `version anchor missing: ${which} not found` });
+  } else if (skillV[1] !== clV[1]) {
+    items.push({ ok: false, text: `version anchor drift: SKILL.md=${skillV[1]} vs CHANGELOG.md top=${clV[1]}` });
+  } else {
+    items.push({ ok: true, text: `version anchor consistent: SKILL.md=CHANGELOG.md top=${skillV[1]}` });
+    const refVersions = [...new Set([...((ref || '').matchAll(/技能 v(\d+\.\d+\.\d+)/g))].map((m) => m[1]))];
+    const drifted = refVersions.filter((v) => v !== skillV[1]);
+    items.push(drifted.length > 0
+      ? { ok: false, text: `references version drift: ${drifted.map((v) => `技能 v${v}`).join(', ')} vs SKILL.md=${skillV[1]}` }
+      : { ok: true, text: refVersions.length > 0 ? `references declare skill v${skillV[1]} consistently` : 'references declare no explicit skill version (nothing to drift)' });
+    // ③ 可选行数声明（CHANGELOG 顶部条若写了「SKILL.md（N 行）」才比对）
+    const topEntry = changelog.split(/^##\s+\d+\.\d+\.\d+/m)[1] || '';
+    const claim = topEntry.match(/SKILL\.md[（(]\s*(\d+)\s*行/);
+    const skillLines = (readIf('SKILL.md') || '').split('\n').length;
+    if (claim) {
+      items.push(Number(claim[1]) === skillLines
+        ? { ok: true, text: `SKILL.md line-count matches CHANGELOG claim: ${skillLines}` }
+        : { ok: false, text: `SKILL.md line-count drift: actual=${skillLines} vs CHANGELOG claim=${claim[1]}` });
+    } else {
+      items.push({ ok: true, text: `SKILL.md line-count: no claim in CHANGELOG top entry (actual=${skillLines}, nothing to verify)` });
+    }
+  }
+  return items;
+}
+
 function validateSkillPackage(skillDir) {
   const errors = [];
   const warnings = [];
@@ -328,10 +399,10 @@ function validateSkillPackage(skillDir) {
 
 const args = parseCliArgs(process.argv, {
   script: 'quick-validate',
-  usage: 'Usage: node quick-validate.mjs <skill-dir>\n'
+  usage: 'Usage: node quick-validate.mjs <skill-dir> [--freshness]\n'
     + 'anic_skill tool NOTE: the tool prepends the project dir as the first positional; '
     + 'pass skill-dir via args and it lands as the SECOND positional — pick args._[1] ?? args._[0] below.',
-  flags: {},
+  flags: { freshness: { type: 'boolean' } },
   positionals: { min: 1, max: 2, name: 'skill-dir' },
 });
 
@@ -375,9 +446,23 @@ for (const i of result.info) {
   console.log(`  [OK] ${i}`);
 }
 
+// cycle-80 WS-3：freshness 段仅在 --freshness 时出现（关闭时 stdout 与旧版逐字节一致）
+const freshnessItems = args.freshness ? checkFreshness(skillDir) : [];
+if (args.freshness) {
+  console.log(``);
+  console.log(`FRESHNESS (${freshnessItems.length}):`);
+  for (const it of freshnessItems) {
+    console.log(`  [${it.ok ? 'OK' : 'FAIL'}] freshness: ${it.text}`);
+  }
+}
+
+const freshnessFailed = freshnessItems.filter((i) => !i.ok).length;
+
 console.log(``);
-if (result.errors.length > 0) {
-  console.error(`VALIDATION FAILED: ${result.errors.length} error(s) found.`);
+if (result.errors.length > 0 || freshnessFailed > 0) {
+  // 旧文案在关闭 freshness 时逐字节保留（只在开启且有过期项时追加计数）
+  const stale = args.freshness ? `, ${freshnessFailed} stale freshness item(s)` : '';
+  console.error(`VALIDATION FAILED: ${result.errors.length} error(s)${stale} found.`);
   process.exit(1);
 } else if (result.warnings.length > 0) {
   console.log(`VALIDATION PASSED with ${result.warnings.length} warning(s).`);
