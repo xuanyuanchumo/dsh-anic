@@ -18,3 +18,4 @@
 export * from './buildRevision.ts';
 export * from './reloadHistory.ts';
 export * from './reloadOrchestrator.ts';
+export * from './runningRevision.ts';

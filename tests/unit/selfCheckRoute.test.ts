@@ -16,6 +16,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSelfChecks, registerSelfCheckRoute, SELF_CHECK_ROUTE, type ProbeResult } from '../../src/host/routes/selfCheckRoute.ts';
+import { activationReady } from '../../src/host/indexActivation.ts';
 
 const CLEANUPS: string[] = [];
 function tmpWorkspace(): string {
@@ -190,5 +191,47 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
     const bad = probeMap(badRun.checks).get('P7-capability-index-sync');
     expect(bad?.ok).toBe(false);
     expect(String(bad?.detail)).toContain('capability-index.json');
+  });
+
+  /*
+   * cycle-81：P8 探针的 **fail-open 修复**回归。
+   *
+   * 被修缺陷：P8 原实现**恒写 `ok: true`**——`indexed` 模式下加载器缺席（自锁：模型拿不到
+   * 任何 schema，整工具面失能）时，诊断端点照样报绿。这是「告警级守卫等于没有守卫」在
+   * **运行时面**的复现：静态契约检查不到，只有运行时探针能抓到。
+   *
+   * 判据（INV-31）：探针 ok 位必须与 `activationReady` 同源。
+   *
+   * 诚实边界（实测）：`captureRegisteredFaces()` 走 stub ctx 注册全部 23 工具（含两个加载器），
+   * 因此 **indexed 自锁当前不可达**——本用例钉的是「判据接线正确」而非「生产已发生自锁」。
+   * 一旦未来注册面缩水（加载器被漏注册），这根钉子会立刻变红；修复前它**永远不会红**。
+   */
+  it('P8 判据同源：indexed 且加载器齐全 → ok:true（自锁不可达，如实绿）；full 模式亦绿', () => {
+    const root = greenWorkspace();
+    const indexed = runSelfChecks({
+      workspaceRoot: root,
+      agentCardsDir: join(process.cwd(), 'assets', 'agents'),
+      indexDir: join(process.cwd(), 'assets', 'index'),
+      toolDisclosure: 'indexed',
+    });
+    const p8i = probeMap(indexed.checks).get('P8-tool-disclosure-mode');
+    // 注册面齐全 ⇒ ready=true ⇒ ok=true，且 detail 必须带真实 deny 数（消费者活证据）
+    expect(p8i?.ok).toBe(true);
+    expect(String(p8i?.detail)).toContain('mode=indexed');
+    expect(String(p8i?.detail)).toMatch(/deny=\d+/);
+    // 反向自检：同一探针在「加载器缺席」判据下必须判红 —— 直接验证同源函数，不靠桩替换注册面
+    const notReady = activationReady('indexed', ['anic_snapshot']);
+    expect(notReady.ready).toBe(false);
+    expect(notReady.reason).toContain('自锁');
+    // full 模式（零行为变更）恒绿，且不出现 indexed 专属的 deny 段
+    const full = runSelfChecks({
+      workspaceRoot: root,
+      agentCardsDir: join(process.cwd(), 'assets', 'agents'),
+      indexDir: join(process.cwd(), 'assets', 'index'),
+    });
+    const p8f = probeMap(full.checks).get('P8-tool-disclosure-mode');
+    expect(p8f?.ok).toBe(true);
+    expect(String(p8f?.detail)).toContain('mode=full');
+    expect(String(p8f?.detail)).toContain('blocked:');
   });
 });

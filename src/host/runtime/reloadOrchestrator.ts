@@ -1,5 +1,5 @@
 /**
- * 重载编排域（cycle-80 WS-1 · 一域一文件）：探测 hmr → 判新鲜度 → **先落 in-flight** → 触发。
+ * 重载编排域（cycle-80 WS-1 · 一域一文件）：探测 hmr → 判据 → **先落 in-flight** → 触发。
  *
  * ## 被修的缺口（实测，不是推测）
  * 宿主 desktop profile 的 `@deepseek-ai/dsh-hmr` 已 active：`ctx.hmr.runExclusive(op)` 与
@@ -23,6 +23,7 @@
  */
 import { buildFreshness, computeBuildRevision } from './buildRevision.ts';
 import { appendReloadHistory, finalizeInFlight, readReloadHistory, type ReloadHistoryEntry } from './reloadHistory.ts';
+import { readRunningRevision } from './runningRevision.ts';
 
 /** 宿主 hmr 服务的最小形状（只声明本模块用到的两个方法）。 */
 interface HmrService {
@@ -50,7 +51,12 @@ export interface ReloadSelfOptions {
   reason: string;
   actor: string;
   requiredIds?: string[];
-  /** 测试/演示用：跳过「dist 已最新则拒绝」。生产调用方不该传。 */
+  /**
+   * **运行中实例**启动时加载的 dist revision（cycle-81 判据核心）。缺省时由
+   * `readRunningRevision(cyclesDir)` 两级读取（内存 → 工作区旁路，TTL 过期即弃）。
+   */
+  observedRevision?: string | null;
+  /** 测试/演示用：跳过两类拒绝。生产调用方不该传。 */
   force?: boolean;
 }
 
@@ -91,8 +97,15 @@ export function probeHmr(ctx: unknown): { available: boolean; reason: string } {
 /**
  * 请求本插件热重载（核心入口）。
  *
- * 顺序**不可交换**：探测 → 新鲜度 → 落 in-flight → 触发。若先触发再写，本实例被替换后就没
+ * 顺序**不可交换**：探测 → 判据 → 落 in-flight → 触发。若先触发再写，本实例被替换后就没
  * 有任何进程能写下「请求过重载」——史账会显示成「什么都没发生」（最坏的静默失败）。
+ *
+ * ## cycle-81 判据修正（真机跑出来的缺口，见 runningRevision.ts 头注）
+ * 不是「dist 是否比 src 旧」，而是「**运行实例** revision 是否等于当前 dist revision」。
+ * 两类拒绝各自点名「下一步做什么」——一条含糊的 refused 让人无从行动：
+ *   · dist 落后源码     ⇒ 说「先 build」（重载点到旧产物等于白做）；
+ *   · 实例已是最新产物   ⇒ 说「无需重载」（避免无谓拆装打断会话）；
+ *   · 实例未知          ⇒ **放行**（读不到 ≠ 已同步；多一次无害重载 ≪ 误拒真重载）。
  */
 export async function reloadSelf(ctx: unknown, opts: ReloadSelfOptions): Promise<ReloadResult> {
   const hmr = resolveHmr(ctx);
@@ -102,21 +115,33 @@ export async function reloadSelf(ctx: unknown, opts: ReloadSelfOptions): Promise
   }
   const fresh = buildFreshness(opts.pluginRoot);
   const fromRevision = fresh.revision?.revision ?? null;
-  if (!fresh.stale && opts.force !== true) {
+  const running = opts.observedRevision !== undefined
+    ? opts.observedRevision
+    : readRunningRevision(opts.cyclesDir);
+  if (fresh.stale && opts.force !== true) {
     return {
       action: 'refused',
-      reason: 'dist is up to date (no source change since last build)',
-      fromRevision, stale: false, handshake: false, revision: fromRevision,
+      reason: `dist is older than source (newest src = ${String(fresh.newestSrcFile ?? 'unknown')}); run build before reloading`,
+      fromRevision: running, stale: true, handshake: false, revision: fromRevision,
     };
   }
+  const upToDate = running !== null && fromRevision !== null && running === fromRevision;
+  if (upToDate && opts.force !== true) {
+    return {
+      action: 'refused',
+      reason: `running instance already serves revision ${running} (dist unchanged; nothing to reload)`,
+      fromRevision: running, stale: false, handshake: false, revision: fromRevision,
+    };
+  }
+  const staleAtRequest = fresh.stale || !upToDate;
   const entry: ReloadHistoryEntry = {
     at: new Date().toISOString(),
     actor: opts.actor,
     reason: opts.reason,
     status: 'in-flight',
-    fromRevision,
+    fromRevision: running,
     toRevision: null,
-    staleAtRequest: true,
+    staleAtRequest,
     warnings: [],
     pending: [],
     restartReason: null,
@@ -128,7 +153,7 @@ export async function reloadSelf(ctx: unknown, opts: ReloadSelfOptions): Promise
     return {
       action: 'refused',
       reason: 'reload history is not writable; refusing to reload without an audit trail',
-      fromRevision, stale: true, handshake: false, revision: fromRevision,
+      fromRevision, stale: staleAtRequest, handshake: false, revision: fromRevision,
     };
   }
   const service = hmr.service;
@@ -150,8 +175,8 @@ export async function reloadSelf(ctx: unknown, opts: ReloadSelfOptions): Promise
   return {
     action: 'scheduled',
     reason: opts.reason,
-    fromRevision,
-    stale: true,
+    fromRevision: running,
+    stale: staleAtRequest,
     handshake: true,
     revision: fromRevision,
     scheduledAt: entry.at,

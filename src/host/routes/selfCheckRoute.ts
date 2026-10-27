@@ -140,10 +140,18 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
     const plan = planActivation(mode, ids, ids);
     const ready = activationReady(mode, ids);
     const gate = plan ? `deny=${String(plan.deny.length)}` : `blocked: ${ready.reason}`;
+    // cycle-81 P0（本探针 fail-open 修复）：原实现**恒写 `ok: true`**——即便 `indexed` 模式下
+    // 加载器缺席（自锁：模型拿不到 schema，等于整工具面失能），诊断端点仍报绿。
+    // 这正是本仓反复消灭的「告警级守卫等于没有守卫」形态在**运行时面**的复现：
+    //   · full 模式：无切换意图 ⇒ ok=true（零行为变更语义，不是假绿）；
+    //   · indexed 且 ready：切换成立 ⇒ ok=true；
+    //   · indexed 且未 ready：**自锁成立 ⇒ ok=false**，detail 点名缺哪些加载器。
+    // 不变量（INV-31）：披露模式的"可激活"与探针 ok 位必须同源，不得一处放行一处拦截。
+    const selfLocked = mode === 'indexed' && !ready.ready;
     checks.push({
       id: 'P8-tool-disclosure-mode',
-      ok: true,
-      detail: `mode=${mode} (default full, zero behavior change); index=${String(bytes)}B; ${gate}`,
+      ok: !selfLocked,
+      detail: `mode=${mode}${mode === 'full' ? ' (default full, zero behavior change)' : ''}; index=${String(bytes)}B; ${gate}`,
     });
   } catch (e) {
     checks.push({ id: 'P8-tool-disclosure-mode', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });

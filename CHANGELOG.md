@@ -1,5 +1,73 @@
 # dsh-anic CHANGELOG
 
+## v0.47.0 — 2026-10-27（cycle-81：真机跑一次热重载，暴露并修好两处判据/载体缺陷）
+
+> cycle-80 交付了热重载能力，但**从没在真实宿主上按用户流程跑过**。本轮用户要求"热重载插件"，
+> 我实际执行了一遍 —— 结果两个**只有真跑才会现形**的缺陷当场暴露。本版本就是这两处的修复。
+> 完整证据链见 `.cycles/cycles/cycle-81/审计日志.md` §3（9 步真实响应）。
+
+### ① 拒载判据错位：`dist vs src` → **运行实例 vs dist**（P0）
+
+**真机现形**：改源码 → build（dist 已最新）→ 点重载 ⇒ 旧判据返回
+`refused: dist is up to date`，**但运行中的实例仍是旧代码** —— 恰好拒绝在最该重载的时刻，
+用户诉求退化成"先 build 再人工重启"。
+
+新判据比较「**运行实例**启动时加载的 revision」与「当前 dist revision」，四态语义各自点名下一步：
+
+| 情形 | 动作 | reason 告诉用户做什么 |
+|---|---|---|
+| dist 落后源码 | `refused` | `run build before reloading`（重载点到旧产物等于白做） |
+| 实例 == dist | `refused` | `nothing to reload`（避免无谓拆装打断会话） |
+| 实例 ≠ dist | **`scheduled`** | —（这才是用户要的情形） |
+| 实例未知 | **放行** | 读不到 ≠ 已同步；多一次无害重载 ≪ 误拒一次真重载 |
+
+### ② 运行实例标记跨模块不可见（P0）
+
+新判据要读「实例跑的是哪个 revision」，而真机显示路由模块**读不到** `apply` 写入的内存值
+（两次调用 `fromRevision: null`）⇒ 判据退化成"永远放行"。
+
+新增 `runtime/runningRevision.ts`（83 行，一域一文件）两级载体：
+- **内存**（同模块实例，零成本）；
+- **工作区旁路** `.cycles/running-revision.json`（跨模块实例可见，原子写，带 `at`）；
+- **TTL 24h 过期即弃**：停机后留下的旧标记不可用来否决本次重载；读不到 = 未知 ⇒ 放行。
+
+同时把 `reloadOrchestrator` 从 292 行拆回 210 行（T3/⑪ ≤250 硬限）。
+
+### ③ P8 探针 fail-open 修复（P1）
+
+`self-check` 的 P8 原实现**恒写 `ok: true`** —— `indexed` 模式缺加载器（自锁 ⇒ 模型拿不到任何
+schema，整工具面失能）时诊断端点照样报绿。现改为与 `activationReady` **同源**：
+`indexed && !ready ⇒ ok:false` 并点名缺哪些加载器；`full` 模式保持恒绿（零行为变更）。
+
+**诚实边界**：`captureRegisteredFaces()` 恒注册全部 23 工具（含加载器），故自锁**当前不可达** ——
+本修复钉的是"判据接线正确"（未来注册面缩水时探针立刻红，而修复前永远不会红）。
+
+### 真机验证链（本版本的核心交付物）
+
+```text
+修前（旧判据）实例 69380d77 / dist c13d32da → refused: dist is up to date      ❌ 错拒
+force 引导                                    → scheduled → 12s 后 reloaded      ✅
+再 build（851d6b84）无 force                  → scheduled（fromRevision=null）   ✅ G-02 现形
+                                              → 14s 后 reloaded + 旁路写 851d6b84 ✅
+再请求（实例 == dist）                        → refused: nothing to reload（零写入）✅ 新判据生效
+```
+
+### 验证基线
+
+```
+typecheck: 0 错          validate: 12/12        vitest: 171 files / 2096 tests 全绿
+smoke: ALL PASS          trigger: 28/28          eval: E1-E8 + Q1-Q8 16 维 PASS
+gates:  G0-G3 全 PASS（四门 §cycle-81，G3 带 [dist=851d6b84]）
+fresh:  stale=false      revision 851d6b84bf8c7d61
+```
+
+### 已知边界
+
+- **首轮热重载需一次 `force` 引导**：新判据代码必须先被加载才能用新判据（固有鸡生蛋，非缺陷）。
+- GUI 浏览器级验证仍受宿主 web 认证（401）阻断。
+- 覆盖率未重跑（沿用 87.17/82.89）。
+- 面板 reload 小节视觉/位置仍未真机核对。
+
 ## v0.46.0 — 2026-10-27（cycle-80：热更新重载插件 —— ctx.hmr 消费闭环 + 部署一致性守卫）
 
 > 用户本轮新增限定：**热更新重载插件**。起点是**真机取证**（不是猜）：

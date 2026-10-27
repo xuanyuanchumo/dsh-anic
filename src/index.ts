@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { createScoped } from './host/logger.ts';
 import { resolvePluginRoot } from './host/pluginRoot.ts';
 import { resolveWorkspaceRoots } from './host/snapshotRoute.ts';
-import { buildFreshness, computeBuildRevision, finalizeInFlight } from './host/runtime/hotReload.ts';
+import { buildFreshness, computeBuildRevision, finalizeInFlight, markRunningRevision } from './host/runtime/hotReload.ts';
 
 const reloadLog = createScoped('hot-reload');
 
@@ -62,6 +62,10 @@ function runReloadHandshake(ctx: unknown): void {
     const pluginRoot = resolvePluginRoot();
     if (ws === '' || pluginRoot === '') return;
     const revision = computeBuildRevision(pluginRoot)?.revision ?? null;
+    // cycle-81：记录「本实例跑的是哪个 revision」——这是「该不该重载」的唯一判据来源。
+    // 同时写工作区旁路：真机实测路由模块读不到本模块内存值（fromRevision 恒 null），
+    // 旁路让标记跨模块实例可见（带 TTL，过期即弃；读不到 = 未知 = 不阻拦重载）。
+    markRunningRevision(revision, join(ws, '.cycles'));
     const completed = finalizeInFlight(join(ws, '.cycles'), revision);
     if (completed !== null) {
       reloadLog.info(`reload handshake completed: in-flight → ${completed.status} `

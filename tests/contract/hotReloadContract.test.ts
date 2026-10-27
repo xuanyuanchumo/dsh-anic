@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import {
   computeBuildRevision, buildFreshness, probeHmr, readReloadHistory, appendReloadHistory,
   finalizeInFlight, reloadSelf, reloadSummary, RELOAD_HISTORY_FILE,
+  markRunningRevision, readRunningRevision, resetRunningRevisionForTest, RUNNING_REVISION_FILE,
   type ReloadHistoryEntry, type ReloadSelfOptions,
 } from '../../src/host/runtime/hotReload.ts';
 import { registerHotReloadRoute, RELOAD_STATUS } from '../../src/host/routes/hotReloadRoute.ts';
@@ -97,13 +98,17 @@ const historyFile = (root: string): string => join(root, '.cycles', RELOAD_HISTO
 
 describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
   it('① 桩 hmr：runExclusive 恰一次、内部调 reconcileProfile；触发瞬间史账已有 in-flight', async () => {
-    const root = mkPluginRoot(true);
+    const root = mkPluginRoot(false);
     const { ctx, calls, atTrigger } = mkHmrCtx(join(root, '.cycles'));
     const rev = computeBuildRevision(root);
-    const res = await reloadSelf(ctx, baseOpts(root, { requiredIds: ['ani'] }));
+    // cycle-81：显式声明「运行实例是**旧** revision」——这正是真机 build 后的真实处境
+    const res = await reloadSelf(ctx, baseOpts(root, {
+      requiredIds: ['ani'],
+      observedRevision: 'runningoldrevision',
+    }));
     expect(res.action).toBe('scheduled');
     expect(res.handshake).toBe(true);
-    expect(res.fromRevision).toBe(rev?.revision ?? null);
+    expect(res.fromRevision).toBe('runningoldrevision'); // 留痕记的是运行实例，不是 dist
     await sleep(80);
     // 调用序：探测 → runExclusive → reconcileProfile（串行化包裹）→ runExclusive 收尾
     expect(calls).toEqual(['get:hmr', 'runExclusive', 'reconcileProfile:1', 'runExclusive:done']);
@@ -112,12 +117,13 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
     const seen = atTrigger[0]?.[0];
     expect(seen?.status).toBe('in-flight');
     expect(seen?.staleAtRequest).toBe(true);
-    expect(seen?.fromRevision).toBe(rev?.revision ?? null);
+    expect(seen?.fromRevision).toBe('runningoldrevision');
     // 实例存活时自行落定握手（被替换时由新实例 finalize 接手）
     const after = readReloadHistory(join(root, '.cycles'));
     expect(after.entries).toHaveLength(1);
     expect(after.entries[0]?.status).toBe('reloaded');
     expect(after.entries[0]?.finalizedAt).toBeDefined();
+    expect(after.entries[0]?.toRevision).toBe(rev?.revision ?? null);
   });
 
   it('② 无 hmr 服务 → unavailable、reason 点名、零写入（史账文件都不存在）', async () => {
@@ -132,17 +138,45 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
     expect(existsSync(historyFile(root))).toBe(false);
   });
 
-  it('③ dist 已最新 → refused 零写入；force:true 才允许调度（另一条路径）', async () => {
-    const root = mkPluginRoot(false); // dist 比 src 新
+  /*
+   * cycle-81 判据修正的回归（**这是在真实宿主上跑出来的**，不是推演）：
+   * 旧判据 = 「dist 是否比 src 旧」；build 之后 dist 即最新 ⇒ refused，可运行实例仍是旧码。
+   * 新判据 = 「运行实例 revision 是否等于 dist revision」。下面两例分别钉住两类拒绝。
+   */
+  it('③a dist 落后源码 → refused 且 reason 说「先 build」（零写入）', async () => {
+    const root = mkPluginRoot(true); // src 比 dist 新
     const { ctx } = mkHmrCtx(join(root, '.cycles'));
-    const refused = await reloadSelf(ctx, baseOpts(root));
+    const refused = await reloadSelf(ctx, baseOpts(root, { observedRevision: 'runningoldrevision' }));
     expect(refused.action).toBe('refused');
-    expect(refused.reason).toContain('dist is up to date');
+    expect(refused.reason).toContain('run build before reloading');
+    expect(refused.stale).toBe(true);
     expect(refused.handshake).toBe(false);
     expect(existsSync(historyFile(root))).toBe(false); // 零写入
-    const forced = await reloadSelf(ctx, baseOpts(root, { force: true }));
+  });
+
+  it('③b 运行实例已是最新产物 → refused 且 reason 说「无需重载」；force:true 才调度', async () => {
+    const root = mkPluginRoot(false); // dist 比 src 新，且实例就是这份 dist
+    const { ctx } = mkHmrCtx(join(root, '.cycles'));
+    const rev = computeBuildRevision(root)?.revision ?? null;
+    const refused = await reloadSelf(ctx, baseOpts(root, { observedRevision: rev }));
+    expect(refused.action).toBe('refused');
+    expect(refused.reason).toContain('nothing to reload');
+    expect(refused.handshake).toBe(false);
+    expect(existsSync(historyFile(root))).toBe(false); // 零写入
+    const forced = await reloadSelf(ctx, baseOpts(root, { force: true, observedRevision: rev }));
     expect(forced.action).toBe('scheduled');
     expect(readReloadHistory(join(root, '.cycles')).entries).toHaveLength(1);
+  });
+
+  it('③c build 过但实例仍是旧码 → **必须调度**（旧判据在这里会错拒，这是本修正的靶心）', async () => {
+    const root = mkPluginRoot(false); // dist 已最新（等于「刚刚 build 完」）
+    const { ctx } = mkHmrCtx(join(root, '.cycles'));
+    const rev = computeBuildRevision(root)?.revision ?? null;
+    const res = await reloadSelf(ctx, baseOpts(root, { observedRevision: 'staleinstancer' }));
+    expect(rev).not.toBe('staleinstancer');
+    expect(res.action, '运行实例落后于磁盘时必须重载——否则用户只能重启宿主').toBe('scheduled');
+    expect(res.stale).toBe(true);
+    expect(res.handshake).toBe(true);
   });
 
   it('④ finalizeInFlight：改 reloaded + toRevision=当前指纹；再调 null 且文件字节不变', () => {
@@ -192,18 +226,20 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
   });
 
   it('⑦ 反向自检：顺序对调 / 去掉 runExclusive 包裹 → 判定器必须返回 false（守卫有牙）', async () => {
-    const root = mkPluginRoot(true);
+    const root = mkPluginRoot(false);
     /** 每次判定用**全新**史账目录：上一轮的条目会污染「触发瞬间」快照（假阳性来源）。 */
     const freshCycles = (): string => {
       const dir = mkdtempSync(join(tmpdir(), 'anic-hr-hist-'));
       CLEANUPS.push(dir);
       return dir;
     };
+    /** cycle-81：夹具必须声明「实例是旧码」，否则新判据会（正确地）拒绝调度，判定器失去意义。 */
+    const OPTS = { ...baseOpts(root), observedRevision: 'staleinstancer' };
     /** 判定器 A：触发瞬间史账里是否已有 in-flight。 */
     const orderPredicate = async (impl: (ctx: unknown, opts: ReloadSelfOptions) => Promise<unknown>): Promise<boolean> => {
       const cyclesDir = freshCycles();
       const { ctx, atTrigger } = mkHmrCtx(cyclesDir);
-      await impl(ctx, { ...baseOpts(root), cyclesDir });
+      await impl(ctx, { ...OPTS, cyclesDir });
       await sleep(60);
       return atTrigger[0]?.some((e) => e.status === 'in-flight') === true;
     };
@@ -211,7 +247,7 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
     const wrappedPredicate = async (impl: (ctx: unknown, opts: ReloadSelfOptions) => Promise<unknown>): Promise<boolean> => {
       const cyclesDir = freshCycles();
       const { ctx, calls } = mkHmrCtx(cyclesDir);
-      await impl(ctx, { ...baseOpts(root), cyclesDir });
+      await impl(ctx, { ...OPTS, cyclesDir });
       await sleep(60);
       const i = calls.indexOf('runExclusive');
       return i >= 0 && calls.indexOf('reconcileProfile:0') > i;
@@ -241,7 +277,7 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
   });
 
   it('⑧ 路由：桩宿主真调 handler → 200/action=scheduled 且体含 fromRevision；409/412 同表', async () => {
-    const root = mkPluginRoot(true);
+    const root = mkPluginRoot(false);
     const hmrCtx = mkHmrCtx(join(root, '.cycles'));
     const registered: { path: string; handler: (req: unknown, res: unknown) => void }[] = [];
     const c = {
@@ -256,7 +292,14 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
     expect(res.status).toBe(RELOAD_STATUS.scheduled);
     expect(res.status).toBe(200);
     expect(res.body?.action).toBe('scheduled');
-    expect(typeof res.body?.fromRevision).toBe('string');
+    /*
+     * cycle-81：路由入口**不经过 apply**，因此拿不到「本实例 revision」——编排器按
+     * 「未知 ⇒ 放行」处理，`fromRevision` 如实为 null（绝不编造成 dist 的指纹）。
+     * 因此这里只钉「字段存在 + 类型合法」，不去断言一个实现无法知道的值。
+     */
+    expect(res.body).toHaveProperty('fromRevision');
+    expect(typeof res.body?.revision).toBe('string');
+    expect(String(res.body?.revision)).toMatch(/^[0-9a-f]{16}$/);
     // 无工作区 → 404（与其余路由同口径）
     const noWs = registerHotReloadRoute(c, { send: mkSend(), getWorkspaceRoot: () => null, resolveRoot: () => root });
     expect(noWs).toHaveLength(1);
@@ -281,6 +324,37 @@ describe('cycle-80 热更新重载：in-flight 握手与诚实降级', () => {
     expect(summary.error).toBeNull();
     // 只读：查询一次不改动仓库（用 mtime 代理判断"没写历史文件"）
     expect(existsSync(join(ROOT, '.cycles', 'none-such-cycle', RELOAD_HISTORY_FILE))).toBe(false);
+  });
+
+  /*
+   * cycle-81 真机证据固化为契约：运行实例标记的两级载体。
+   *
+   * 为什么必须钉住：真机实测 `POST /anic/api/reload` 的 fromRevision 恒为 null —— 路由模块
+   * 读不到 apply 写入的内存值（门面 barrel 的模块实例共享取决于宿主加载粒度）。旁路文件是
+   * 让「该不该重载」跨模块实例可判定的唯一载体；它写坏了，判据就退化成永远放行。
+   */
+  it('⑩ 运行实例标记：apply 写旁路 → 跨模块可读；TTL 过期即弃；读不到 = null（未知 ⇒ 放行）', async () => {
+    const root = mkPluginRoot(false);
+    const cyclesDir = join(root, '.cycles');
+    const rev = computeBuildRevision(root)?.revision ?? null;
+    resetRunningRevisionForTest(); // 隔离：不让上一条用例的内存值串味
+    expect(readRunningRevision(cyclesDir), '未写过 ⇒ 未知（不是"已同步"）').toBeNull();
+    markRunningRevision(rev, cyclesDir);
+    // 清掉内存值，确保读到的是**旁路文件**（跨模块实例的真实路径）
+    resetRunningRevisionForTest();
+    expect(readRunningRevision(cyclesDir)).toBe(rev);
+    expect(existsSync(join(cyclesDir, RUNNING_REVISION_FILE))).toBe(true);
+    // TTL：时间戳改到 2 天前 ⇒ 必须视为过期（陈旧证据不可用于否决重载）
+    const p = join(cyclesDir, RUNNING_REVISION_FILE);
+    writeFileSync(p, JSON.stringify({ revision: rev, at: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString() }));
+    expect(readRunningRevision(cyclesDir)).toBeNull();
+    // 损坏文件同样回落 null，绝不抛
+    writeFileSync(p, '{broken');
+    expect(readRunningRevision(cyclesDir)).toBeNull();
+    // 实例未知 ⇒ 编排器放行（读不到 ≠ 已同步；多一次无害重载 ≪ 误拒真重载）
+    const { ctx } = mkHmrCtx(cyclesDir);
+    const res = await reloadSelf(ctx, { ...baseOpts(root), cyclesDir, observedRevision: null });
+    expect(res.action, '实例未知时必须放行').toBe('scheduled');
   });
 });
 
