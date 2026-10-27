@@ -2,8 +2,14 @@
  * 闭环体检路由：注册↔生产↔消费 三态矩阵的 HTTP 只读查询面（cycle-72 T-7207）。
  *
  * GET /anic/api/closure-audit[?workspace=<abs>]
- *   → 200 { generatedAt, totals, clusters, unconsumed, ghost, notes, scannedFiles, workspace, scanTarget, requestId }
+ *   → 200 { generatedAt, totals, clusters, unconsumed, ghost, notes, scannedFiles, workspace,
+ *           scanTarget, requestId, connectivity, artifacts, isolation }
  *   → 500 { error: 'PLUGIN_ROOT_UNRESOLVED' }（根未解析时响亮失败，不审计错误目录）
+ *
+ * ★cycle-82 新增两键（既有键**不变**，纯增量）：
+ *   - `artifacts`：第五族 —— `.cycles` 文档生命周期的逐模板 × 逐循环矩阵；
+ *   - `isolation`：跨项目隔离判定 —— 持久化路径是否都能从 workspace 根推导。
+ *   两者缺席时客户端按旧形状渲染（向前兼容：加字段不该让旧客户端变瞎）。
  *
  * 口径（与前端分区、契约测试同源，杜绝「声明与实现漂移」）：
  *   - 体检目标是**插件自身**（工具/词表/路由三族的定义都在插件源码里）。
@@ -13,13 +19,16 @@
  *     （Q-1 后 X-ANIC-Workspace 头与 ?workspace= 查询参数同等级、同一校验）；
  *     本路由不消费该选择器，两者职责分离：选择器决定看哪个工作区，闭环体检恒看插件自身。
  *   - 只读：不写工作区、不改源码（R-31 纪律）。
- *   - 响应体不含绝对本地路径（rootDir 不出去），客户端投影见 toClosureView。
+ *   - 响应体不含绝对本地路径（rootDir 不出去 / isolation 的 workspace 也不出去），
+ *     客户端投影见 toClosureView。
  *
  * 复用：HTTP 查询面与面板数据面共用 registryClosure 的同一份扫描实现
  * （单一实现纪律 G-SINGLE——面板与契约测试不得各写一套扫描器）。
  */
 import { resolvePluginRoot } from '../pluginRoot.ts';
-import { runClosureAudit, toClosureView, assertClustersPresent } from '../closureAudit/registryClosure.ts';
+import {
+  assertClustersPresent, assertExtraSurfacesPresent, runClosureAudit, toClosureView,
+} from '../closureAudit/registryClosure.ts';
 import { createScoped } from '../logger.ts';
 
 const log = createScoped('closureAudit');
@@ -72,6 +81,9 @@ export function registerClosureAuditRoute(
       try {
         const summary = runClosureAudit(rootDir);
         assertClustersPresent(summary.clusters);
+        // ★cycle-82：新两面必须**在场且有数据**（缺席 = 有人把键摘掉了，
+        // 面板会静默少一行——「有壳无表体」的同族形态，必须响亮）。
+        assertExtraSurfacesPresent(summary);
         const view = toClosureView(summary);
         deps.send(res, 200, {
           ...view,

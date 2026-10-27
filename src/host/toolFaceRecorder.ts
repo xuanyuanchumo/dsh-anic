@@ -18,6 +18,7 @@
  * 两者口径必须一致（同取 name/description/parameters），由契约测试对账。
  */
 import type { ToolsSlot, ToolRegistration } from './toolsSlot.ts';
+import { wireGuard } from './toolsSlot.ts';
 import type { ToolFace } from './capabilityIndex.ts';
 
 /** 注册面记录器：`reg` 转发到真注册，`faces()` 返回已记录的面（保序 = 注册序）。 */
@@ -26,12 +27,21 @@ export interface FaceRecorder {
   faces: () => ToolFace[];
 }
 
-/** 构造记录器（`tools` 为已探测到的宿主槽位）。 */
+/**
+ * 构造记录器（`tools` 为已探测到的宿主槽位）。
+ *
+ * ★cycle-82（可观测性收口）：这里同时是**工具出口的唯一收口点**。
+ * 聚合器 tools.ts 的全部 23 个工具（含各 gateway 内的）都逐条经本 `reg` 注册，
+ * 故 `wireGuard` 挂在此处即覆盖全体，无需在 20 处 `execute` 上逐个补丁
+ * （逐个补丁的保修期到下一个可选字段为止 —— 见 toolsSlot.wireGuard 头注）。
+ * `captured` 记录的是**注册定义**（name/description/parameters），与出口值的
+ * sanitize 无关；两者顺序保持「先记录后注册」，避免注册抛错时记录一条幽灵面。
+ */
 export function createFaceRecorder(tools: ToolsSlot): FaceRecorder {
   const captured: ToolFace[] = [];
   const reg = (t: ToolRegistration): (() => void) | null => {
     captured.push({ name: t.name, description: t.description, parameters: t.parameters });
-    return tools.register!(t) ?? null;
+    return tools.register!(wireGuard(t)) ?? null;
   };
   return { reg, faces: () => captured.slice() };
 }

@@ -35,6 +35,16 @@ import type { ClosureTotals } from './closureTotalsTypes.ts';
 import type { ClosureSummary } from './closureSummary.ts';
 import type { ClosureBucket } from './closureBuckets.ts';
 import { CLOSURE_BUCKETS, bucketsOf, producedCountOf } from './closureBuckets.ts';
+// cycle-82：第五族（.cycles 文档生命周期）+ 跨项目隔离判定的**编排**下移到
+// closureExtra.ts（本文件已 248 行，新面内联必破 T3 ≤250；拆分边界沿"旧面/新面"切）。
+import { assertExtraSurfacesPresent, buildExtraSurfaces } from './closureExtra.ts';
+// cycle-82：新两面的编排 + 口径守卫（此处**再导出**，保消费者 import 路径零变更）。
+export type { ExtraSurfaces } from './closureExtra.ts';
+export { assertExtraSurfacesPresent, buildExtraSurfaces } from './closureExtra.ts';
+// cycle-82：口径声明与计数自洽校验下移到 closureNotes.ts（本文件守 T3 ≤250 行）。
+export type { UnconsumedItems } from './closureNotes.ts';
+export { CLOSURE_NOTES, clustersConsistent } from './closureNotes.ts';
+import { CLOSURE_NOTES } from './closureNotes.ts';
 // cycle-78：通道声明（把「通道独占」从「未消费」里认领出来，见 channelRegistry 头注）。
 import {
   CHANNEL_DECLARATIONS, findDeclaration, validateDeclarationDocs, validateDeclarations,
@@ -59,6 +69,16 @@ export { UNCONSUMED_VIEW_LIMIT, orderUnconsumed, toClosureView } from './closure
 // cycle-76：连通性（report 类型 + 两态断言原语）。
 export type { ChainHop, ConnectivityReport, RegistrarState } from './connectivity.ts';
 export { assertConnectivityComplete, buildConnectivity, callLine } from './connectivity.ts';
+// cycle-82：第五族（.cycles 文档生命周期）+ 跨项目隔离判定的公开名。
+export type { ArtifactLifecycle, ArtifactScope, ArtifactsReport, CyclePresence, TemplateSpec } from './artifactsClosure.ts';
+export { ARTIFACTS_VIEW_CYCLES, TEMPLATE_DIR_REL, TEMPLATE_SPECS, scanArtifacts, toArtifactsView } from './artifactsClosure.ts';
+export type { ArtifactsView } from './artifactsClosure.ts';
+export type {
+  IsolationItem, IsolationReport, IsolationViolation, IsolationView,
+} from './isolation.ts';
+export {
+  WORKSPACE_PATHS, checkIsolation, inWorkspace, judgePath, scanAbsoluteLiterals, toIsolationView,
+} from './isolation.ts';
 
 /* ── 生产锚点判定（cycle-75：判据已下移到各族扫描器，此处不再各自重算）── */
 
@@ -74,66 +94,6 @@ export { assertConnectivityComplete, buildConnectivity, callLine } from './conne
  */
 export function producedCount(_cluster: string, _files: Map<string, string>, items: readonly ClosureItem[]): number {
   return producedCountOf(items);
-}
-
-const NOTES: readonly string[] = [
-  'consumed 判定 = 本仓内有读取方（客户端 fetch / 宿主内部调用 / 内联技能脚本 / 测试或 agent 卡引用）。',
-  'tests 与 docs 引用计入证伪面而不计入端点生产消费（测试只证明注册可用）。',
-  '工具与路由的对外消费者可以是 DSH 宿主 agent（宿主调用，本仓看不见）→ 未消费项是缺口线索，不是删除判决。',
-  '词表条目没有独立写入点（t() 是纯查找），其 producedAt=null / producedKind=no-write-point 是诚实标注而非缺失。',
-  'endpoint 的「已生产」判据 = 存在**真注册调用点**（webServer.register({path}) 或 reg(path,…)），'
-  + '不是「routes/index.ts 里出现了该字符串」——后者是聚合器回声。',
-  '未消费 ≠ 全部是缺陷：code=生产代码内真消费；dynamicClaimed=计算键认领；'
-  + 'channelOnly=仅测试/agent 卡引用（无生产消费者）；consumedGap=真缺口；producedGap=只声明没接线。',
-  // cycle-78：第六类（通道独占）的口径——声明 ≠ 豁免，必须与真缺口分开计数。
-  'declaredChannel（cycle-78）=未消费、但已在 channelRegistry 声明 owner/docRef/reason 的「通道独占」路由'
-  + '（外部 curl / 运维脚本 / MCP 客户端 / 人工面）。声明不改变 consumed=false 的事实，'
-  + '只把它从「未知缺口」搬到「已知通道」；**新增未消费路由没声明即棘轮红**（契约测试 ③）。',
-  'producedByKind 是**全量分类**（合计 = total，no-write-point 也占位），'
-  + '故不可与 produced 计数直接互比——后者只数真有写入锚点者。',
-  // cycle-75 T6：第四族（技能/MCP）的口径与诚实边界由族实现自带（避免口径漂移）。
-  ...SKILL_CLOSURE_NOTES,
-];
-
-/** 计数自洽校验：各族计数 = 逐项统计；分类合计 = total；produced 分类合计 = total。 */
-export function clustersConsistent(clusters: readonly ClusterAudit[]): string[] {
-  const problems: string[] = [];
-  for (const c of clusters) {
-    if (c.total !== c.items.length) problems.push(c.cluster + ': total != items.length');
-    const consumed = c.items.filter((it) => it.consumed).length;
-    if (consumed !== c.consumed) problems.push(c.cluster + ': consumed count mismatch');
-    const code = c.items.filter((it) => it.evidenceKind === 'code').length;
-    if (code !== c.codeConsumed) problems.push(c.cluster + ': codeConsumed count mismatch');
-    if (c.total - consumed !== c.unconsumed) problems.push(c.cluster + ': unconsumed count mismatch');
-    // cycle-75：分类合计必须等于 total（互斥且穷尽——漏一类即静默丢失资产）。
-    const buckets = bucketsOf(c.items);
-    const bucketSum = CLOSURE_BUCKETS.reduce((s, k) => s + buckets[k], 0);
-    if (bucketSum !== c.total) problems.push(c.cluster + ': bucket sum ' + String(bucketSum) + ' != total ' + String(c.total));
-    // ★cycle-78：两组成分恒等式（语义升级，不是放宽）。
-    //   unconsumed = declaredChannel + consumedGap + producedGap
-    //   consumed   = code + dynamicClaimed + channelOnly
-    // 分开校验而不是只校验总和：总和相等仍可能「未消费项被算进已消费」。
-    const unconsumedSum = buckets.declaredChannel + buckets.consumedGap + buckets.producedGap;
-    if (unconsumedSum !== c.unconsumed) {
-      problems.push(c.cluster + ': unconsumed identity broken (' + String(unconsumedSum) + ' != ' + String(c.unconsumed) + ')');
-    }
-    const consumedSum = buckets.code + buckets.dynamicClaimed + buckets.channelOnly;
-    if (consumedSum !== c.consumed) {
-      problems.push(c.cluster + ': consumed identity broken (' + String(consumedSum) + ' != ' + String(c.consumed) + ')');
-    }
-    // produced 类别分布必须与逐项统计相等，且**合计 = total**（见 NOTES 最后一条）。
-    const tallied = tallyProduced(c.items);
-    for (const k of Object.keys(tallied) as Array<keyof typeof tallied>) {
-      if (tallied[k] !== c.producedByKind[k]) problems.push(c.cluster + ': producedByKind.' + k + ' mismatch');
-    }
-    const producedSum = Object.values(c.producedByKind).reduce((s, n) => s + n, 0);
-    if (producedSum !== c.total) {
-      problems.push(c.cluster + ': producedByKind sum ' + String(producedSum) + ' != total ' + String(c.total));
-    }
-    // 已生产项数不得超过 total（恒真守卫，防分类实现漂移后自报虚高）。
-    if (producedCountOf(c.items) > c.total) problems.push(c.cluster + ': produced > total');
-  }
-  return problems;
 }
 
 /** 运行全量闭环体检（给定 root 返回确定性汇总，无全局状态）。 */
@@ -207,6 +167,11 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
   const connectivity = buildConnectivity(files);
   assertConnectivityComplete(connectivity);
 
+  // ★cycle-82：第五族（.cycles 文档生命周期）+ 跨项目隔离（见 closureExtra 头注）。
+  // 两者空扫描集各自响亮抛错；此处不 try/catch —— 静默降级会让面板显示
+  // "15 个模板全缺"这种与真相无关的读数。
+  const extra = buildExtraSurfaces(rootDir);
+
   const totals: ClosureTotals = {
     registered, produced, consumed, codeConsumed,
     unconsumed: registered - consumed,
@@ -228,8 +193,14 @@ export function runClosureAudit(rootDir: string): ClosureSummary {
     clusters,
     unconsumed,
     ghost: ghosts,
-    notes: [...NOTES, ...channelNotes],
+    notes: [
+      ...CLOSURE_NOTES,
+      ...channelNotes,
+      // cycle-82：新两面的口径 notes（由 closureExtra 生成，口径与实现同一处）。
+      ...extra.notes,
+    ],
     connectivity,
+    ...extra.surfaces,
   };
 }
 

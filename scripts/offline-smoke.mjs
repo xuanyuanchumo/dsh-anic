@@ -168,6 +168,31 @@ check('FAIL 节点红圈标记（数据驱动）', redCount === expectedFailed, 
 //   ② 三个 M1 动作各自存在（少一个 = 功能面静默缺失，这与`总数===1`是两回事）。
 const buttons = countType(tree, 'button').n;
 const svgs = countType(tree, 'svg').n;
+/**
+ * 面板工具栏**后代**按钮计数（cycle-82 取代全树 `buttons === 3`）。
+ *
+ * 为什么改：`buttons === 3` 是 M1 时代的**全树**计数——它默认"整个面板只有工具栏
+ * 有按钮"。cycle-82 给图区加了三个真 `<button>`（放大/缩小/适配视图），这条立刻
+ * 变红，但它想守的东西（M1 三动作存在 + 刷新唯一）**一字没少**，红的是"全树不得
+ * 有其它按钮"这条从未被声明过的附带假设。
+ *
+ * 改成「`data-anic-toolbar` 子树内的按钮数 == 3」：范围收敛到工具栏这个语义单元，
+ * 原意保留且更强（工具栏里多一个按钮也会红，全树计数反而管不到分区里乱塞的按钮）。
+ * 仍保留 `prefsButtons===1 && selfInitButtons===1` 两条全树唯一性断言。
+ */
+const toolbarButtons = (() => {
+  let n = 0;
+  (function walk(node, inToolbar, depth = 0) {
+    if (node === null || node === undefined || typeof node !== 'object' || depth > 20) return;
+    if (Array.isArray(node)) { for (const item of node) walk(item, inToolbar, depth + 1); return; }
+    if (typeof node.type === 'function') return walk(node.type(node.props ?? {}), inToolbar, depth + 1);
+    const here = inToolbar || node.props?.['data-anic-toolbar'] === 'true';
+    if (here && node.type === 'button') n += 1;
+    const children = node.children ?? [];
+    for (const c of Array.isArray(children) ? children : [children]) walk(c, here, depth + 1);
+  })(tree, false);
+  return n;
+})();
 const countProp = (prop, value) => {
   let n = 0;
   (function walk(node, depth = 0) {
@@ -184,7 +209,7 @@ const refreshButtons = countProp('data-anic-refresh', 'true');
 const prefsButtons = countProp('data-anic-prefs-toggle', 'true');
 const selfInitButtons = countProp('data-anic-self-init', 'true');
 check('刷新按钮存在且唯一（重复注册/双渲染路径会翻倍）', refreshButtons === 1 && hasProp(tree, 'data-anic-refresh', 'true'), `refresh=${refreshButtons}`);
-check('M1 工具栏三动作齐备（刷新/偏好/自举）', prefsButtons === 1 && selfInitButtons === 1 && buttons === 3, `buttons=${buttons} prefs=${prefsButtons} selfInit=${selfInitButtons}`);
+check('M1 工具栏三动作齐备（刷新/偏好/自举）', prefsButtons === 1 && selfInitButtons === 1 && toolbarButtons === 3, `toolbarButtons=${toolbarButtons} allButtons=${buttons} prefs=${prefsButtons} selfInit=${selfInitButtons}`);
 check('svg 根存在（renderGraph 纯渲染路径）', svgs === 1, `svgs=${svgs}`);
 
 t.unregister();

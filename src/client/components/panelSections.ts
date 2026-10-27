@@ -21,9 +21,9 @@
 import { createElement, memo, useDeferredValue, type ReactElement } from 'react';
 import { usePanelSlice } from './panelStore.ts';
 import type { PanelDataStore, PanelState } from '../panelState.ts';
-import type { WorkflowNode } from '../workflowGraphData.ts';
 import { t } from '../i18n.ts';
-import { renderGraph, buildVerdicts } from '../features/graph/renderGraph.ts';
+// cycle-82：图区分区已拆至 features/graph/GraphSection.ts（同域一文件），
+// 本文件只做**再导出**门面——装配层与契约测试的 import 路径零变更。
 import { renderStepTrace } from '../features/stepTrace/renderStepTrace.ts';
 import { renderDiagnostics } from '../features/diagnostics/renderDiagnostics.ts';
 import { renderOrgStatus } from '../features/org/renderOrgStatus.ts';
@@ -43,7 +43,6 @@ import { renderFoldableSection, renderSectionWrap, renderSectionDisabled } from 
 import { useSectionBody, useSectionFailure, bodyOrFailure } from './sectionFailure.ts';
 
 // ── 模块级 selector（usePanelSlice 硬契约：引用稳定 + 返回原引用）──────────
-const selGraph = (s: PanelState) => s.graph;
 const selTrace = (s: PanelState) => s.trace;
 const selTraceLine = (s: PanelState) => s.traceLine;
 const selCheck = (s: PanelState) => s.check;
@@ -81,15 +80,16 @@ function defaultOpenOf(id: string): boolean {
   return DEFAULT_OPEN_SECTIONS.has(id);
 }
 
-// ── 图区（数据来自一次性拉取：快照 + step-trace，低频）─────────────────
-interface GraphSectionProps { store: PanelDataStore; onNodeClick: (node: WorkflowNode) => void; }
-function GraphSectionImpl({ store, onNodeClick }: GraphSectionProps): ReactElement {
-  const graph = usePanelSlice(store, selGraph);
-  const trace = usePanelSlice(store, selTrace);
-  return renderGraph(graph, buildVerdicts(trace), onNodeClick);
-}
-/** 图区：订阅 graph + trace 两切片（verdicts 由 trace 派生）。 */
-export const GraphSection = memo(GraphSectionImpl);
+// ── 图区（cycle-82：已拆至 features/graph/GraphSection.ts，此处**再导出**门面）──
+/**
+ * 为什么拆走：本文件是十个分区的订阅薄层聚合面，cycle-82 的图区改造（交互版 +
+ * 布局/视口/筛选说明）把它推过 T3 的 250 行硬限。拆分的界线是**职责**——图区分区
+ * 与 GraphInteractive / renderGraph 同域，搬回 `features/graph/` 才是一域一文件。
+ *
+ * 再导出而非改调用方：`WorkflowGraphPanel` 与 `graphInteractiveContract` 都从
+ * 本文件 import `GraphSection`，路径零变更（与 `runtime/hotReload.ts` 的纯门面同款）。
+ */
+export { GraphSection } from '../features/graph/GraphSection.ts';
 
 // ── 实时调用流（2s tick —— Top2 主战场 / cycle-71 T-7131 用户要求核心）────────
 interface LiveInvocationsSectionProps { store: PanelDataStore; autoRefreshOn: boolean; }

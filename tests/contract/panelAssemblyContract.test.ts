@@ -41,6 +41,8 @@ import {
 } from '../../src/client/components/panelSections.ts';
 // cycle-72：closure 分区组件已拆至其特性域（T3 250 行纪律）；腿3 装配序列仍从面板入口导入。
 import { ClosureSection } from '../../src/client/features/closure/ClosureSection.ts';
+// cycle-82：配置与路径分区（唯一可写面）。与 closure 同款：拆到特性域，腿3 仍从面板入口算。
+import { ConfigSection } from '../../src/client/features/config/ConfigSection.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -148,6 +150,9 @@ describe('cycle-69 T-6901 面板分区装配契约', () => {
       createElement(HitlSection, { store, enabled: true }),
       createElement(BudgetSection, { store }),
       createElement(ClosureSection, { store }),
+      // cycle-82：配置分区（唯一可写面）。初始态 config=null ⇒ 渲染器返回 null，
+      // 只剩折叠壳 + 摘要——这正是「未拉取 → 不伪造空表单」的降级形态，锚点仍必须在。
+      createElement(ConfigSection, { store, panelId: 'probe-config' }),
     ));
     for (const id of sectionIds) {
       expect(html).toContain(`data-anic-fold="${id}"`);
@@ -155,6 +160,8 @@ describe('cycle-69 T-6901 面板分区装配契约', () => {
     // 分区标题走 locale 键（techdebt 映射点运行时验证）
     expect(html).toContain(zh.fold.techdebt);
     expect(html).toContain(zh.fold.cycles);
+    // cycle-82：配置分区标题也走 locale（漏翻会让标题显示裸键名）。
+    expect(html).toContain(zh.fold.config);
   });
 
   it('反向自检：corrupted 删一分区 id 后集合比较必须判不等（守卫可红性）', () => {

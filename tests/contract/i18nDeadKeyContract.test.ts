@@ -139,8 +139,17 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
     expect(i18n?.total ?? 0).toBeGreaterThanOrEqual(250);
     expect(i18n?.consumed ?? 0).toBeGreaterThanOrEqual(250);
     expect(summary.scannedFiles).toBeGreaterThanOrEqual(200);
-    // 清理前 332 键，本轮删 32 条确认多余键 ⇒ 300；下限设 250 留出正常增删余量。
+    /*
+     * 上限是「词表规模棘轮」：它防的不是键多，而是**键无限制地只增不减**。
+     *   cycle-79 清理后 300 键 ⇒ 上限 320；
+     *   cycle-82 新增 graph.*（14 字面 + 2 族共 14 后缀）、config.*（62 条）、
+     *   closure.artifacts/isolation（22 条）⇒ 424。
+     * 这 124 条是**真实功能面**（图区工具栏 8 控件的可达名 + 配置编辑器 23 字段/29 路径 +
+     * 第五族文档生命周期矩阵 + 跨项目隔离判定的分类标签），不是膨胀：每一条都有 `t()`
+     * 消费点，由 ① 的零死键棘轮反过来保证——加键不接线的那天，① 先红，不是这里。
+     * 上限同步抬到 460 —— 留 36 条正常余量，同时仍能拦住"一次加 100 条没人用"的形态。
+     */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(320);
+    expect(zhKeys.length).toBeLessThanOrEqual(460);
   });
 });

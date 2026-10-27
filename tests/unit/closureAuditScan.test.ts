@@ -99,8 +99,15 @@ describe('cycle-72 T-7207 闭环体检（可复算出口）', () => {
     expect(JSON.stringify(view)).not.toContain(':\\');
     // 精确键集：这是「rootDir 不出服务端」的核心安全断言，**不得删除**。
     // cycle-75 additive：+truncation（明细截断如实上报）；
-    // cycle-76 additive：+connectivity（连通性：注册→生产→运行时可达）——同步加入而非放宽。
-    expect(Object.keys(view).sort()).toEqual(['clusters', 'connectivity', 'generatedAt', 'ghost', 'notes', 'totals', 'truncation', 'unconsumed']);
+    // cycle-76 additive：+connectivity（连通性：注册→生产→运行时可达）——同步加入而非放宽；
+    // cycle-82 additive：+artifacts（.cycles 文档生命周期第五族）、+isolation（跨项目隔离）
+    //   —— 同样是**同步加入**而非放宽：两个新面的投影都不含绝对路径（各自的
+    //   toArtifactsView / toIsolationView 已剥 rootDir 与 workspace），
+    //   故上面的 not.toContain(':\\') 强度不变。
+    expect(Object.keys(view).sort()).toEqual([
+      'artifacts', 'clusters', 'connectivity', 'generatedAt', 'ghost',
+      'isolation', 'notes', 'totals', 'truncation', 'unconsumed',
+    ]);
     expect(view.notes.length).toBeGreaterThanOrEqual(4);
   });
 

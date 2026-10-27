@@ -25,19 +25,16 @@ import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, 
 // cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵白盒面）+ 其数据腿 target。
 import { ClosureSection } from './features/closure/ClosureSection.ts';
 import { closureTarget } from './features/closure/closureTarget.ts';
+// cycle-82：配置与路径分区（唯一可写面）+ 其 4s 档数据腿。
+import { ConfigSection, CONFIG_PANEL_ID } from './features/config/ConfigSection.ts';
+import { configTarget } from './features/config/configTarget.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
 import { usePanelFetch } from './components/usePanelFetch.ts';
 import { useTokenCss, useShellTheme } from './components/panelTheme.ts';
-import { panelLiveTargets, ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
-import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
-import type { FlowStatusJson } from './features/flows/renderFlows.ts';
-import { isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL, type CycleListJson, type CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
-import { governanceTargets } from './governanceTargets.ts';
-import { isBudget, BUDGET_URL, type BudgetJson } from './features/budget/renderBudget.ts';
-import { isSkillHealth, SKILL_HEALTH_URL, type SkillHealthJson } from './features/skillhealth/renderSkillHealth.ts';
-import { isTechDebtListing, TECH_DEBT_URL, type TechDebtListingJson } from './features/techdebt/renderTechDebt.ts';
-import { isFlowStatus, isObjectLike } from './features/live/fetchJson.ts';
+import { panelLiveTargets } from './panelLiveTargets.ts';
+// cycle-82：4s 档全部端点（数据面知识）搬出根组件，见该文件头注。
+import { periodicTarget } from './panelPeriodicTarget.ts';
 import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
@@ -70,6 +67,9 @@ export function WorkflowGraphPanel(): ReactElement {
   // B5.1：实例唯一抽屉 id（同一契约的两半——aria-controls 与容器 id——同源）。
   // 机制见 components/sectionIds.ts（模块计数 + useRef 惰性初始化，不用 useId）。
   const prefsPanelId = idOf(PREFS_PANEL_ID_BASE, usePanelInstanceSeq());
+  // cycle-82：配置分区的实例唯一容器 id（同一页面挂两个面板时 id 不撞）。
+  // 与 prefsPanelId 用同一序号来源（sectionIds 的模块计数），不另建计数器。
+  const configPanelId = idOf(CONFIG_PANEL_ID, usePanelInstanceSeq());
   // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
   // 响应头），后续所有请求回带 X-ANIC-Workspace 头，让服务端在多会话宿主上
   // 解析到「本面板的工作区」而不是 sessions.list() 首条。服务端只把它当
@@ -120,27 +120,11 @@ export function WorkflowGraphPanel(): ReactElement {
   // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
   // org/flows 分区轮询（P2 真机修复）：autoRefresh 开 → 4s；关 → 仅首拍。
-  // B4：轮询/暂停/降级语义统一至 components/usePanelFetch（静默降级形态——
-  // guard 不过/失败 → 不 apply，分区不渲染，不伪造空态）。
-  // B1：cycle 时间线两个端点（list/state）并进同一 4s 档（旅程排序：宏观节奏条）。
-  // cycle-46（T-4601）：4s 档八个 apply 直写全部改走动作层引用（bindPanelActions
-  // 一次性绑定，targets 数组渲染期零闭包分配）。
+  // cycle-46（T-4601）：apply 直写全部改走动作层引用（bindPanelActions 一次性绑定）。
+  // cycle-82：八个端点的装配细节搬到 panelPeriodicTarget.ts（数据面知识与编排分离），
+  // 本组件只剩「一个节奏、一次绑定、一个门控」三件事。
   const actions = bindPanelActions(store);
-  usePanelFetch([
-    { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { actions.setOrgStatus(v as OrgStatusJson); }, onFail: (f) => { actions.markFetchFailure('orgStatus', f); }, onRecover: () => { actions.clearFetchFailure('orgStatus'); } },
-    { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { actions.setFlowsStatus(v as FlowStatusJson); }, onFail: (f) => { actions.markFetchFailure('flowsStatus', f); }, onRecover: () => { actions.clearFetchFailure('flowsStatus'); } },
-    // B1：cycle 时间线两个端点同一 4s 档——两端点各自记失败 key（一个成功
-    // clear 与一个失败 mark 并发时按端点粒度不竞态，分区侧聚合，cycle-71）。
-    { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { actions.setCycleList(v as CycleListJson); }, onFail: (f) => { actions.markFetchFailure('cycleList', f); }, onRecover: () => { actions.clearFetchFailure('cycleList'); } },
-    { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { actions.setCycleState(v as CycleStateJson); }, onFail: (f) => { actions.markFetchFailure('cycleState', f); }, onRecover: () => { actions.clearFetchFailure('cycleState'); } },
-    // B2（cycle-18）：治理证据簇三端点并进同一 4s 档（账本条目 + 链校验 + HITL 审计）。
-    ...governanceTargets(actions, ledgerLimit),
-    // cycle-24（P3）：技能健康 + 治理预算并入 4s 档（健康/证据观测同节奏）。
-    { url: SKILL_HEALTH_URL, guard: isSkillHealth, apply: (v) => { actions.setSkillHealth(v as SkillHealthJson); }, onFail: (f) => { actions.markFetchFailure('skillHealth', f); }, onRecover: () => { actions.clearFetchFailure('skillHealth'); } },
-    // cycle-54（T-5401）：tech-debt 队列并进 4s 档（技能健康的改进建议语义簇）。
-    { url: TECH_DEBT_URL, guard: isTechDebtListing, apply: (v) => { actions.setTechDebt(v as TechDebtListingJson); }, onFail: (f) => { actions.markFetchFailure('techDebt', f); }, onRecover: () => { actions.clearFetchFailure('techDebt'); } },
-    { url: BUDGET_URL, guard: isBudget, apply: (v) => { actions.setBudget(v as BudgetJson); }, onFail: (f) => { actions.markFetchFailure('budget', f); }, onRecover: () => { actions.clearFetchFailure('budget'); } },
-  ], autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
+  usePanelFetch(periodicTarget(actions, ledgerLimit), autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
   useTokenCss();
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。
@@ -240,6 +224,10 @@ export function WorkflowGraphPanel(): ReactElement {
     // cycle-72 T-7207：闭环体检（注册↔生产↔消费）——治理证据簇之后回答
     //「注册了的东西到底有没有被生产、被消费」（未消费清单 + 幽灵消费两表）。
     createElement(ClosureSection, { store }),
+    // cycle-82：配置与路径（唯一**可写**分区）。排序刻意放在最后：
+    // 面板的主叙事是"读"（图 → 调用 → 节奏 → 治理证据 → 缺口），配置是"改"，
+    // 越靠近底部越不容易挡住观测面；同时它默认展开，需要时滚到底一次可达。
+    createElement(ConfigSection, { store, panelId: configPanelId }),
     renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
   );
 }

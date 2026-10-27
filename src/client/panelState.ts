@@ -25,6 +25,8 @@ import type { TechDebtListingJson } from './features/techdebt/renderTechDebt.ts'
 // cycle-72 T-7207：闭环体检（注册↔生产↔消费 三态矩阵）——— 一次性拉取切片
 // （全仓扫描 ~7s，刻意不进 4s 轮询档；见 panelLiveTargets 的 closure target 注释）。
 import type { ClosureView } from './features/closure/renderClosure.ts';
+// cycle-82：配置与路径编辑器（GET 事实 + 草稿 + 写结果三分片）。
+import type { ConfigJson, ConfigWriteJson } from './features/config/configTypes.ts';
 import type { InvocationsJson } from './features/live/renderInvocations.ts';
 import type { PanelStore } from './components/panelStore.ts';
 
@@ -62,6 +64,30 @@ export interface PanelState {
   techDebt: TechDebtListingJson | null;
   /** 闭环体检视图（未拉取 / 路由缺失 / 扫描失败 → null，分区如实说明）。 */
   closure: ClosureView | null;
+  /**
+   * 配置与路径编辑器的 GET 事实（cycle-82；null = 尚未拉取，分区不渲染）。
+   *
+   * 与其它切片同语义：null 是「没有事实」，不是「空数据」——分区据此不渲染，
+   * 而不是渲染一张字段全空的假表单（见 features/config/configTypes 的守卫注释）。
+   */
+  config: ConfigJson | null;
+  /**
+   * 配置编辑器的当前草稿（字段 id → 输入值）。
+   *
+   * 为什么草稿进 store 而不是留在组件本地：⚙ 抽屉与配置分区可能同时开，
+   * 且 4s 轮的 config GET（保新鲜）会在用户打字中途返回新事实。草稿若在组件里，
+   * 每次重渲都要和「新事实 vs 用户已改」比一遍才不会把用户输入冲掉；
+   * 放进 store 则成为**单一权威**：GET 只更新 config 事实，草稿只在保存/放弃时变。
+   */
+  configDrafts: Record<string, string | boolean>;
+  /** 最近一次预览/保存结果（null = 本次会话没操作过）。 */
+  configWrite: ConfigWriteJson | null;
+  /** 保存成功的 ISO 时间戳（null = 没保存过——不显示「已保存」）。 */
+  configSavedAt: string | null;
+  /** 配置写请求进行中（按钮禁用，防同一份 patch 重复提交）。 */
+  configBusy: boolean;
+  /** 配置写错误（与 writeResult.error 分开：来源不同，一条是拉取、一条是写入）。 */
+  configError: string | null;
   invocations: InvocationsJson | null;
   invocationsError: string | null;
   invocationsAnnounce: string;
@@ -106,6 +132,13 @@ export function createInitialPanelState(): PanelState {
     skillHealth: null,
     techDebt: null,
     closure: null,
+    // 配置三分片：null / 空草稿 / 无结果 = 初始「没拉过、没改过、没存过」。
+    config: null,
+    configDrafts: {},
+    configWrite: null,
+    configSavedAt: null,
+    configBusy: false,
+    configError: null,
     invocations: null,
     invocationsError: null,
     invocationsAnnounce: '',

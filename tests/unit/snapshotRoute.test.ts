@@ -366,6 +366,8 @@ describe('宿主入口 apply', () => {
     '/anic/flows/archive/run',
     '/anic/flows/hitl/run',
     '/anic/flows/auto-fix/run',
+    // cycle-82：配置与路径（GET 读 + POST 手术式写，回读断言 + 回滚）
+    '/anic/api/config',
   ];
 
   it('有 effect：setup 经 effect 执行并带 label；effect 的返回 disposer 由宿主承接', () => {

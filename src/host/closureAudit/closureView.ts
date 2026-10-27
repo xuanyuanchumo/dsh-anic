@@ -8,12 +8,16 @@
  * 消费者 import 路径零变更：registryClosure.ts 再导出本文件的全部公开名。
  *
  * 投影安全纪律：**去 rootDir**（本地绝对路径不出服务端）——这是该面最重要的一条。
+ * ★cycle-82：`isolation` 投影同样去 workspace（同样是一条绝对路径）。
  */
 import type { ClosureItem } from './closureModel.ts';
 import type { ClosureTotals } from './closureTotalsTypes.ts';
 import type { ClosureSummary } from './closureSummary.ts';
 import type { ClosureBucket } from './closureBuckets.ts';
 import { bucketOf, isProduced } from './closureBuckets.ts';
+// cycle-82：第五族与隔离面的投影由 closureExtra 侧的窄视图提供（不在此重算判据）。
+import { toArtifactsView, type ArtifactsView } from './artifactsView.ts';
+import { toIsolationView, type IsolationView } from './isolation.ts';
 
 /** 客户端投影：去 rootDir（本地绝对路径不出服务端）。 */
 export interface ClosureView {
@@ -61,6 +65,21 @@ export interface ClosureView {
   };
   /** ★cycle-75：明细截断如实上报（**总数永不截断**——只有明细数组受限）。 */
   truncation: { unconsumed: { shown: number; total: number; truncated: boolean } };
+  /**
+   * ★cycle-82：第五族（`.cycles` 文档生命周期）投影。
+   *
+   * 缺席 = 旧服务端（向前兼容：客户端按可选处理，不渲染该分区而不是判失败）。
+   * 为什么做成可选而不是必填：既有 isClosureView 是 fail-closed 逐字段守卫，
+   * 把它改成必填会让所有旧宿主响应判假 —— 一条新数据可把一个面整体打瞎。
+   */
+  artifacts?: ArtifactsView;
+  /**
+   * ★cycle-82：跨项目隔离投影（去 workspace 绝对路径）。
+   *
+   * `violations` 只含污染类（越界 / cwd 兜底 / 写死绝对路径）；`dangling` 是登记表
+   * 漂移。两者分开显示——处置动作不同，混排会让读者不知道先修哪个。
+   */
+  isolation?: IsolationView;
 }
 
 /**
@@ -142,5 +161,9 @@ export function toClosureView(summary: ClosureSummary): ClosureView {
         truncated: summary.unconsumed.length > shown.length,
       },
     },
+    // ★cycle-82：第五族与隔离面。**只在服务端真算了才挂键**（旧 summary 形状/夹具
+    // 没有这两面时，投影不凭空造一个空壳 —— 空壳会被渲染层当成"全绿"）。
+    ...(summary.artifacts === undefined ? {} : { artifacts: toArtifactsView(summary.artifacts) }),
+    ...(summary.isolation === undefined ? {} : { isolation: toIsolationView(summary.isolation) }),
   };
 }

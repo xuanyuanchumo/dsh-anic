@@ -34,19 +34,6 @@
  * 纯声明 + 纯谓词：零副作用、零状态、零网络、零 React。
  */
 
-/** produced 的证据类别（与宿主 closureModel.ProducedKind 同源同构）。
- *
- * ⚠ 这只是**已知值清单**（用于展示名映射），**不是**守卫的准入白名单——见 isProducedKind。 */
-export type ProducedKind = 'register-call' | 'handler-in-file' | 'declaration-only' | 'no-write-point';
-
-export const PRODUCED_KINDS: readonly ProducedKind[] =
-  ['register-call', 'handler-in-file', 'declaration-only', 'no-write-point'];
-
-/** 消费证据类别：生产代码 / 通道（测试·agent 卡）/ 无。 */
-export type EvidenceKind = 'code' | 'channel' | 'none';
-
-export const EVIDENCE_KINDS: readonly EvidenceKind[] = ['code', 'channel', 'none'];
-
 /**
  * ★cycle-78：`ClosureTotals` 形状与守卫已拆至 closureTotalsTypes.ts（T3 ≤250 行；
  * 拆法与宿主侧 closureTotalsTypes.ts 同构）。此处**再导出**保消费者 import 路径零变更。
@@ -58,6 +45,15 @@ import { isClosureTotals } from './closureTotalsTypes.ts';
 import {
   isBool, isNum, isObj, isRecordOf, isStr, isStrArray,
 } from './closureTotalsTypes.ts';
+/*
+ * ★cycle-82 T3 拆分：证据类别（ProducedKind / EvidenceKind）与其**谓词**下移到
+ * closureKinds.ts（本文件加入第五族/隔离面子守卫后越界 250 行）。
+ * 此处**再导出**保消费者 import 路径零变更（渲染层与契约测试都从本文件取）。
+ */
+export type { EvidenceKind, ProducedKind } from './closureKinds.ts';
+export { EVIDENCE_KINDS, PRODUCED_KINDS, isEvidenceKind, isProducedKind } from './closureKinds.ts';
+import type { EvidenceKind, ProducedKind } from './closureKinds.ts';
+import { isEvidenceKind, isProducedKind } from './closureKinds.ts';
 
 export interface ClosureClusterView {
   cluster: string;
@@ -98,6 +94,14 @@ export type { ClosureConnectivityView } from './closureConnectivityTypes.ts';
 export { isConnectivity } from './closureConnectivityTypes.ts';
 import type { ClosureConnectivityView } from './closureConnectivityTypes.ts';
 import { isConnectivity } from './closureConnectivityTypes.ts';
+// ★cycle-82：第五族与隔离面的形状守卫（各自特性文件；本文件只做聚合调用）。
+import type { ArtifactsView as ClosureArtifactsView } from './closureArtifacts.ts';
+import { isArtifactsView } from './closureArtifacts.ts';
+import type { IsolationView as ClosureIsolationView } from './closureIsolation.ts';
+import { isIsolationView } from './closureIsolation.ts';
+// 再导出，保消费者 import 路径零变更（renderClosure 与契约测试从本文件取形状）。
+export type { ArtifactsView as ClosureArtifactsView } from './closureArtifacts.ts';
+export type { IsolationView as ClosureIsolationView } from './closureIsolation.ts';
 
 export interface ClosureTruncation {
   /** 明细截断如实上报（**总数永不截断**——只有明细数组受限）。 */
@@ -117,6 +121,20 @@ export interface ClosureView {
    * （向前兼容：新增观测面不得把既有面板打瞎）。渲染层缺省不显示该行。
    */
   connectivity?: ClosureConnectivityView;
+  /**
+   * ★cycle-82：第五族（`.cycles` 文档生命周期）—— 逐模板 × 逐循环矩阵。
+   *
+   * **可选**：旧服务端无此块时旧客户端仍须可用（向前兼容）。渲染层缺省不显示该分区，
+   * 而不是显示一条"失败"——缺席是"这个服务端还没这一面"，不是"这一面红了"。
+   * 形状/守卫/渲染在 closureArtifacts.ts（拆出处：本文件已 230 行，守 T3 ≤250）。
+   */
+  artifacts?: ClosureArtifactsView;
+  /**
+   * ★cycle-82：跨项目隔离 —— 所有读数的前提（路径越界时上面的数字描述的是别的项目）。
+   *
+   * 同样可选；形状/守卫/渲染在 closureIsolation.ts。
+   */
+  isolation?: ClosureIsolationView;
 }
 
 /* ── 谓词原语已随 totals 形状下移到 closureTotalsTypes.ts（上面对应 import）────── */
@@ -130,23 +148,6 @@ export interface ClosureView {
  * 那是「有一条新数据就把白盒面打瞎」的坏交换。故此处只要求：
  *   非空字符串（缺失 / null / 数字 / 空串仍判 false ⇒ 半截响应照样被拦）。
  * 未知值的**展示**由 renderClosure 的 KIND_KEYS 显式映射回落原值（可见的漏翻）。
- */
-export function isProducedKind(v: unknown): v is ProducedKind {
-  return typeof v === 'string' && v !== '';
-}
-
-/** 消费证据类别：同上，只判形态（未知值由渲染层的语义分支安全兜底）。 */
-export function isEvidenceKind(v: unknown): v is EvidenceKind {
-  return typeof v === 'string' && v !== '';
-}
-
-/**
- * `producedByKind` 形状 + **真值**校验：对象、全数值、**合计 = 本族 total**。
- *
- * 为什么不用「必须含全部四个已知键」判据：那会让宿主侧省略零值键（或新增第 5 个
- * kind）时整族被判畸形 ⇒ 整个面板失败。而「合计 = total」是契约 §1.1 的**真值**要求
- * （`isProduced` 类别分布必须覆盖全量），它对键集**自适应**——既拦「静默丢一类」，
- * 又不因枚举增长而误伤。
  */
 function isProducedByKind(v: unknown, total: number): boolean {
   if (!isObj(v)) return false;
@@ -209,6 +210,14 @@ export function isClosureView(v: unknown): v is ClosureView {
   if (!isTruncation(v.truncation)) return false;
   // ★cycle-76：连通性**在场则严格校验，缺席则放行**（向前兼容旧服务端）。
   if (v.connectivity !== undefined && !isConnectivity(v.connectivity)) return false;
+  /*
+   * ★cycle-82：第五族（artifacts）与跨项目隔离（isolation）同样「在场则严格、
+   * 缺席则放行」。守卫实现放在各自特性文件（closureArtifacts / closureIsolation）——
+   * 本文件已 230 行（T3 上限 250），内联两个子守卫必破；且它们与本文件的
+   * `ClosureUnconsumedView` 判据无关，独立成域更符合"一域一文件"。
+   */
+  if (v.artifacts !== undefined && !isArtifactsView(v.artifacts)) return false;
+  if (v.isolation !== undefined && !isIsolationView(v.isolation)) return false;
   const tot = v.totals as ClosureTotals;
   const tr = (v.truncation as ClosureTruncation).unconsumed;
   // 真值自洽①：总数永不截断（契约 §1.4）——两侧不等 = 投影在隐藏缺口

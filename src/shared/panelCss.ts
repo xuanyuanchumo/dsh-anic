@@ -63,6 +63,56 @@ export const PANEL_CSS: string = [
   `}`,
   `[data-anic-node] { cursor: pointer; }`,
 
+  // ── cycle-82 交互式图区（G 战线）───────────────────────────────────
+  //
+  // 全部锚在 `[data-anic-graph-*]` 之下：图区是面板内**唯一**有自己一套交互态的
+  // 子树，锚点集中才不会出现"某条规则意外命中了别的分区的 span"。
+  //
+  // 为什么缩放的过渡写在这里而不是内联 style：`transition` 需要被
+  // `prefers-reduced-motion` 覆盖，而内联样式无法被媒体查询压住（内联优先级最高）。
+  // 把过渡放样式表，才能让"减少动效"真正生效——这是本仓 FAIL_PULSE_STYLE 的同款纪律。
+  `[data-anic-graph-viewport] { transition: none; }`,
+  `[data-anic-graph-viewport] svg[data-anic-graph] { transition: none; }`,
+
+  // 拖拽中禁用文本选择：拖一次图整片高亮，用户会以为界面坏了。
+  // 用 `user-select: none` 而不是靠 onDragStart preventDefault 单打（后者只管
+  // 原生拖放，管不住双击选中文字）。
+  `[data-anic-graph-viewport] { user-select: none; }`,
+
+  // 节点是 g[role=button]：`:focus` 时给圆点套焦点环（既有规则在 panelCss 上方，
+  // 这条补的是**筛选态**的可见性——被筛掉的节点不该再显示焦点环，
+  // 否则键盘 roving 会停在一个视觉上"不存在"的节点上，用户完全迷失）。
+  `[data-anic-graph-viewport] [data-anic-node] {`,
+  `  transition: opacity 0.12s ease;`,
+  `}`,
+  `[data-anic-graph-viewport] [data-anic-visibility='filtered']:focus circle {`,
+  `  stroke: none;`,
+  `}`,
+
+  // 类型 chips：勾选态用边框表达（不新增颜色令牌——chip 的语义是"选中"，
+  // 用 focus-ring 这个已在两个表面上校准过的令牌，避免再造一个未测的颜色）。
+  `[data-anic-graph-chip][data-anic-graph-chip-checked='true'] {`,
+  `  border-color: ${v('anic-focus-ring')}; border-radius: 3px;`,
+  `}`,
+  // 邻接开关与搜索框统一字号，避免工具栏里三种字号拼在一起像三个来源。
+  `[data-anic-graph-toolbar] input[type='search'],`,
+  `[data-anic-graph-toolbar] select {`,
+  `  font-size: 11px; color: ${v('anic-text')}; background: ${v('anic-surface')};`,
+  `  border: 1px solid ${v('anic-border')}; border-radius: 3px;`,
+  `}`,
+
+  // 减少动效：图区的过渡与淡出一律关掉（全局逃逸，与既有 reduced-motion 块同族）。
+  `@media (prefers-reduced-motion: reduce) {`,
+  `  [data-anic-graph-viewport], [data-anic-graph-viewport] [data-anic-node] { transition: none; }`,
+  `}`,
+
+  // 强制颜色模式：被筛掉的节点靠 opacity 表达，而 forced-colors 会忽略 opacity 差异——
+  // 改用系统色描边区分，否则在这个模式下"筛选"完全失效（用户以为筛选坏了）。
+  `@media (forced-colors: active) {`,
+  `  [data-anic-graph-viewport] [data-anic-visibility='filtered'] { opacity: 1; }`,
+  `  [data-anic-graph-viewport] [data-anic-visibility='filtered'] circle { stroke: GrayText; }`,
+  `}`,
+
   // 屏幕阅读器专用（等价数据表）：视觉上折叠为 1px，AT 照常朗读。
   `.anic-sr-only {`,
   `  position: absolute; width: 1px; height: 1px; margin: -1px;`,

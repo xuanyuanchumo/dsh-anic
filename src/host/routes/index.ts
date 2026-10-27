@@ -38,6 +38,9 @@ import { registerFlowsRoute } from './flowsRoute.ts';
 import { registerClosureAuditRoute } from './closureAuditRoute.ts';
 // cycle-80：热更新重载运维通道（POST /anic/api/reload，ctx.hmr 的 HTTP 消费面）。
 import { registerHotReloadRoute } from './hotReloadRoute.ts';
+// cycle-82：配置与路径的可视化编辑面（GET/POST /anic/api/config）。
+// 归属 data 域：读是观测、写是**受控**治理动作（回读断言 + 回滚 + .bak）。
+import { registerConfigRoute } from './configRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
@@ -92,6 +95,10 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
     // 闭环体检（cycle-72 T-7207）：无工作区依赖（体检根是插件自身），
     // 与快照/自检同属 data 域观测面；未消费/幽灵清单的白盒数据源。
     ...registerClosureAuditRoute(c, { send }),
+    // cycle-82：配置与路径（GET/POST /anic/api/config）。
+    // 依赖 getWorkspaceRoot（X-ANIC-Workspace 头照常生效）——配置是**工作区**事实，
+    // 与闭环体检（插件自身事实）语义相反，故必须走共享选择器而不是 resolvePluginRoot。
+    ...registerConfigRoute(ctx, { send, getWorkspaceRoot }),
   );
 
   // ── cycle 域 ──

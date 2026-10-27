@@ -287,7 +287,8 @@
     "hitl": "HITL audit queue",
     "budget": "Governance budget",
     "techdebt": "Tech debt",
-    "closure": "Closure audit"
+    "closure": "Closure audit",
+    "config": "Configuration & paths"
   },
   "techdebt": {
     "summary": "open {open} · resolved {resolved} · skipped {skipped}",
@@ -361,6 +362,138 @@
       "broken": "broken chain: {broken} hop(s) unreachable (registered but never runs)",
       "wired": "wired routes {rw}/{rt} · tools {tw}/{tt}",
       "orphans": "idle registrars: {list}"
+    },
+    "artifacts": {
+      "title": ".cycles document lifecycle (5th cluster): {reg}/{total} templates registered, {cons} consumed",
+      "window": "Matrix window: last {n} cycles (older ones are history, not listed)",
+      "missingTotal": "{n} missing, named by cycle-N/file",
+      "noneMissing": "None missing in this window",
+      "coverage": "{pct}% covered",
+      "present": "Project-level: present",
+      "absent": "Project-level: absent",
+      "occurrences": "On-demand: {n} occurrences (0 is healthy)",
+      "moreMissing": "(+{n} more)",
+      "scopeCycle": "per-cycle",
+      "scopeProject": "project-level",
+      "scopeOnDemand": "on-demand",
+      "hint": "Legend: a square = whether that template exists in that cycle (oldest to newest). Only per-cycle templates are named as missing; zero incidents/retrospectives is healthy."
+    },
+    "isolation": {
+      "ok": "Cross-project isolation: all {n} persistence paths stay inside the workspace",
+      "broken": "Cross-project isolation FAILED: {v} contamination violations / {d} dangling entries — fix this before trusting any number below",
+      "scanned": "{n} source files scanned",
+      "dangling": "Dangling registrations (registered but no source anchor): {list}",
+      "moreViolations": "(+{n} more violations not listed)",
+      "hint": "Judgement reads path provenance only: every read/write path must derive from the workspace root. .. escapes, process.cwd() fallbacks and hardcoded absolute paths are all flagged.",
+      "kind": {
+        "escape": "path escape",
+        "cwdFallback": "cwd fallback",
+        "absolute": "hardcoded absolute path"
+      }
+    }
+  },
+  "graph": {
+    "toolbarLabel": "Workflow graph toolbar",
+    "searchPlaceholder": "Search nodes (label or id)",
+    "searchLabel": "Search workflow nodes",
+    "typeGroupLabel": "Filter by node type",
+    "verdictLabel": "Filter by verdict",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "zoomFit": "Fit to view",
+    "zoomFitHint": "Fit the whole graph into the viewport (or double-click the graph / press 0)",
+    "zoomReadout": "Current zoom level",
+    "adjacency": "Highlight neighbors",
+    "adjacencyLabel": "Highlight one-hop neighbors when hovering or focusing a node",
+    "clearFilter": "Clear filters",
+    "keyHint": "Graph keyboard controls: arrow keys move between nodes, Home/End jump to first/last, Enter or Space opens details, plus/minus zoom, 0 fits to view, Escape clears filters. Wheel zooms, drag pans, double-click fits to view.",
+    "lane": {
+      "phase": "Phase",
+      "micro-step": "Micro-step",
+      "gate": "Gate",
+      "human-gate": "Human gate",
+      "cycle": "Cycle",
+      "gate-event": "Gate event",
+      "incident": "Incident",
+      "autonomy": "Autonomy"
+    },
+    "verdict": {
+      "pass": "Pass",
+      "fail": "Fail",
+      "doubt": "Doubt",
+      "pending": "Pending",
+      "skip": "Skip",
+      "none": "No verdict"
+    }
+  },
+  "config": {
+    "title": "Configuration & Paths",
+    "ariaLabel": "ANIC configuration editor",
+    "hint": "Saving edits `.cycles/config.yml` in place: comments, blank lines and unknown keys are preserved; changes are re-read and rolled back on mismatch.",
+    "dirty": "modified",
+    "dirtyCount": "{count} pending",
+    "save": "Save",
+    "saving": "Saving…",
+    "savedAt": "Saved ({at})",
+    "preview": "Preview diff",
+    "discard": "Discard",
+    "reset": "Reset",
+    "resetOne": "Reset field: {field}",
+    "previewSummary": "Preview: {count} field(s) would change (nothing written)",
+    "saveSummary": "{count} field(s) written",
+    "saveFailed": "Save failed: {error}",
+    "backupAt": "Backup: {path}",
+    "group": {
+      "project": "Project",
+      "commands": "Commands",
+      "macro": "Macro cycle",
+      "anic": "Plugin behavior"
+    },
+    "field": {
+      "projectName": "Project name",
+      "techStack": "Tech stack (comma separated)",
+      "buildCmd": "Build command",
+      "typecheckCmd": "Typecheck command",
+      "lintCmd": "Lint command",
+      "testCmd": "Test command",
+      "coverageCmd": "Coverage command",
+      "e2eCmd": "E2E command",
+      "hygieneCmd": "Hygiene command",
+      "autonomyLevel": "Autonomy level (L1–L4)",
+      "complexityBudget": "Complexity budget",
+      "allowedOrigins": "Allowed origins (comma separated)",
+      "toolDisclosure": "Tool disclosure (full/indexed)"
+    },
+    "path": {
+      "title": "Paths",
+      "workspace": "Workspace",
+      "cycles": ".cycles directory",
+      "config": "Config file",
+      "ledger": "Gate ledger",
+      "workflowState": "Workflow state",
+      "flowTracker": "Flow tracker",
+      "cyclesDocs": "Cycle documents",
+      "evals": "Evaluations",
+      "techDebt": "Tech debt",
+      "incidents": "Incidents",
+      "archive": "Archive",
+      "skillInstalled": "Installed skill",
+      "skillScripts": "Skill scripts",
+      "skillInline": "Inline skill",
+      "pluginRoot": "Plugin root",
+      "dist": "Build output",
+      "assets": "Bundled assets",
+      "agents": "Agent cards",
+      "artifacts": "Workspace artifacts",
+      "custom": "Custom path",
+      "meta": "{bytes} · {mtime}",
+      "dir": "dir",
+      "missing": "missing",
+      "unresolved": "(unresolved)",
+      "copy": "Copy",
+      "copyLabel": "Copy path: {label}",
+      "probeRejected": "Path rejected: {reason}",
+      "probeAccepted": "Path accepted: {path}"
     }
   }
 }

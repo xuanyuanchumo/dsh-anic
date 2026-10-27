@@ -287,7 +287,8 @@
     "hitl": "HITL 审计队列",
     "budget": "治理预算",
     "techdebt": "技术债务",
-    "closure": "闭环体检"
+    "closure": "闭环体检",
+    "config": "配置与路径"
   },
   "techdebt": {
     "summary": "待处理 {open} · 已消费 {resolved} · 跳过 {skipped}",
@@ -361,6 +362,138 @@
       "broken": "断链：{broken} 跳不通（注册了但运行时到不了）",
       "wired": "已接线 路由 {rw}/{rt} · 工具 {tw}/{tt}",
       "orphans": "空转注册器：{list}"
+    },
+    "artifacts": {
+      "title": ".cycles 文档生命周期（第五族）：模板 {reg}/{total} 已注册，{cons} 个有消费者",
+      "window": "矩阵窗口：最近 {n} 个循环（更早的是历史，不逐条列）",
+      "missingTotal": "缺失点名 {n} 条（按 cycle-N/文件 可逐条核对）",
+      "noneMissing": "零缺失——本窗口内每个循环的该模板都在",
+      "coverage": "覆盖 {pct}%",
+      "present": "项目级：已就位",
+      "absent": "项目级：缺失",
+      "occurrences": "按需触发：累计 {n} 次（0 次是健康的）",
+      "moreMissing": "（还有 {n} 条）",
+      "scopeCycle": "每循环应有",
+      "scopeProject": "项目级单份",
+      "scopeOnDemand": "按需触发",
+      "hint": "判定口径：方格 = 该循环该模板是否存在（右新左旧）；只有「每循环应有」类点名缺失。事故/复盘零发生不算缺失。"
+    },
+    "isolation": {
+      "ok": "跨项目隔离：{n} 条持久化路径全部落在工作区内（零越界 / 零 cwd 兜底）",
+      "broken": "跨项目隔离未通过：{v} 条污染违规 / {d} 条死登记——先修这里，再看下面任何数字",
+      "scanned": "扫描源码 {n} 个文件",
+      "dangling": "死登记（登记表有、源码无锚点）：{list}",
+      "moreViolations": "（还有 {n} 条违规未列出）",
+      "hint": "判定只看路径来源：每条读写路径必须能由 workspace 根 + 相对段推导出来。.. 逃逸 / process.cwd() 兜底 / 写死绝对路径都会被点名。",
+      "kind": {
+        "escape": "路径越界",
+        "cwdFallback": "cwd 兜底",
+        "absolute": "写死绝对路径"
+      }
+    }
+  },
+  "graph": {
+    "toolbarLabel": "工作流图工具栏",
+    "searchPlaceholder": "搜索节点（名称或 id）",
+    "searchLabel": "搜索工作流节点",
+    "typeGroupLabel": "按节点类型筛选",
+    "verdictLabel": "按裁决筛选",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "zoomFit": "适配视图",
+    "zoomFitHint": "让整张图回到视口内（也可双击图或按 0）",
+    "zoomReadout": "当前缩放比例",
+    "adjacency": "高亮邻居",
+    "adjacencyLabel": "悬停或聚焦节点时高亮其一跳邻居",
+    "clearFilter": "清空筛选",
+    "keyHint": "图区键盘操作：方向键在节点间移动，Home/End 跳到首尾，Enter 或空格打开详情，加号减号缩放，0 适配视图，Escape 清空筛选。滚轮缩放，拖拽平移，双击适配视图。",
+    "lane": {
+      "phase": "阶段",
+      "micro-step": "微步骤",
+      "gate": "门禁",
+      "human-gate": "人工门",
+      "cycle": "循环",
+      "gate-event": "门禁事件",
+      "incident": "事故",
+      "autonomy": "自主级"
+    },
+    "verdict": {
+      "pass": "通过",
+      "fail": "失败",
+      "doubt": "存疑",
+      "pending": "待定",
+      "skip": "跳过",
+      "none": "未裁决"
+    }
+  },
+  "config": {
+    "title": "配置与路径",
+    "ariaLabel": "ANIC 配置编辑器",
+    "hint": "保存会原位改写 `.cycles/config.yml`：注释、空行与未知键原样保留；写后回读校验，不符自动回滚。",
+    "dirty": "已修改",
+    "dirtyCount": "待保存 {count} 项",
+    "save": "保存",
+    "saving": "保存中…",
+    "savedAt": "已保存（{at}）",
+    "preview": "预览差异",
+    "discard": "放弃修改",
+    "reset": "还原",
+    "resetOne": "还原字段：{field}",
+    "previewSummary": "预览：将改动 {count} 个字段（未写入磁盘）",
+    "saveSummary": "已写入 {count} 个字段",
+    "saveFailed": "保存失败：{error}",
+    "backupAt": "备份：{path}",
+    "group": {
+      "project": "项目",
+      "commands": "命令",
+      "macro": "宏观循环",
+      "anic": "插件行为"
+    },
+    "field": {
+      "projectName": "项目名",
+      "techStack": "技术栈（逗号分隔）",
+      "buildCmd": "构建命令",
+      "typecheckCmd": "类型检查命令",
+      "lintCmd": "规范检查命令",
+      "testCmd": "测试命令",
+      "coverageCmd": "覆盖率命令",
+      "e2eCmd": "端到端命令",
+      "hygieneCmd": "卫生检查命令",
+      "autonomyLevel": "自主级（L1–L4）",
+      "complexityBudget": "复杂度预算",
+      "allowedOrigins": "允许来源（逗号分隔）",
+      "toolDisclosure": "工具披露模式（full/indexed）"
+    },
+    "path": {
+      "title": "路径",
+      "workspace": "工作区",
+      "cycles": ".cycles 目录",
+      "config": "配置文件",
+      "ledger": "门禁账本",
+      "workflowState": "工作流状态",
+      "flowTracker": "流程跟踪",
+      "cyclesDocs": "轮次文档",
+      "evals": "评估报告",
+      "techDebt": "技术债",
+      "incidents": "事故记录",
+      "archive": "归档",
+      "skillInstalled": "已装技能",
+      "skillScripts": "技能脚本目录",
+      "skillInline": "内联技能",
+      "pluginRoot": "插件根",
+      "dist": "构建产物",
+      "assets": "随包资产",
+      "agents": "Agent 卡",
+      "artifacts": "工作区工件",
+      "custom": "自定义路径",
+      "meta": "{bytes} · {mtime}",
+      "dir": "目录",
+      "missing": "不存在",
+      "unresolved": "（无法解析）",
+      "copy": "复制",
+      "copyLabel": "复制路径：{label}",
+      "probeRejected": "路径被拒：{reason}",
+      "probeAccepted": "路径可用：{path}"
     }
   }
 }

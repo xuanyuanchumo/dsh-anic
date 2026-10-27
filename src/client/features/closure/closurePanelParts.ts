@@ -17,6 +17,7 @@ import { createElement, type ReactElement } from 'react';
 import { token, type TokenName } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import type { ClosureTotals } from './closureTypes.ts';
+import type { ClosureConnectivityView } from './closureConnectivityTypes.ts';
 import type { ClosureClassName } from './closureClassify.ts';
 
 /**
@@ -103,6 +104,40 @@ export function renderChannelDeclared(
     warn
       ? createElement('span', { 'data-anic-undeclared-list': names.join(',') },
           t('closure.channelUndeclaredList', { list: names.length === 0 ? '—' : names.join(', ') }))
+      : null,
+  );
+}
+
+/**
+ * ★cycle-76 连通性行：注册 → 生产 → **运行时可达**（cycle-82 从 renderClosure 下移，
+ * 该文件加入第五族/隔离面后越界 T3 的 250 行）。
+ *
+ * 为什么必须同屏：一个**空心注册**（注册器存在、`reg()` 也在、但聚合器没调它）在三态
+ * 矩阵上显示为**完全健康**——代码在、测试全绿、面板正常，只是那行永不执行。
+ * 这一行是唯一能让它现形的地方。
+ *
+ * `connectivity` 缺席（旧服务端）⇒ 返回 null（不渲染）：缺席是"这个服务端还没这一面"，
+ * 不是"这一面红了"，故不用失败色也不用失败行。
+ */
+export function renderConnectivityRow(c: ClosureConnectivityView | undefined): ReactElement | null {
+  if (c === undefined) return null;
+  return createElement('div', {
+    'data-anic-closure-connectivity': c.connected ? 'ok' : 'broken',
+    'data-anic-conn-hops': String(c.hopCount),
+    'data-anic-conn-orphans': String(c.orphanRegistrars.length),
+    style: { ...ROW, color: c.connected ? token('anic-pass') : token('anic-fail'), fontWeight: 600 },
+  },
+    createElement('span', {}, c.connected
+      ? t('closure.conn.ok', { hops: String(c.hopCount) })
+      : t('closure.conn.broken', { broken: String(c.hops.filter((h) => !h.ok).length) })),
+    createElement('span', { style: { fontWeight: 400, color: token('anic-text-dim') } },
+      t('closure.conn.wired', {
+        rw: String(c.routeWired), rt: String(c.routeTotal),
+        tw: String(c.toolWired), tt: String(c.toolTotal),
+      })),
+    c.orphanRegistrars.length > 0
+      ? createElement('span', { 'data-anic-conn-orphan-list': c.orphanRegistrars.join(',') },
+          t('closure.conn.orphans', { list: c.orphanRegistrars.join(', ') }))
       : null,
   );
 }

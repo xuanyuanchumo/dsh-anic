@@ -161,8 +161,12 @@ describe('cycle-75 T5 路由族双向真值（扫描器 ⇄ 代码，逐 id 双�
     // 变异只影响被删的那一条（不误伤邻居）—— 集合差恰好 = {/anic/flows}
     expect(new Set(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).map((d) => d.id)))
       .not.toEqual(new Set(stillScanned.map((d) => d.id)));
-    expect(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).length).toBe(64);
-    expect(stillScanned.length).toBe(63);
+    // 用 PRISTINE 的实测值派生，而不是写死 64/63：
+    // 写死数字的代价在本条上已经付过一次（cycle-82 新增 /anic/api/config 后
+    // 64→65 立刻红，但红的是"钉子过期"而不是"判据失灵"）。判据语义是
+    // 「删一条 ⇒ 恰好少一条」，与注册总数无关，故从实测值派生即可。
+    expect(scanRouteDefs(FILES).filter((d) => d.producedAt !== null).length).toBe(PRISTINE.scanned);
+    expect(stillScanned.length).toBe(PRISTINE.scanned - 1);
   });
 
   it('纪律② 反向自检（幽灵腿）：删掉**有真实消费者**的注册 ⇒ 幽灵必现（非空转）', () => {
@@ -431,8 +435,19 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
     // 前缀集非空下限：空集会让「不含 anic.agent.」变成恒真断言
     expect(real.length, '生产代码前缀集为空 —— 下面的「不含」断言是空转').toBeGreaterThan(0);
     expect(real, '`anic.agent.` 假阳性复活（get( 尾串被当成 t( 调用）').not.toContain('anic.agent.');
-    expect(real, 'budget.status_ 是生产代码里唯一真前缀（t(`budget.status_${…}`) 消费 3 键）')
-      .toEqual(['budget.status_']);
+    /*
+     * 精确集合（不是"至少包含"）：多一个前缀 = 多一个「闭包扫描器认领一整族键」的
+     * 出口，而认领是**免死键判定**的通行证——它必须逐条来路明确。
+     *   budget.status_    renderBudget 的 t(`budget.status_${…}`)（cycle-74 既有）
+     *   config.           配置编辑器的 cfgText/cfgGroupText（cycle-82；曾因前缀经
+     *                     常量中转而认领 0 条，导致 55 条 config.* 全判死键——见
+     *                     configTypes.ts 的注解与 configEditClient 的回归钉）
+     *   graph.lane.      图区类型 lane 名（cycle-82）
+     *   graph.verdict.   图区裁决名（cycle-82）
+     * 新增前缀必须同时在这里登记并说明来路，否则本断言红——这是设计意图。
+     */
+    expect(real, '生产代码前缀集变化：新增前缀须在此登记来路（认领 = 免死键通行证）')
+      .toEqual(['budget.status_', 'config.', 'graph.lane.', 'graph.verdict.']);
     expect(endsWithSeparator('budget.status_')).toBe(true);
     expect(endsWithSeparator('a.')).toBe(true);
     expect(endsWithSeparator('a')).toBe(false);

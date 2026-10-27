@@ -36,7 +36,11 @@ import { CLOSURE_CLASSES, classifyItem, producedAnchorBreakdown, type ClosureCla
 // cycle-75 T4：流动可视化（注册 → 生产 → 消费）。纯数据派生 + 纯渲染，无第二真相源。
 import { buildClosureFlow, renderClosureFlow } from './closureFlowGraph.ts';
 // ★cycle-78：分组标签/配色表 + 「通道声明 N / 未声明 M」行（拆分护 T3 ≤250 行）。
-import { GROUP_KEYS, GROUP_TOKENS, renderChannelDeclared } from './closurePanelParts.ts';
+import { GROUP_KEYS, GROUP_TOKENS, renderChannelDeclared, renderConnectivityRow } from './closurePanelParts.ts';
+// ★cycle-82：第五族（.cycles 文档生命周期）+ 跨项目隔离 —— 两个新分区的纯渲染实现
+// 各自成文件（本文件已 247 行；这也是「一域一文件」的沿用途拆分）。
+import { renderClosureArtifacts } from './closureArtifacts.ts';
+import { renderClosureIsolation } from './closureIsolation.ts';
 
 export type {
   ClosureView, ClosureTotals, ClosureClusterView, ClosureUnconsumedView,
@@ -171,35 +175,6 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
     view.unconsumed.filter((u) => u.cluster === 'routes' && u.declaredChannel === undefined).map((u) => u.id),
   );
 
-  /**
-   * ★cycle-76 连通性行：注册 → 生产 → **运行时可达**。
-   *
-   * 为什么必须同屏：一个**空心注册**（注册器存在、reg() 也在、但聚合器没调）在三态
-   * 矩阵上显示为**完全健康**。这一行是唯一能让它现形的地方。
-   * `connectivity` 缺席（旧服务端）⇒ 不渲染（向前兼容，不是失败）。
-   */
-  const conn = view.connectivity === undefined
-    ? null
-    : createElement('div', {
-        'data-anic-closure-connectivity': view.connectivity.connected ? 'ok' : 'broken',
-        'data-anic-conn-hops': String(view.connectivity.hopCount),
-        'data-anic-conn-orphans': String(view.connectivity.orphanRegistrars.length),
-        style: { ...ROW, color: view.connectivity.connected ? token('anic-pass') : token('anic-fail'), fontWeight: 600 },
-      },
-        createElement('span', {}, view.connectivity.connected
-          ? t('closure.conn.ok', { hops: String(view.connectivity.hopCount) })
-          : t('closure.conn.broken', { broken: String(view.connectivity.hops.filter((h) => !h.ok).length) })),
-        createElement('span', { style: { fontWeight: 400, color: token('anic-text-dim') } },
-          t('closure.conn.wired', {
-            rw: String(view.connectivity.routeWired), rt: String(view.connectivity.routeTotal),
-            tw: String(view.connectivity.toolWired), tt: String(view.connectivity.toolTotal),
-          })),
-        view.connectivity.orphanRegistrars.length > 0
-          ? createElement('span', { 'data-anic-conn-orphan-list': view.connectivity.orphanRegistrars.join(',') },
-              t('closure.conn.orphans', { list: view.connectivity.orphanRegistrars.join(', ') }))
-          : null,
-      );
-
   // ② 截断如实上报（静默截断 = 隐藏缺口）；未截断时不渲染 N/M 行。
   const truncation = tr.truncated
     ? createElement('div', { 'data-anic-closure-truncation': 'shown=' + String(tr.shown) + ' total=' + String(tr.total), style: { ...ROW, color: token('anic-warn-text') } },
@@ -236,11 +211,20 @@ export function renderClosure(view: ClosureView | null, failure: string | null =
   const body = createElement('div', { 'data-anic-closure': 'section', style: { borderTop: '1px solid ' + token('anic-border') } },
     summary,
     // cycle-76：连通性（注册 → 生产 → 运行时可达）——三态矩阵看不见的那一维。
-    conn,
+    // cycle-82：渲染实现下移到 closurePanelParts.ts（本文件守 T3 ≤250 行）。
+    renderConnectivityRow(view.connectivity),
+    // ★cycle-82：跨项目隔离**紧跟连通性**（两行都是"前提"，放在数字之前读）。
+    // 为什么排在这里而不是末尾：隔离不成立时下面的所有数字在描述别的项目，
+    // 读者必须在看数字**之前**知道这件事。
+    renderClosureIsolation(view.isolation),
     // cycle-75 T4「可视化流动」：注册 → 生产 → 消费 的流向（缺口发生在哪一段一眼可见）。
     // 数据由纯函数 buildClosureFlow 派生（同一投影、无第二真相源）；渲染同为纯函数。
     renderClosureFlow(buildClosureFlow(view)),
-    buckets, weak, declaredRow, truncation, detail, notes);
+    buckets, weak, declaredRow, truncation, detail,
+    // ★cycle-82：第五族（.cycles 文档生命周期）——逐模板 × 逐循环矩阵。
+    // 放在明细之后：它是"文档交付物"这一层，与上面的"代码资产"分层呈现。
+    renderClosureArtifacts(view.artifacts),
+    notes);
   if (failure === null) return body;
   // 陈旧数据形态：数据 + 失败行（如实标注「以下为上次成功的数据」）。
   return createElement('div', { 'data-anic-closure-stale': 'true' }, body, renderClosureFailure(failure, true));

@@ -1,6 +1,156 @@
 # dsh-anic CHANGELOG
 
-## v0.47.0 — 2026-10-27（cycle-81：真机跑一次热重载，暴露并修好两处判据/载体缺陷）
+## v0.48.0 — 2026-10-27（cycle-82：可交互图谱 + 配置可视化编辑 + 可观测性收口）
+
+> 用户诉求四条：①「要可交互的图谱，功能很贫乏」②「配置/路径支持自定义可视化编辑」
+> ③「确保连通性逻辑性、不同项目使用要隔离不能污染」④「热更新重载插件」。
+> 本轮按四域并行推进（三队写作用域互斥 + Lead 装配收口），研究输入见
+> `docs/anic/21-外部研究吸收与cycle-82落地设计.md`。
+>
+> 落地后全量：**typecheck / 185 测试文件 · 2436 用例 / smoke / trigger 全绿**，
+> 真实宿主 curl 复验新端点与新响应键。
+
+### ① 工具出口 lossless JSON —— 真机 P0，`anic_status` 整条失败（修复）
+
+**真机现形**：`Error: tool "anic_status" returned invalid output: value is not lossless JSON`。
+
+根因（探针脚本对真实 `.cycles/flow-tracker.json` 实测）：`analyzeSkillHealth()` 的
+`ScriptHealth.recentSuccessRate?: number` 在「近 7 天无调用」时是 `undefined`（cycle-57 刻意
+设计的语义），被原样塞进工具 canonical value；宿主 `visitJsonValue` 递归拒 `undefined`。
+**一个正确的语义决定，在传输边界上变成整条工具链路的致命错误。**
+
+修法**不是点修字段**（点修的保修期只到下一个可选字段）：新增 `runtime/jsonSanitize.ts`
+统一出口防线，挂在 `toolsSlot.wireGuard()` + `createFaceRecorder.reg`——聚合器 23 个工具
+全经此一处。语义写死在头注表：对象 `undefined` **删键**（变 `null` 会被读成"成功率 0"）、
+数组→`null`（不塌缩）、`NaN/±Infinity`→`null`、`Date`→ISO、`BigInt`→字符串、
+**循环引用/超限抛错**；合法值走快路径返回**同一引用**（零重建、零语义变化）。
+
+配套：`toolOutputLosslessContract` **逐个**工具 execute → roundtrip 深等 + 递归无 undefined，
+并加「运行前后账本条数/字节不变」自检（初版曾让 `anic_bootstrap` 经 cwd 兜底真写账本 4 条，
+已删并复验 `hash chain intact`）。
+
+### ② 交互式工作流图（用户诉求核心）
+
+**改造前**：188 节点 × 5 固定列 × 46px 行 ⇒ 1520×5626 的细长条（宽高比 0.30），
+无缩放、无平移、无搜索、无筛选、悬停无反馈——「功能很贫乏」是准确的。
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| 画布 | 1670 × 5626 | **1048 × 570** |
+| 宽高比 | 0.30 | **1.84**（近 16:9） |
+| 高度 | 100% | **10.1%**（验收线 ≤60%） |
+| 节点/边 | 188 / 292 | **188 / 292（零丢失）** |
+
+三个**纯函数核**（无 DOM、确定性、可单测）：`graphLayout`（分类型 lane + `balancedChunks`
+均衡折列，9 列）、`graphViewport`（`clampScale` 0.25–4 / `zoomAt` 锚点守恒 1e-9 /
+`panBy` / `clampPan` 四向 margin / `fitToView`）、`graphFilter`（类型+裁决+文本+**无向**
+邻接，三档 visibility）。
+
+交互：滚轮缩放（以指针为锚）、拖拽平移、双击适配、键盘 `+/−/0`、`Escape` 清筛选、
+搜索框、类型 chips（带计数）、裁决下拉、邻接高亮开关、`<output>` 播报比例、
+三个真 `<button>`（放大/缩小/适配）。
+
+**筛选不删节点**（刻意取舍）：只改 `opacity + pointer-events`。理由 ① smoke 与契约钉死
+「circle 数 == 节点数」② AT 没有"淡出"概念，移出 DOM 等于让屏幕阅读器用户再也遍历不到。
+
+可访问性不退反进：svg 仍是**唯一** Tab 停靠点（roving tabindex）、`aria-describedby` 指向
+键盘说明、每个新控件有 `aria-label` + focus-visible、`prefers-reduced-motion` 与
+`forced-colors` 两档样式。stub-hooks 源码级守卫（只允许 smoke 桩支持的 7 个 hook，
+用真实 `useMemo` 注入证明有判别力后还原）。
+
+过程中自行发现并修掉三个**只有真挂载才现形**的缺陷：① `pointer-events` 作为 SVG 属性
+不落到 DOM（改 `style.pointerEvents`）② 交互态沿用包围盒尺寸导致放大后被 SVG 自身
+viewBox 裁掉（画布改视口尺寸，裁剪交给 CSS）③ `<g data-anic-graph-world>` 缺 key。
+
+### ③ 配置与路径的可视化编辑（用户诉求「配置/路径支持自定义可视化编辑」）
+
+**改造前**：⚙ 抽屉只能切 `flow.*` 用户层布尔；`config.yml` 的 `autonomy_level`、
+`complexity_budget`、七个命令、`allowedOrigins`、`toolDisclosure` 只能手改 YAML——
+而本仓 `autonomyActions.ts` 头注就写着「手改 config.yml：无前置判定、无回读断言、无审计记录」。
+
+**不引 yaml 依赖**（运行时零依赖纪律 + 更重要的原因）：`config.yml` 里全是中文注释
+（cycle-77 为 `complexity_budget` 写了 4 行解释）。任何 `parse→stringify` 都会**丢注释**，
+而注释是"为什么这么配"的唯一载体。
+
+新增 `src/host/configEdit/`：`configSchema`(189) 22 字段的**单一真相源**（渲染与校验同一张表，
+`anic.flow.*` 由 `FLOWS` 展开不手抄）、`yamlText`(198) 行级文字原语（EOL/引号状态机剥行内注释/
+内联数组/块标量遮蔽）、`configRead`(117) 段键定位（读写共用，防"写进去读不回来"）、
+`yamlPatch`(194) `planPatch` 纯函数、`yamlDiff`(72) 行级 LCS、`configWriter`(224)
+备份→原子写→**回读断言**→不符回滚、`paths`(182) 19 项路径表 + realpath 边界。
+
+新路由 `GET/POST /anic/api/config`：GET 带 `schema`（同一张表驱动渲染，杜绝"表单允许的值被后端
+拒绝"）+ `paths` + `rawHash` + `backups`；POST `{patch, dryRun}`，**dryRun 与真写共用
+`planPatch`**（预览不是第二条实现，否则"预览说改一行/实际改五行"会分家）；非法值一律 400 且
+**零写入**（半套配置比没改更危险）。
+
+判据都是机械的：**改动前后注释行集合完全相等**、差异行数 = 改动字段数、`.bak` 留 3 份、
+`allowedOrigins` 用**裸逗号**（实测 `parseAnicSection` 不剥方括号，写 `[a, b]` 会被读成
+`[a`/`b]` 两个坏来源——这一处按验证事实偏离了任务书，并加反向自检钉死）。
+
+客户端 `features/config/`：纯渲染编辑器（分组字段、脏标记、预览差异、结果/错误分离反馈、
+路径表含复制），**草稿进 store 不进组件**——因为 4s 轮询会在用户打字中途返回新事实，
+草稿合并不变量（「与旧事实不同」保留、「与旧事实相同」丢弃）是能开轮询的前提；
+全保留会覆盖别人的改动，全丢弃会擦掉用户正在打的字。
+
+### ④ `.cycles` 文档生命周期（第五族）与跨项目隔离判定
+
+**缺口 A**：`assets/skill/assets/templates/` 有 15 类 .cycles 文档，但只有 G0/G1/G2 三类被门禁读
+——其余 12 类「写了没人看、不写没人管」。真值却是：**79 条缺失**（可点名到 `cycle-N/文件名`）。
+
+新增 `closureAudit/artifactsClosure`(218) + `artifactsSpecs`(119) + `artifactsView`(91)：
+模板注册 → 逐循环矩阵 → 消费三态。三种 scope **分开**：`cycle` 进矩阵并点名缺失；
+`project`（intent/spec/plan/REVIEW/PR）只判单份；`ondemand`（incident/retrospective）
+**零发生是健康的**，报 `occurrences` 不进缺失清单（否则每个健康循环背一条假待办）。
+空目录不算产出（`test-reports/` 有目录无 .md ⇒ 未产出——`init-cycle` 先建空目录正是最常见的假绿）。
+
+**缺口 B**：跨项目隔离只有实现、零判定（`resolveWorkspaceRoots` 末位还有 `process.cwd()` 兜底
+——单项目机器上永远看不出问题，多项目机器上就是污染）。
+
+新增 `closureAudit/isolation`(167) + `isolationScan`(158)：12 条持久化路径逐项断言来自
+`.cycles/` 相对推导；`inWorkspace` 用 `relative()` 而**非** `startsWith()`（后者把 `/a/proj-evil`
+判成在 `/a/proj` 内）；三类违规 `escape`/`cwd-fallback`/`absolute-literal` 各自点名。
+真实仓 **violations=0**；`.cycles/evals` 是**死登记**（登记了但源码零锚点），单列 `dangling`
+而不混进 `violations`——两者处置动作相反（一个改路径来源，一个改登记表）。
+
+两族接进 `GET /anic/api/closure-audit` 的两个**新键**（既有键零变更，
+`assertExtraSurfacesPresent` 守"摘掉键就红"）；客户端投影去绝对路径。
+
+### ⑤ 装配 / 词表 / 判据收口
+
+- **`panelDataLegContract` 判定核重构**（本轮最重要的守卫修复）：旧版靠三个互相独立的正则
+  猜源码结构，一次普通重构（数据面拆出 `panelPeriodicTarget.ts`、写侧搬进 `ConfigSection.ts`）
+  就让 **11 条同时假红**——目录约定、工厂名捕获组 `…Target)s?` 与 `…Targets?)` 拼写不一致、
+  形参名硬编码 `s.`、只认单行补丁。现改为**可达性判定**：装配基座 → import 传递闭包 →
+  动作调用面（排除定义处）；切片词表直接解析 `PanelState` interface（不手抄）。
+  三条反向自检：抹接线 / 移出可达集 / 移出调用面。
+- **词表**：新增 `graph.*`（14 字面 + `graph.lane.*` / `graph.verdict.*` 两族）、
+  `config.*`（62 条）、`closure.artifacts/isolation`（22 条）、`fold.config`，zh/en 各 **425 键全等**。
+  修一个真缺陷：`cfgText()` 曾写 `t(CONFIG_I18N_PREFIX + suffix)` ——闭包扫描器只认
+  「`t(` 后首个实参是**引号字面量**且以 `.` 结尾紧跟 `+`」，经常量中转认领 0 个前缀 ⇒
+  `config.*` 55 条全判死键。改内联字面量并加回归钉（反向断言"经常量中转认领 0 个"）。
+  locale 合并用**文本尾部插入**而非 JSON 往返：`localeKeyAnchors` 按行号定位，
+  `closureEvidenceAnchorContract` 钉死 `trace.statusDone=101`，重排即漂移。
+- **判据棘轮校准**：`closureAuditTruthContract` 路由总数从写死 64 改为从实测派生（判据语义是
+  "删一条少一条"）；动态计算键前缀集从"只允许 `budget.status_`"改为**显式白名单**并逐条注
+  来路（`budget.status_` / `config.` / `graph.lane.` / `graph.verdict.`）——认领 = 免死键通行证，
+  必须来路明确；`i18nDeadKeyContract` 键数上限 320→460（+125 条真实功能面）。
+- **计数同步**：路由 64→65（README 与 `objectiveConformance ⑧` 两条**独立**计数器同时改，
+  改成从 README 读回会退化成同义反复）；`snapshotRoute` 的 `ALL_ROUTES` 同步。
+- **T3 行数**：图域 12 文件全 ≤250（`renderGraph` 拆 `graphVerdicts`）；`panelSections` 拆出
+  `features/graph/GraphSection.ts` 并再导出；根组件拆出 `panelPeriodicTarget.ts`（233 行）；
+  `closureAudit` 六处拆分全部**保持既有导出名不变**（re-export 门面，照 `runtime/hotReload.ts`）。
+
+### 验证
+
+```
+node scripts/typecheck.mjs                     exit 0（client + host）
+node scripts/run-tests.mjs                     ALL GREEN
+  ✅ validate  ✅ vitest（185 文件 / 2436 用例）✅ smoke（ALL PASS，188 圆点/292 边/单 svg）
+  ✅ trigger（28/28 正例召回，0/14 负例误报）
+pnpm run build                                 dist/client.js + dist/host.js
+真机 curl /anic/api/closure-audit              HTTP 200，新键 artifacts + isolation 在场
+```
+
 
 > cycle-80 交付了热重载能力，但**从没在真实宿主上按用户流程跑过**。本轮用户要求"热重载插件"，
 > 我实际执行了一遍 —— 结果两个**只有真跑才会现形**的缺陷当场暴露。本版本就是这两处的修复。

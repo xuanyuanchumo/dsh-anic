@@ -32,6 +32,8 @@ import type { BudgetJson } from '../features/budget/renderBudget.ts';
 import type { SkillHealthJson } from '../features/skillhealth/renderSkillHealth.ts';
 import type { TechDebtListingJson } from '../features/techdebt/renderTechDebt.ts';
 import type { ClosureView } from '../features/closure/renderClosure.ts';
+// cycle-82：配置编辑器域（GET 事实 + 草稿合并 + 写结果）。
+import { valueToDraftText, type ConfigJson, type ConfigWriteJson } from '../features/config/configTypes.ts';
 import type { InvocationsJson } from '../features/live/renderInvocations.ts';
 import type { FetchFailure } from './usePanelFetch.ts';
 import type { PanelDataStore, FetchSource } from '../panelState.ts';
@@ -79,6 +81,39 @@ export interface PanelActions {
   setLedgerList(v: LedgerListJson): void;
   setLedgerVerify(v: LedgerVerifyJson): void;
   setHitlAudit(v: HitlAuditJson): void;
+  // ── 配置编辑器域（cycle-82）───────────────────────────────────────────
+  /**
+   * 配置 GET 事实落地 + **草稿合并**。
+   *
+   * 合并规则：草稿里「与旧事实不同」的字段保留（用户正在改），「与旧事实相同」
+   * 的丢弃（用户没动，跟着新事实走）。两个方向都不能简化：
+   *   - 全保留 → 别人改了配置，用户永远看着旧值，保存时把别人的改动覆盖掉；
+   *   - 全丢弃 → 轮询每拍都把用户正在打的字擦掉（真机表现为"输入框自己清空"）。
+   * 这条是配置分区能开轮询的前提，故落在动作层而不是渲染层。
+   */
+  setConfig(v: ConfigJson): void;
+  /** 改一个草稿字段（开关传 boolean，文本传 string）。 */
+  setConfigDraft(fieldId: string, value: string | boolean): void;
+  /** 丢弃全部草稿（回到「与新事实一致」）。 */
+  clearConfigDrafts(): void;
+  /** 写入开始：busy=true，并清掉上一次的写结果与错误（避免"上一条的成功"冒充这一次）。 */
+  beginConfigWrite(): void;
+  /** 写入成功：草稿提交为新基线 + 记录时间 + 存结果。 */
+  finishConfigWrite(result: ConfigWriteJson, at: string): void;
+  /**
+   * 预览成功：只存结果，**不动草稿、不动 saveAt**。
+   *
+   * 为什么单列一个动作而不是复用 finishConfigWrite：预览的语义是「如果保存会发生什么」
+   * 的一次问答，把它写成"已完成"会让 dirty 计数归零、让用户以为已经存了
+   * （真机上表现为"点了预览，改的东西不见了"）。语义不同的写必须有不同的动作名。
+   */
+  finishConfigPreview(result: ConfigWriteJson): void;
+  /** 写入失败：**保留草稿**（用户不用重打），结果与错误如实记录。 */
+  failConfigWrite(error: string, result: ConfigWriteJson | null): void;
+  /** 拉取失败（与写错误分开——两条来源不同的通道）。 */
+  failConfig(error: string): void;
+  /** 拉取成功：清拉取错误。 */
+  recoverConfig(): void;
   // ── 分区失败通道（cycle-71 T-7117：消除「分区无声消失」）────────────────
   /**
    * 记下某分区的拉取失败（4s 档 10 端点通用）。
@@ -145,6 +180,52 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
         delete next[id];
         return { failures: next };
       });
+    },
+    // ── 配置编辑器域（cycle-82）────────────────────────────────────────
+    // 草稿合并（见接口注释）：以「旧事实」为基准算用户是否动过，再决定保留与否。
+    // 比较用 valueToDraftText 归一（服务端 3 与草稿 '3' 是同一件事，
+    // 直接用 !== 会把「没动过」误判成「动过」，草稿就永远清不掉）。
+    setConfig: (v) => {
+      store.setState((s) => {
+        const prev = s.config;
+        const drafts = s.configDrafts;
+        if (Object.keys(drafts).length === 0 || prev === null) {
+          // 没有草稿（最常见）→ 零成本直通，不建新对象。
+          return prev === v ? {} : { config: v };
+        }
+        const nextDrafts: Record<string, string | boolean> = {};
+        for (const [id, draft] of Object.entries(drafts)) {
+          const prevText = valueToDraftText(prev.values[id]);
+          const draftText = typeof draft === 'boolean' ? (draft ? 'true' : 'false') : String(draft);
+          if (draftText !== prevText) nextDrafts[id] = draft; // 用户动过 → 保留
+        }
+        const sameDrafts = Object.keys(nextDrafts).length === Object.keys(drafts).length;
+        if (prev === v && sameDrafts) return {}; // 事实与草稿都没变 → 零通知
+        return { config: v, configDrafts: nextDrafts };
+      });
+    },
+    setConfigDraft: (fieldId, value) => {
+      store.setState((s) => ({ configDrafts: { ...s.configDrafts, [fieldId]: value } }));
+    },
+    clearConfigDrafts: () => {
+      store.setState((s) => (Object.keys(s.configDrafts).length === 0 ? {} : { configDrafts: {} }));
+    },
+    beginConfigWrite: () => { store.setState({ configBusy: true, configError: null, configWrite: null }); },
+    finishConfigWrite: (result, at) => {
+      store.setState({ configBusy: false, configWrite: result, configSavedAt: at, configDrafts: {} });
+    },
+    finishConfigPreview: (result) => {
+      // 只落地"如果保存会怎样"的答案：草稿与 savedAt 原样（见接口注释）。
+      store.setState({ configBusy: false, configWrite: result, configError: null });
+    },
+    failConfigWrite: (error, result) => {
+      store.setState({ configBusy: false, configError: error, configWrite: result });
+    },
+    failConfig: (error) => {
+      store.setState((s) => (s.configError === error ? {} : { configError: error }));
+    },
+    recoverConfig: () => {
+      store.setState((s) => (s.configError === null ? {} : { configError: null }));
     },
   };
 }

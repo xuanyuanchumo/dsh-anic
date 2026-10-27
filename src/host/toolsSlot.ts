@@ -1,7 +1,13 @@
 /**
  * DSH tools 槽位的最小形状契约（tools.ts 与 toolsSkillGateway.ts 共享）。
  * 独立成文件以避免 tools ↔ toolsSkillGateway 的 type-only 循环引用。
+ *
+ * ★cycle-82：本文件同时承载**工具出口的无损 JSON 防线**（`wireGuard`）。
+ * 为什么放在契约层而不是各 gateway：真正的缺陷不是某个字段漏了 `?? null`，
+ * 而是「任何工具返回的 canonical value 都可能有可选 undefined 字段」这一整类。
+ * 修在一个共同的出口才能对新工具、新字段持续生效（语义裁决见 runtime/jsonSanitize.ts）。
  */
+import { sanitizeForWire } from './runtime/jsonSanitize.ts';
 
 /**
  * 工具调用呈现视图（DSH ToolCallView 子集）。
@@ -143,16 +149,59 @@ export interface ToolRegistration {
 }
 
 /**
+ * ★cycle-82：把一次 `execute` 的返回值收敛成**无损 JSON 对象**（工具出口的唯一闸门）。
+ *
+ * 为什么在这里抛而不是返回 `{error}`：工具返回非对象是**编程错误**（schema 是
+ * object-rooted），把它降级成"成功的错误值"会让模型以为工具跑通了。
+ * 宿主对 throw 的语义就是 isError=true —— 让错误可见，与本仓「守卫必须响亮」一致。
+ */
+export function sanitizeToolValue(value: unknown): Record<string, unknown> {
+  const safe = sanitizeForWire(value);
+  if (safe === null || typeof safe !== 'object' || Array.isArray(safe)) {
+    throw new Error('tool execute must return an object value (canonical value is object-rooted)');
+  }
+  return safe as Record<string, unknown>;
+}
+
+/**
+ * ★cycle-82：工具注册期的**统一出口防线**（包装 execute）。
+ *
+ * 缺陷形态（真机实测）：`anic_status` 返回 `value is not lossless JSON` ——
+ * `ScriptHealth.recentSuccessRate` 在「近 7 天无调用」时为 `undefined`，被原样
+ * 塞进 canonical value；宿主 `visitJsonValue` 遇 undefined 判非法，整个返回值丢弃。
+ *
+ * 为什么包装**注册**而不是改 20 处 `execute`：调用点越多，漏一个就越隐蔽，
+ * 而漏了在 vitest 里不会红（JSON.stringify 会静默吞掉 undefined）。包装注册面后，
+ * 任何网关（含未来新增的）都自动经过同一道闸门 —— 出口防线才有保修期。
+ * 语义裁决（对象删键 / 数组 null / Date→ISO …）见 runtime/jsonSanitize.ts 头注。
+ */
+export function wireGuard(tool: ToolRegistration): ToolRegistration {
+  const inner = tool.execute;
+  return {
+    ...tool,
+    execute: async (args, exec) => sanitizeToolValue(await inner(args, exec)),
+  };
+}
+
+/**
  * 构造通用工具输出声明：object-rooted schema + JSON 文本块渲染。
  * 所有 ANIC 工具返回 JSON 对象，统一用此工厂避免 12 处重复。
  * render 包一个 text 块（ContentBlock[] 契约见 TextContentBlock 注释）。
+ *
+ * ★cycle-82 第二层：render 侧再 sanitize 一次。宿主对 canonical value 的校验发生在
+ * render **之前**（本文件的 wireGuard 才是主防线）；这一层守的是「有人绕过注册面
+ * 直接调 render」的形态，保证模型看到的 JSON 文本永不因 undefined 变成半截对象。
+ * 快路径保证合法值原样通过（零重建）。
  */
 export function makeToolOutput(): ToolOutput {
   return {
     schema: { type: 'object' },
     // JSON.stringify(undefined) 返回 undefined（非字符串）——值缺失时兜底为 null，
     // 保证 text 字段永远是 string（TextContentBlock 契约）。
-    render: (_args, value) => [{ type: 'text', text: JSON.stringify(value === undefined ? null : value, null, 2) }],
+    render: (_args, value) => [{
+      type: 'text',
+      text: JSON.stringify(sanitizeForWire(value === undefined ? null : value), null, 2),
+    }],
   };
 }
 
