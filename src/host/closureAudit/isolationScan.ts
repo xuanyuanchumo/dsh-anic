@@ -93,25 +93,25 @@ const SOURCE_ROOT = 'src/host';
  */
 export const ABS_LITERAL_RE = /['"`]((?:[A-Za-z]:[\\/])|(?:[\\/](?:home|Users|root|var|opt|tmp)[\\/]))/;
 
-/** 目录项（读失败 → 空，不抛）。 */
-function ls(dir: string): string[] {
+/** 目录项（带类型，**一次** readdir 拿到文件/目录区分——见 sourceFiles 的性能注）。 */
+function readEntries(dir: string): Array<{ name: string; isDir: boolean }> {
   try {
-    return readdirSync(dir).sort();
+    return readdirSync(dir, { withFileTypes: true })
+      .map((e) => ({ name: e.name, isDir: e.isDirectory() }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   } catch {
     return [];
   }
 }
 
-/** 收集源码文件（相对插件根、/ 分隔）——递归，相对路径用 `/` 便于锚点显示。 */
+/** 收集源码文件（相对插件根、`/` 分隔）——递归全量，见 SOURCE_ROOT 的失明注释。 */
 export function sourceFiles(pluginRoot: string): string[] {
   const out: string[] = [];
   const walk = (rel: string): void => {
-    for (const name of ls(join(pluginRoot, rel))) {
-      const childRel = rel + '/' + name;
-      // 目录判定：再 ls 一次能读出内容即目录（避免 statSync 对消失文件抛错）。
-      const grand = ls(join(pluginRoot, childRel));
-      if (grand.length > 0 || name.indexOf('.') < 0) { walk(childRel); continue; }
-      if (name.endsWith('.ts')) out.push(childRel);
+    for (const e of readEntries(join(pluginRoot, rel))) {
+      const childRel = rel + '/' + e.name;
+      if (e.isDir) { walk(childRel); continue; }
+      if (e.name.endsWith('.ts')) out.push(childRel);
     }
   };
   walk(SOURCE_ROOT);

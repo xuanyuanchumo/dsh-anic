@@ -95,7 +95,9 @@ viewBox 裁掉（画布改视口尺寸，裁剪交给 CSS）③ `<g data-anic-gr
 ### ④ `.cycles` 文档生命周期（第五族）与跨项目隔离判定
 
 **缺口 A**：`assets/skill/assets/templates/` 有 15 类 .cycles 文档，但只有 G0/G1/G2 三类被门禁读
-——其余 12 类「写了没人看、不写没人管」。真值却是：**79 条缺失**（可点名到 `cycle-N/文件名`）。
+——其余 12 类「写了没人看、不写没人管」。真值却是：**78 条缺失**（可点名到 `cycle-N/文件名`；
+本循环自身补齐文档前的读数是 79，差的正是 `cycle-82/test-reports/` 从空目录变成有报告那一条
+——这也印证了「空目录不算产出」这条判据是必要的）。
 
 新增 `closureAudit/artifactsClosure`(218) + `artifactsSpecs`(119) + `artifactsView`(91)：
 模板注册 → 逐循环矩阵 → 消费三态。三种 scope **分开**：`cycle` 进矩阵并点名缺失；
@@ -106,11 +108,23 @@ viewBox 裁掉（画布改视口尺寸，裁剪交给 CSS）③ `<g data-anic-gr
 **缺口 B**：跨项目隔离只有实现、零判定（`resolveWorkspaceRoots` 末位还有 `process.cwd()` 兜底
 ——单项目机器上永远看不出问题，多项目机器上就是污染）。
 
-新增 `closureAudit/isolation`(167) + `isolationScan`(158)：12 条持久化路径逐项断言来自
+新增 `closureAudit/isolation`(167) + `isolationScan`(180)：12 条持久化路径逐项断言来自
 `.cycles/` 相对推导；`inWorkspace` 用 `relative()` 而**非** `startsWith()`（后者把 `/a/proj-evil`
 判成在 `/a/proj` 内）；三类违规 `escape`/`cwd-fallback`/`absolute-literal` 各自点名。
-真实仓 **violations=0**；`.cycles/evals` 是**死登记**（登记了但源码零锚点），单列 `dangling`
-而不混进 `violations`——两者处置动作相反（一个改路径来源，一个改登记表）。
+真实仓 **violations=0、dangling=[]**。
+
+**这一节有个值得单独记的过程事实**：首版把 `.cycles/evals` 判成「死登记」（登记了但源码零锚点），
+并一度写进了断言豁免名单。真机 `GET /anic/api/closure-audit` 仍报 `ok:false` 才揪出**真正原因
+是扫描器失明**——`sourceFiles()` 的扫描面是硬编码的五个目录且 `readdirSync` 不递归，只扫到
+`src/host/*.ts` 一层，而 `configEdit/paths.ts` 里**明明有** `.cycles/evals` 的读取锚点。
+同一失明也作用于 `absolute-literal` 扫描（新子目录里写死绝对路径不会被报）。
+修法是把扫描面改成 `src/host/` 递归全量（**目录驱动**，不是补一条目录名——补目录是同一错误的
+第 N 次重复），并把「源码在哪决定扫描域」这条写进注释。**这是本仓第三次踩同族错误**
+（cycle-72 分区拆走、cycle-75 工具计数、cycle-82 isolation 扫描面）。
+
+顺带修出一处性能回归：首版递归用「对每个子目录再 `readdir` 一次」判目录类型，
+使全量体检从 842 ms 涨到 2651 ms（撞上 2500 ms 棘轮）。改成一次 `readdir(withFileTypes)`
+拿文件/目录区分后回到 2191 ms——**棘轮当场抓到了自己这一轮的实现退化**，这正是它存在的意义。
 
 两族接进 `GET /anic/api/closure-audit` 的两个**新键**（既有键零变更，
 `assertExtraSurfacesPresent` 守"摘掉键就红"）；客户端投影去绝对路径。
