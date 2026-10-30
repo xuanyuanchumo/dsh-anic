@@ -16,8 +16,15 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { atomicWriteFileSync, safeReadFileSync } from '../../shared/fs-safe.ts';
+import { resolveFlowAttribution } from './flowAttribution.ts';
 
 export type FlowStatus = 'INVOKING' | 'RUNNING' | 'DONE' | 'FAILED' | 'TIMEOUT';
+
+/** 归属来源三态（cycle-89 join key）：none = 诚实的未知，绝不编造。 */
+export type FlowAttributionSource = 'workflow-state' | 'ledger' | 'none';
+
+/** 归属元数据：`at` 是解析那一刻的 ISO 时间（不是流程开始时间）。 */
+export interface FlowAttribution { at: string; source: FlowAttributionSource; }
 
 export interface FlowRecord {
   /** 唯一标识：`${script}-${isoTimestamp}-${counter}` */
@@ -42,6 +49,14 @@ export interface FlowRecord {
   stderr?: string;
   /** 耗时毫秒 */
   durationMs?: number;
+  /** 循环归属（如 `cycle-89`）。可选：旧记录无此字段，读侧容忍缺失。 */
+  cycle?: string;
+  /** 宏观相位归属（plan/design/build/test/deploy/maintain）。可选。 */
+  phase?: string;
+  /** 门禁归属（G0..G3 / H1..H4）。可选。 */
+  gate?: string;
+  /** 归属来源与解析时刻；缺失 = 旧记录（按 `none` 处理）。 */
+  attribution?: FlowAttribution;
 }
 
 export interface FlowTrackerState {
@@ -103,6 +118,9 @@ export function startFlow(
   const counter = state.counter + 1;
   const now = new Date().toISOString();
   const flowId = `${script}-${now}-${counter}`;
+  // cycle-89 修正：门禁归属由**脚本语义 + 参数**判定（不再取账本链头——
+  // 那是「上次跑过哪道门」的历史残留，会把无关流程误标成有门禁证据）。
+  const attr = resolveFlowAttribution(cyclesDir, now, script, args);
   const record: FlowRecord = {
     flowId,
     script,
@@ -110,6 +128,10 @@ export function startFlow(
     args,
     status: 'INVOKING',
     startedAt: now,
+    cycle: attr.cycle,
+    phase: attr.phase,
+    gate: attr.gate,
+    attribution: attr.attribution,
   };
   const newState: FlowTrackerState = {
     flows: trimFlows([...state.flows, record]),

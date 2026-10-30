@@ -24,7 +24,7 @@ import { gt } from './graphText.ts';
 
 /** 一组的可见/可访问信息。 */
 export interface ToolbarGroupSpec {
-  id: 'search' | 'type' | 'verdict' | 'zoom' | 'a11y';
+  id: 'search' | 'type' | 'verdict' | 'zoom' | 'a11y' | 'view';
   label: () => string;
   /** 组内元素（key 已由调用方给出）。 */
   children: ReactElement[];
@@ -69,11 +69,12 @@ export function renderGroupSeparator(id: string): ReactElement {
   });
 }
 
-/** 五个组的标签取用点（集中在此，避免工具栏里散落 5 处 gt 调用）。 */
+/** 六个组的标签取用点（集中在此，避免工具栏里散落 6 处 gt 调用）。 */
 export const GROUP_LABEL = {
   search: (): string => gt('groupSearch'),
   type: (): string => gt('groupType'),
   verdict: (): string => gt('groupVerdict'),
   zoom: (): string => gt('groupZoom'),
   a11y: (): string => gt('groupA11y'),
+  view: (): string => gt('groupView'),
 } as const;

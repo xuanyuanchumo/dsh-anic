@@ -43,6 +43,8 @@ import {
 import { ClosureSection } from '../../src/client/features/closure/ClosureSection.ts';
 // cycle-82：配置与路径分区（唯一可写面）。与 closure 同款：拆到特性域，腿3 仍从面板入口算。
 import { ConfigSection } from '../../src/client/features/config/ConfigSection.ts';
+// cycle-89：自举分区（事实基线/陈旧判据/重启入口）。同款拆分：特性域持有，装配层再导出。
+import { BootstrapSection } from '../../src/client/features/bootstrap/BootstrapSection.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -153,6 +155,8 @@ describe('cycle-69 T-6901 面板分区装配契约', () => {
       // cycle-82：配置分区（唯一可写面）。初始态 config=null ⇒ 渲染器返回 null，
       // 只剩折叠壳 + 摘要——这正是「未拉取 → 不伪造空表单」的降级形态，锚点仍必须在。
       createElement(ConfigSection, { store, panelId: 'probe-config' }),
+      // cycle-89：自举分区（初始态 bootstrap=null ⇒ 只剩折叠壳；锚点仍必须在）。
+      createElement(BootstrapSection, { store }),
     ));
     for (const id of sectionIds) {
       expect(html).toContain(`data-anic-fold="${id}"`);

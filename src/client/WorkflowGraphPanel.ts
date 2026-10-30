@@ -21,7 +21,7 @@ import { createElement, useCallback, useRef, useState, type ReactElement } from 
 import { createPanelStore } from './components/panelStore.ts';
 import { bindPanelActions } from './components/panelActions.ts';
 import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
-import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine } from './components/panelSections.ts';
+import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine, BootstrapSection } from './components/panelSections.ts';
 // cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵白盒面）+ 其数据腿 target。
 import { ClosureSection } from './features/closure/ClosureSection.ts';
 import { closureTarget } from './features/closure/closureTarget.ts';
@@ -30,7 +30,7 @@ import { ConfigSection, CONFIG_PANEL_ID } from './features/config/ConfigSection.
 import { configTarget } from './features/config/configTarget.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
-import { usePanelFetch } from './components/usePanelFetch.ts';
+import { usePanelFetch, type PanelFetchOptions } from './components/usePanelFetch.ts';
 import { useTokenCss, useShellTheme } from './components/panelTheme.ts';
 import { panelLiveTargets } from './panelLiveTargets.ts';
 // cycle-82：4s 档全部端点（数据面知识）搬出根组件，见该文件头注。
@@ -71,15 +71,32 @@ export function WorkflowGraphPanel(): ReactElement {
   // 与 prefsPanelId 用同一序号来源（sectionIds 的模块计数），不另建计数器。
   const configPanelId = idOf(CONFIG_PANEL_ID, usePanelInstanceSeq());
   // P2（桌面多会话错位）：面板从首个成功快照响应学得工作区根（X-ANIC-Workspace
-  // 响应头），后续所有请求回带 X-ANIC-Workspace 头，让服务端在多会话宿主上
-  // 解析到「本面板的工作区」而不是 sessions.list() 首条。服务端只把它当
-  // 选择器（必须命中宿主已知工作区集或含 .cycles 才采信），不是任意路径入口。
+  // 响应头），后续请求回带该头，让服务端解析到「本面板的工作区」而不是
+  // sessions.list() 首条。服务端只把它当选择器（必须命中宿主已知工作区集或
+  // 含 .cycles 才采信），不是任意路径入口。
   const workspaceRef = useRef<string | null>(null);
+  // cycle-89：工作区世代号 —— 工作区**真的换了**才推进（`reloadKey` 变化不算）。
+  const workspaceEpochRef = useRef<string | null>(null);
   const wsHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { Accept: 'application/json' };
     if (workspaceRef.current) h['X-ANIC-Workspace'] = workspaceRef.current;
     return h;
   }, []);
+  // 隔离选项（cycle-89）：载荷守卫 + 在途丢弃。
+  const isolationOptions = useCallback((): PanelFetchOptions => ({
+    expectedWorkspace: workspaceRef.current,
+    shouldAdvanceEpoch: (): boolean => {
+      const current = workspaceRef.current;
+      const seen = workspaceEpochRef.current;
+      if (current === null || seen === null) {
+        if (current !== null && seen === null) workspaceEpochRef.current = current;
+        return false;
+      }
+      if (current === seen) return false;
+      workspaceEpochRef.current = current;
+      return true;
+    },
+  }), []);
 
   // P0-2：自举四态反馈（running 时禁用防双击；失败保留错误信息与重试语义）。
   const { phase: selfInitPhase, note: selfInitNote, onSelfInit } = useSelfInit();
@@ -94,12 +111,10 @@ export function WorkflowGraphPanel(): ReactElement {
   }, []);
 
   // 数据热更新（B4）：一次性拉取的 targets 与降级文案抽至 panelLiveTargets.ts
-  //（T3 行数纪律；快照学头副作用经 setters 接口回流 workspaceRef）。
-  // cycle-46（T-4601 写侧收口）：内联 setter 闭包清零——写路径全部走
-  // bindPanelActions 动作层（setGraph/setFetchLine/setTrace/setCheck），
+  //（快照学头副作用经 setters 接口回流 workspaceRef）。
+  // cycle-46（T-4601 写侧收口）：写路径全部走 bindPanelActions 动作层；
   // learnWorkspace/workspaceKnown 两 ref 通道保留在调用点（非 store 写）。
-  // cycle-72：闭环体检数据腿并入同一 pollMs=0 档（见 closureTarget 头注——
-  // 不接则该分区有壳无表体；全仓扫描 ~7s 故不与轻量档混轮询）。
+  // cycle-72：闭环体检数据腿并入同一 pollMs=0 档（全仓扫描 ~7s 故不与轻量档混轮询）。
   usePanelFetch([...panelLiveTargets({
     setData: bindPanelActions(store).setGraph,
     setFetchLine: bindPanelActions(store).setFetchLine,
@@ -107,7 +122,7 @@ export function WorkflowGraphPanel(): ReactElement {
     setCheck: bindPanelActions(store).setCheck,
     learnWorkspace: (root) => { workspaceRef.current = root; },
     workspaceKnown: () => workspaceRef.current,
-  }), ...closureTarget(bindPanelActions(store))], 0, reloadKey, wsHeaders);
+  }), ...closureTarget(bindPanelActions(store))], 0, reloadKey, wsHeaders, isolationOptions());
 
   const resolved = resolveFlows({ user: parseRawPrefs(readPrefsRaw()).prefs.flows });
   const stepTraceOn = resolved.flows['flow.stepTrace']?.enabled ?? true;
@@ -116,15 +131,13 @@ export function WorkflowGraphPanel(): ReactElement {
   // B2：HITL 队列分区门控（flow.approvals 首次接线真实 UI——声明与实现断层的
   // 收口；关闭形态契约「队列只读展示 + 指引改走技能 CLI」见 flows.ts:51）。
   const approvalsOn = resolved.flows['flow.approvals']?.enabled ?? true;
-  // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据，
-  // 降级契约「回退手动刷新」；数据行的 generatedAt 让陈旧性可观测）。
+  // P1-7：autoRefresh 开关接线——关闭即停轮询（保留首轮/手动刷新数据）。
   const autoRefreshOn = resolved.flows['flow.autoRefresh']?.enabled ?? true;
-  // org/flows 分区轮询（P2 真机修复）：autoRefresh 开 → 4s；关 → 仅首拍。
-  // cycle-46（T-4601）：apply 直写全部改走动作层引用（bindPanelActions 一次性绑定）。
-  // cycle-82：八个端点的装配细节搬到 panelPeriodicTarget.ts（数据面知识与编排分离），
-  // 本组件只剩「一个节奏、一次绑定、一个门控」三件事。
+  // org/flows 分区轮询：autoRefresh 开 → 4s；关 → 仅首拍。
+  // cycle-46：apply 直写全部改走动作层引用；cycle-82：端点装配细节搬到
+  // panelPeriodicTarget.ts —— 本组件只剩「一个节奏、一次绑定、一个门控」。
   const actions = bindPanelActions(store);
-  usePanelFetch(periodicTarget(actions, ledgerLimit), autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders);
+  usePanelFetch(periodicTarget(actions, ledgerLimit), autoRefreshOn ? 4000 : 0, reloadKey, wsHeaders, isolationOptions());
   useTokenCss();
   const theme = useShellTheme();
   // 实时调用流（cycle-97 动态白盒）：与静态分区并列，展示"正在发生的调用"。
@@ -224,6 +237,9 @@ export function WorkflowGraphPanel(): ReactElement {
     // cycle-72 T-7207：闭环体检（注册↔生产↔消费）——治理证据簇之后回答
     //「注册了的东西到底有没有被生产、被消费」（未消费清单 + 幽灵消费两表）。
     createElement(ClosureSection, { store }),
+    // cycle-89：自举分区——「上次自举的结论是否还基于当前项目事实」。
+    // 排序紧随闭环体检（同样回答「白盒缺口」），在配置分区之前：观测面先于可写面。
+    createElement(BootstrapSection, { store }),
     // cycle-82：配置与路径（唯一**可写**分区）。排序刻意放在最后：
     // 面板的主叙事是"读"（图 → 调用 → 节奏 → 治理证据 → 缺口），配置是"改"，
     // 越靠近底部越不容易挡住观测面；同时它默认展开，需要时滚到底一次可达。

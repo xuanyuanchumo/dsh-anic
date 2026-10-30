@@ -288,7 +288,8 @@
     "budget": "Governance budget",
     "techdebt": "Tech debt",
     "closure": "Closure audit",
-    "config": "Configuration & paths"
+    "config": "Configuration & paths",
+    "bootstrap": "Self-bootstrap (facts baseline & restart)"
   },
   "techdebt": {
     "summary": "open {open} · resolved {resolved} · skipped {skipped}",
@@ -362,7 +363,7 @@
       "broken": "broken chain: {broken} hop(s) unreachable (registered but never runs)",
       "wired": "wired routes {rw}/{rt} · tools {tw}/{tt}",
       "orphans": "idle registrars: {list}"
-    },
+    },
     "artifacts": {
       "title": ".cycles document lifecycle (5th cluster): {reg}/{total} templates registered, {cons} consumed",
       "window": "Matrix window: last {n} cycles (older ones are history, not listed)",
@@ -432,7 +433,21 @@
       "pending": "Pending",
       "skip": "Skip",
       "none": "No verdict"
-    }
+    },
+    "groupView": "View",
+    "laneHeaderLabel": "{name} ({count} nodes)",
+    "layoutModeLabel": "Layout mode",
+    "layoutModeLane": "Spacious",
+    "layoutModeCompact": "Compact",
+    "filterAnomaly": "Anomalies only",
+    "filterAnomalyHint": "Show only failed and doubtful nodes",
+    "fitSelection": "Zoom to selection",
+    "fitSelectionHint": "Zoom to the selected node and its neighbours",
+    "exportSvg": "Export SVG",
+    "exportSvgHint": "Export the current view and filter state as an SVG file",
+    "fullscreen": "Fullscreen",
+    "fullscreenExit": "Exit fullscreen",
+    "fullscreenUnavailable": "Fullscreen is unavailable here, or the browser declined the request"
   },
   "config": {
     "title": "Configuration & Paths",
@@ -502,7 +517,7 @@
       "copyLabel": "Copy path: {label}",
       "probeRejected": "Path rejected: {reason}",
       "probeAccepted": "Path accepted: {path}"
-    },
+    },
     "pathEdit": "Edit",
     "pathEditSave": "Save",
     "pathEditCancel": "Cancel",
@@ -532,5 +547,43 @@
     "backupRestoreFailed": "Restore failed: {error}",
     "backupSafety": "Pre-rollback state backed up to:",
     "backupChanged": "{count} field(s) changed"
+  },
+  "bootstrap": {
+    "factsTitle": "Project facts baseline (current)",
+    "factGit": "git",
+    "factCycle": "cycle",
+    "factLedger": "ledger",
+    "factEval": "eval report",
+    "factCycles": "artifacts",
+    "factSkill": "skill version",
+    "activeUnit": "active",
+    "archivedUnit": "archived",
+    "roundLine": "round {round}/{max}",
+    "scoreLine": "eval {score} · gate {verdict}",
+    "restartCount": "restarted {count}x",
+    "staleBadge": "FACTS CHANGED",
+    "staleChanged": "changed: {changed}",
+    "staleUnknown": "archived facts differ from current project",
+    "factsAt": "archived {at}",
+    "restart": "Reset baseline & restart",
+    "restarting": "restarting…",
+    "restartOk": "reset done (was {from})",
+    "restartFailed": "restart failed: {error}",
+    "historyTitle": "round history",
+    "barScore": "eval {score}",
+    "failureTitle": "last failure reasons",
+    "failureMore": "{count} more",
+    "noFacts": "No facts baseline yet (old version or never run) — restart writes one."
+  },
+  "flowMatrix": {
+    "empty": "No flow records",
+    "attributionLabel": "Attribution rate",
+    "attributedOf": "of {n}",
+    "orphanLabel": "Orphan records",
+    "orphanNote": "unattributed",
+    "phaseLabel": "Phase distribution",
+    "gateLabel": "Gate evidence",
+    "none": "none",
+    "noGateEvidence": "No gate evidence"
   }
 }

@@ -23,6 +23,7 @@
  * （自身宽度），`@media` 只留给与视口真正相关的 `prefers-*` 查询。
  */
 import { SEMANTIC, type TokenName } from './tokens.ts';
+import { GRAPH_CSS } from './graphCss.ts';
 
 /** 令牌引用（与组件侧 token() 同形，但用于 CSS 文本——不能走 token() 因为那是给 style 对象的）。 */
 function v(name: TokenName): string {
@@ -227,4 +228,8 @@ export const PANEL_CSS: string = [
   `@media (forced-colors: active) {`,
   `  .anic-btn { border: 1px solid ButtonText; }`,
   `}`,
+
+  // cycle-90 新增的图区样式（视图组 / 泳道表头）——独立文件，见 graphCss.ts 头注。
+  // 为什么放最后：追加块不改既有条目的顺序，审阅时只看这一段就是"本轮新增"。
+  GRAPH_CSS,
 ].join('\n');

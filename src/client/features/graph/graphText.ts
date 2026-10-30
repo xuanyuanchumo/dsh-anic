@@ -34,6 +34,13 @@ export type GraphTextSuffix =
   | 'minimapLabel'
   | 'crumbRoot' | 'crumbCycle' | 'crumbPhase' | 'crumbWindow' | 'crumbAll' | 'crumbLabel'
   | 'groupSearch' | 'groupType' | 'groupVerdict' | 'groupZoom' | 'groupA11y'
+  | 'groupLayout' | 'groupView'
+  | 'laneHeaderLabel'
+  | 'layoutModeLane' | 'layoutModeCompact' | 'layoutModeLabel'
+  | 'filterAnomaly' | 'filterAnomalyHint'
+  | 'fitSelection' | 'fitSelectionHint'
+  | 'exportSvg' | 'exportSvgHint'
+  | 'fullscreen' | 'fullscreenExit' | 'fullscreenUnavailable'
   | 'stageDragHint';
 
 /** 取一条新键文案（唯一入口；见文件头「为什么不写整串字面量」）。 */

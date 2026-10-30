@@ -16,6 +16,8 @@ import type { StepTraceJson } from './features/stepTrace/renderStepTrace.ts';
 import type { SelfCheckJson } from './features/diagnostics/renderDiagnostics.ts';
 import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from './features/flows/renderFlows.ts';
+// cycle-89：流程归属矩阵（join key 的消费面）。
+import type { FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
 import type { CycleListJson, CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from './features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from './features/hitl/renderHitl.ts';
@@ -28,6 +30,8 @@ import type { ClosureView } from './features/closure/renderClosure.ts';
 // cycle-82：配置与路径编辑器（GET 事实 + 草稿 + 写结果三分片）。
 import type { ConfigJson, ConfigWriteJson } from './features/config/configTypes.ts';
 import type { InvocationsJson } from './features/live/renderInvocations.ts';
+// cycle-89：自举状态（jarvis 面：状态/事实基线/陈旧判据/轮次历史）。
+import type { BootstrapJson } from './features/bootstrap/bootstrapTypes.ts';
 import type { PanelStore } from './components/panelStore.ts';
 
 /**
@@ -53,6 +57,13 @@ export interface PanelState {
   checkLine: string;
   orgStatus: OrgStatusJson | null;
   flowsStatus: FlowStatusJson | null;
+  /**
+   * 流程归属矩阵（cycle-89）—— `GET /anic/api/flows/matrix` 的响应。
+   *
+   * null 语义与其它 4s 档切片一致：「还没拉到」。分区据此不渲染主体，
+   * 而不是渲染一张全 0 的假量化表（那会把「取不到」读成「归属率 0%」）。
+   */
+  flowMatrix: FlowMatrixJson | null;
   cycleList: CycleListJson | null;
   cycleState: CycleStateJson | null;
   ledgerList: LedgerListJson | null;
@@ -64,6 +75,13 @@ export interface PanelState {
   techDebt: TechDebtListingJson | null;
   /** 闭环体检视图（未拉取 / 路由缺失 / 扫描失败 → null，分区如实说明）。 */
   closure: ClosureView | null;
+  /**
+   * 自举状态（cycle-89）—— `GET /anic/self/status` 的响应投影。
+   *
+   * null 的语义与其它 4s 档切片一致：「还没拉到」。分区据此不渲染主体，
+   * 而不是渲染一张 status 全空的假状态卡（那会把「取不到」读成「IDLE」）。
+   */
+  bootstrap: BootstrapJson | null;
   /**
    * 配置与路径编辑器的 GET 事实（cycle-82；null = 尚未拉取，分区不渲染）。
    *
@@ -123,6 +141,7 @@ export function createInitialPanelState(): PanelState {
     checkLine: t('panel.notLoaded'),
     orgStatus: null,
     flowsStatus: null,
+    flowMatrix: null,
     cycleList: null,
     cycleState: null,
     ledgerList: null,
@@ -132,6 +151,7 @@ export function createInitialPanelState(): PanelState {
     skillHealth: null,
     techDebt: null,
     closure: null,
+    bootstrap: null,
     // 配置三分片：null / 空草稿 / 无结果 = 初始「没拉过、没改过、没存过」。
     config: null,
     configDrafts: {},

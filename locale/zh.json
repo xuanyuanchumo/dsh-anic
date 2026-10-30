@@ -288,7 +288,8 @@
     "budget": "治理预算",
     "techdebt": "技术债务",
     "closure": "闭环体检",
-    "config": "配置与路径"
+    "config": "配置与路径",
+    "bootstrap": "自举循环（事实基线与重启）"
   },
   "techdebt": {
     "summary": "待处理 {open} · 已消费 {resolved} · 跳过 {skipped}",
@@ -362,7 +363,7 @@
       "broken": "断链：{broken} 跳不通（注册了但运行时到不了）",
       "wired": "已接线 路由 {rw}/{rt} · 工具 {tw}/{tt}",
       "orphans": "空转注册器：{list}"
-    },
+    },
     "artifacts": {
       "title": ".cycles 文档生命周期（第五族）：模板 {reg}/{total} 已注册，{cons} 个有消费者",
       "window": "矩阵窗口：最近 {n} 个循环（更早的是历史，不逐条列）",
@@ -432,7 +433,21 @@
       "pending": "待定",
       "skip": "跳过",
       "none": "未裁决"
-    }
+    },
+    "groupView": "视图",
+    "laneHeaderLabel": "{name}（{count} 个节点）",
+    "layoutModeLabel": "布局模式",
+    "layoutModeLane": "疏朗",
+    "layoutModeCompact": "紧凑",
+    "filterAnomaly": "仅看异常",
+    "filterAnomalyHint": "只显示失败与存疑的节点",
+    "fitSelection": "缩放到选中",
+    "fitSelectionHint": "放大到选中节点及其邻居",
+    "exportSvg": "导出 SVG",
+    "exportSvgHint": "把当前视图与筛选状态导出为 SVG 文件",
+    "fullscreen": "全屏",
+    "fullscreenExit": "退出全屏",
+    "fullscreenUnavailable": "当前环境不支持全屏，或浏览器拒绝了请求"
   },
   "config": {
     "title": "配置与路径",
@@ -502,7 +517,7 @@
       "copyLabel": "复制路径：{label}",
       "probeRejected": "路径被拒：{reason}",
       "probeAccepted": "路径可用：{path}"
-    },
+    },
     "pathEdit": "编辑",
     "pathEditSave": "保存",
     "pathEditCancel": "取消",
@@ -532,5 +547,43 @@
     "backupRestoreFailed": "恢复失败：{error}",
     "backupSafety": "回滚前状态已备份到：",
     "backupChanged": "改动 {count} 个字段"
+  },
+  "bootstrap": {
+    "factsTitle": "项目事实基线（当前）",
+    "factGit": "git",
+    "factCycle": "循环",
+    "factLedger": "账本",
+    "factEval": "评估报告",
+    "factCycles": "产物",
+    "factSkill": "技能版本",
+    "activeUnit": "活跃",
+    "archivedUnit": "归档",
+    "roundLine": "轮 {round}/{max}",
+    "scoreLine": "评估 {score} · 门禁 {verdict}",
+    "restartCount": "已重启 {count} 次",
+    "staleBadge": "事实已变",
+    "staleChanged": "变动：{changed}",
+    "staleUnknown": "存档事实与当前项目不一致",
+    "factsAt": "存档 {at}",
+    "restart": "重置基线并重启",
+    "restarting": "重启中…",
+    "restartOk": "已重置（原状态 {from}）",
+    "restartFailed": "重启失败：{error}",
+    "historyTitle": "轮次历史",
+    "barScore": "评估 {score}",
+    "failureTitle": "最近一次未通过原因",
+    "failureMore": "另有 {count} 条",
+    "noFacts": "本次自举没有事实基线（旧版本或未跑过）——重启后会写入。"
+  },
+  "flowMatrix": {
+    "empty": "暂无流程记录",
+    "attributionLabel": "归属率",
+    "attributedOf": "{n} 条中",
+    "orphanLabel": "孤儿记录",
+    "orphanNote": "无归属",
+    "phaseLabel": "相位分布",
+    "gateLabel": "门禁证据",
+    "none": "无",
+    "noGateEvidence": "暂无门禁证据"
   }
 }

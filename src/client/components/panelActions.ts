@@ -25,6 +25,8 @@ import type { StepTraceJson } from '../features/stepTrace/renderStepTrace.ts';
 import type { SelfCheckJson } from '../features/diagnostics/renderDiagnostics.ts';
 import type { OrgStatusJson } from '../features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from '../features/flows/renderFlows.ts';
+// cycle-89：流程归属矩阵切片。
+import type { FlowMatrixJson } from '../features/flows/flowMatrixTypes.ts';
 import type { CycleListJson, CycleStateJson } from '../features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from '../features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from '../features/hitl/renderHitl.ts';
@@ -32,6 +34,8 @@ import type { BudgetJson } from '../features/budget/renderBudget.ts';
 import type { SkillHealthJson } from '../features/skillhealth/renderSkillHealth.ts';
 import type { TechDebtListingJson } from '../features/techdebt/renderTechDebt.ts';
 import type { ClosureView } from '../features/closure/renderClosure.ts';
+// cycle-89：自举状态切片（自举可重启的可视化腿）。
+import type { BootstrapJson } from '../features/bootstrap/bootstrapTypes.ts';
 // cycle-82：配置编辑器域（GET 事实 + 草稿合并 + 写结果）。
 import { valueToDraftText, type ConfigJson, type ConfigWriteJson } from '../features/config/configTypes.ts';
 import type { InvocationsJson } from '../features/live/renderInvocations.ts';
@@ -71,12 +75,16 @@ export interface PanelActions {
   // ── 4s 档静默域（guard 不过/失败 → 不 apply，分区不渲染）────────────────
   setOrgStatus(v: OrgStatusJson): void;
   setFlowsStatus(v: FlowStatusJson): void;
+  /** 流程归属矩阵落地（cycle-89 4s 档；量化条的数据源）。 */
+  setFlowMatrix(v: FlowMatrixJson): void;
   setCycleList(v: CycleListJson): void;
   setCycleState(v: CycleStateJson): void;
   setSkillHealth(v: SkillHealthJson): void;
   setTechDebt(v: TechDebtListingJson): void;
   /** 闭环体检落地（一次性档；失败经 markFetchFailure('closure') 如实呈现）。 */
   setClosure(v: ClosureView): void;
+  /** 自举状态落地（cycle-89 4s 档；重启后由动作腿主动重拉一次）。 */
+  setBootstrap(v: BootstrapJson): void;
   setBudget(v: BudgetJson): void;
   setLedgerList(v: LedgerListJson): void;
   setLedgerVerify(v: LedgerVerifyJson): void;
@@ -157,11 +165,13 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     // 4s 档静默域：单切片直写。
     setOrgStatus: (v) => { store.setState({ orgStatus: v }); },
     setFlowsStatus: (v) => { store.setState({ flowsStatus: v }); },
+    setFlowMatrix: (v) => { store.setState({ flowMatrix: v }); },
     setCycleList: (v) => { store.setState({ cycleList: v }); },
     setCycleState: (v) => { store.setState({ cycleState: v }); },
     setSkillHealth: (v) => { store.setState({ skillHealth: v }); },
     setTechDebt: (v) => { store.setState({ techDebt: v }); },
     setClosure: (v) => { store.setState({ closure: v }); },
+    setBootstrap: (v) => { store.setState({ bootstrap: v }); },
     setBudget: (v) => { store.setState({ budget: v }); },
     setLedgerList: (v) => { store.setState({ ledgerList: v }); },
     setLedgerVerify: (v) => { store.setState({ ledgerVerify: v }); },

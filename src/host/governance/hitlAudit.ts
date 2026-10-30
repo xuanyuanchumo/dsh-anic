@@ -50,6 +50,26 @@ export type { DestructiveLineClass };
 
 const SENSITIVE_PATTERNS = ['.env', 'credentials', 'secret', 'password', 'token', 'api_key'];
 const ENV_FILES = ['.env', '.env.local', '.env.production'];
+/**
+ * **设计令牌文件名白名单**（cycle-89 修正）。
+ *
+ * `SENSITIVE_PATTERNS` 含 `'token'`，而 `src/shared/tokens.ts` 与
+ * `src/shared/hostTokens.ts` 都含 `token` 子串 → H1 判它们「敏感文件未受
+ * .gitignore 保护」→ **熔断**。但这两个文件是**设计令牌表**（CSS 变量定义），
+ * **没有任何凭据**（`grep -inE "api_key|secret|password|bearer"` 零命中），
+ * 且**应当入库**。
+ *
+ * 用**精确文件名**排除：凭据文件典型命名是 `token.json` / `secrets.ts` ——
+ * **含** `token`/`secret` 但**不等于** `tokens.ts`。精确匹配既消掉误报，
+ * 又不放过真凭据；`tokens.ts.bak` / `mytokens.ts` 也不会被放过。
+ */
+const DESIGN_TOKEN_FILENAMES: readonly string[] = ['tokens.ts', 'hostTokens.ts'];
+
+/** 该文件是否是「含 token 字样但实为设计令牌表」的误报命中。 */
+function isDesignTokenFile(filePath: string): boolean {
+  const basename = filePath.split('/').pop() ?? filePath;
+  return DESIGN_TOKEN_FILENAMES.includes(basename);
+}
 
 /**
  * 破坏性文件模式（H2 影响面面）：这些文件的变更携带结构性风险，
@@ -70,7 +90,10 @@ export interface HitlResult {
 
 /** H1：敏感文件未被 .gitignore 保护，或 .env 落盘未保护。 */
 export function evaluateH1(changedFiles: string[], gitignoreContent: string, envFilesOnDisk: string[]): HitlResult {
-  const sensitive = changedFiles.filter((f) => SENSITIVE_PATTERNS.some((p) => f.toLowerCase().includes(p)));
+  const sensitive = changedFiles.filter((f) =>
+    SENSITIVE_PATTERNS.some((p) => f.toLowerCase().includes(p))
+    // 设计令牌表不是凭据文件（见 DESIGN_TOKEN_FILENAMES 的注释）。
+    && !isDesignTokenFile(f));
   const unprotected = sensitive.filter((f) => {
     const basename = f.split('/').pop() ?? f;
     return !gitignoreContent.includes(basename) && !gitignoreContent.includes(f);

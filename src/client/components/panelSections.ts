@@ -32,7 +32,6 @@ import { renderSkillHealth } from '../features/skillhealth/renderSkillHealth.ts'
 import { renderTechDebt } from '../features/techdebt/renderTechDebt.ts';
 // cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵的白盒面）。
 import { renderClosure } from '../features/closure/renderClosure.ts';
-import { renderFlows } from '../features/flows/renderFlows.ts';
 import { renderCyclesTimeline } from '../features/cycles/renderCyclesTimeline.ts';
 import { renderLedger } from '../features/ledger/renderLedger.ts';
 import { renderHitl } from '../features/hitl/renderHitl.ts';
@@ -48,7 +47,6 @@ const selTraceLine = (s: PanelState) => s.traceLine;
 const selCheck = (s: PanelState) => s.check;
 const selCheckLine = (s: PanelState) => s.checkLine;
 const selOrgStatus = (s: PanelState) => s.orgStatus;
-const selFlowsStatus = (s: PanelState) => s.flowsStatus;
 const selCycleList = (s: PanelState) => s.cycleList;
 const selCycleState = (s: PanelState) => s.cycleState;
 const selLedgerList = (s: PanelState) => s.ledgerList;
@@ -189,18 +187,12 @@ export const TechDebtSection = memo(TechDebtSectionImpl);
 // （有人在读但没注册）两张表。默认**展开**——与 diagnostics/hitl 同为兜底观测面：
 // 收纳一张「有哪些资产没人消费」的表，等于把缺口藏起来（本分区存在的意义就是可见）。
 export { ClosureSection } from '../features/closure/ClosureSection.ts';
+// cycle-89 自举分区：答「上次自举的结论是否还基于当前项目事实」（默认收纳）。
+export { BootstrapSection } from '../features/bootstrap/BootstrapSection.ts';
 
-function FlowsSectionImpl({ store, enabled }: GatedSectionProps): ReactElement {
-  const flowsStatus = usePanelSlice(store, selFlowsStatus);
-  // hooks 规则：订阅必须**无条件**调用（启停门控只影响 body 组装——下方三元）。
-  const failure = useSectionFailure(store, 'flowsStatus');
-  // 关闭形态（renderSectionDisabled）优先于失败行——「关了什么」比「取不到」更根本。
-  const body = enabled
-    ? bodyOrFailure(renderFlows(flowsStatus), 'flows', failure)
-    : renderSectionDisabled({ anchorKey: 'data-anic-flowsview-disabled', text: t('flows.disabled') });
-  return renderFoldableSection({ id: 'flows', title: t('fold.flows'), defaultOpen: defaultOpenOf('flows'), children: body });
-}
-export const FlowsSection = memo(FlowsSectionImpl);
+// cycle-89：流程分区（状态机视图 + 归属量化条）已拆至 features/flows/FlowsSection.ts
+// ——本文件只做再导出（与 GraphSection / ClosureSection 同款门面，import 路径零变更）。
+export { FlowsSection } from '../features/flows/FlowsSection.ts';
 
 // ── 账本事件流（分页：hasMore 由本组件订阅的数据自算，不进 props）────────
 interface LedgerSectionProps extends SectionProps { onShowMore: () => void; }

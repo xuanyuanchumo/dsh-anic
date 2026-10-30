@@ -126,14 +126,14 @@ describe('循环归属标注契约（cycle-71 T-7132：防场地编号误入本�
     const mk = (n: string): number => Number(['cycle', '-', n].join('').replace('cycle-', ''));
     const within = mk('71'); // 本轮号
     const opportunist = mk('104'); // 场地量级且**未**豁免 → 必须判出
-    const ratcheted = mk('97'); // 基线内（超宽容但已豁免）
+    const ratcheted = mk('99'); // 基线内（超宽容但已豁免；选 99 因其恒 > cur+8）
     const judge = (n: number): boolean => n > cur + FORWARD_TOLERANCE && !RATCHET_ALLOWED.includes(n);
     expect(judge(within), '本轮号不应判越界').toBe(false);
     expect(judge(ratcheted), '基线内的历史合法号应豁免').toBe(false);
     expect(judge(opportunist), '未豁免的场地量级号必须判越界').toBe(true);
     // 棘轮可失败性：去掉基线后，被豁免号立即变成违规（证明基线真在起作用，非装饰）
     const withoutRatchet = (n: number): boolean => n > cur + FORWARD_TOLERANCE;
-    expect(withoutRatchet(ratcheted), '去掉基线后 cycle-97 应为越界（证明棘轮非装饰）').toBe(true);
+    expect(withoutRatchet(ratcheted), '去掉基线后 cycle-99 应为越界（证明棘轮非装饰）').toBe(true);
   });
 
   it('**主断言**：无**新增**越界循环标注（历史合法引用豁免，新漂移即红）', () => {

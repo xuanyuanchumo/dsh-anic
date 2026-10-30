@@ -5,8 +5,9 @@
  * 职责边界：`graphGestures`（视口怎么变）、`graphToolbar`（控件怎么画）、
  * `renderGraph`+`graphNodeCard`/`graphEdgeRender`（画成什么）、`graphStage`（屏幕
  * 交互层怎么摆）、`graphViewportFrame`（视口外框）、`graphInteractiveParts`（props
- * 装配的纯函数）、`graphTraceBar`（追溯状态条）、`useGraphTooltip`（预览揭示）。
- * 本文件只剩「四份状态 + 一次装配」。
+ * 装配的纯函数）、`graphTraceBar`（追溯状态条）、`useGraphTooltip`（预览揭示）、
+ * `useGraphView`（cycle-90 新增交互）、`useLayoutCache`（布局缓存 + 模式）。
+ * 本文件只剩「状态 + 一次装配」。
  *
  * ## 只用 stub 支持的 hooks
  *
@@ -15,13 +16,14 @@
  * **所有 useState 初值必须自足可渲染**（stub 只取初值、不跑 setState/effect），
  * 故初值 = 未缩放、未筛选、全部可见、无预览、无追溯。
  *
- * ## 四份状态为什么是四份（不合并）
+ * ## 五份状态为什么是五份（不合并）
  *
  * - `filter`：用户显式选的子集（持续，直到手动清）；
  * - `focusId`：瞬时的悬停/键盘焦点（鼠标一移就走）；
  * - `traceRoot`：用户双击进入的**持续模式**（不能随焦点消失，否则追溯刚开就没了）；
- * - `adjacencyOn`：视觉策略开关（与"选了哪些"无关）。
- * 把这四件事塞进一个对象，任何一个字段的更新都会让另三个的消费方误重渲，
+ * - `adjacencyOn`：视觉策略开关（与"选了哪些"无关）；
+ * - `layoutMode`（cycle-90）：排布方式（图区局部，见 `useLayoutCache` 头注）。
+ * 把这些塞进一个对象，任何一个字段的更新都会让另几个的消费方误重渲，
  * 且"Esc 该清哪些"会变成隐式约定——分开是最小惊讶。
  *
  * ## 预览的两条触发通道都必需
@@ -34,10 +36,8 @@
  * 筛选只改 visibility（→ opacity + pointer-events），节点 DOM 全部保留：
  * ① smoke 与契约钉死「circle 数 == 节点数」；② AT 没有"淡出"概念，从 DOM 移除
  * 等于让屏幕阅读器用户再也遍历不到。详见 `graphFilter.ts` 头注。
- */
-import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+ */import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
-import type { GraphLayout } from './graphLayout.ts';
 import { EMPTY_FILTER, buildFilterView, type FilterState } from './graphFilter.ts';
 import { useViewportGestures } from './graphGestures.ts';
 import { renderGraph } from './renderGraph.ts';
@@ -50,10 +50,13 @@ import { worldToViewport } from './graphMiniMap.ts';
 import { useGraphTooltip } from './useGraphTooltip.ts';
 import { useGraphSearch } from './useGraphSearch.ts';
 import { EMPTY_TRACE, buildTrace } from './graphTrace.ts';
+import { useGraphView } from './useGraphView.ts';
+import { useLayoutCache } from './useLayoutCache.ts';
+import { assemblyGraphOptionsOf, assemblyNodeClickOf, assemblyToolbarBaseOf, assemblyToolbarOf } from './graphAssembly.ts';
 
 import {
   FALLBACK_SIZE, KEYHINT_ID, VIEWPORT_HEIGHT, keyHintText,
-  adjacencyOf, layoutOf, stagePropsOf, toggleIn, toolbarWiring, traceAdjacencyOf,
+  adjacencyOf, stagePropsOf, toggleIn, traceAdjacencyOf,
 } from './graphInteractiveParts.ts';
 
 export interface GraphInteractiveProps {
@@ -77,13 +80,8 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     getBoundingClientRect?: () => { width: number; height: number };
   } | null>(null);
 
-  // 布局缓存（引用做键；ref + 纯函数填充，理由见 graphCaches 头注）。
-  const layoutRef = useRef<{
-    nodes: readonly WorkflowNode[];
-    edges: readonly WorkflowEdge[];
-    layout: GraphLayout;
-  } | null>(null);
-  const layout = layoutOf(nodes, edges, layoutRef);
+  // 布局缓存 + 模式（cycle-90）：模式是缓存键的一部分（理由见 useLayoutCache 头注）。
+  const { layout, mode: layoutMode, setMode: setLayoutMode } = useLayoutCache(nodes, edges);
 
   /** 容器像素尺寸（真实 DOM 才有；stub / 未挂载回落到 FALLBACK_SIZE）。 */
   const sizeOf = useCallback((): { width: number; height: number } => {
@@ -91,11 +89,9 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     if (r !== undefined && r.width > 0 && r.height > 0) return { width: r.width, height: r.height };
     return FALLBACK_SIZE;
   }, []);
-
   const clearFilter = useCallback((): void => {
     setFilter(EMPTY_FILTER);
-    setFocusId(null);
-    // Escape 的语义是"退出所有观察模式"：只清筛选而把追溯留着，用户按了 Esc
+    setFocusId(null);    // Escape 的语义是"退出所有观察模式"：只清筛选而把追溯留着，用户按了 Esc
     // 却发现图还是花的——那是"键位没反应"的观感。
     setTraceRoot(null);
   }, []);
@@ -158,46 +154,62 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   // 邻接高亮关闭时传 null 焦点 ⇒ 高亮集为空 ⇒ 子集内节点全亮（关掉"非邻居降透明"）。
   const filterView = buildFilterView(nodes, edges, filter, adjacencyOn ? focusId : null, verdicts);
 
+  // ── 新增交互（cycle-90）：布局模式 / 仅看异常 / 缩放到选中 / 导出 / 全屏 ──
+  // 状态与动作全在 useGraphView（图区局部，不进面板 store —— 理由见其头注）。
+  const containerRef = useRef<HTMLElement | null>(null);
+  const view = useGraphView({
+    edges, layout, adjacency, filter, filterView,
+    viewport: gestures.viewport, size: sizeOf(),
+    focusId,
+    containerRef,
+    layoutMode,
+    onLayoutMode: setLayoutMode,
+    onFilterChange: (next) => { setFilter(next); },
+    onViewportChange: (next) => { gestures.setViewport(next); },
+  });
+
   /** 小地图点击 → 局部坐标 → 纯函数换算 → 过钳制的视口。 */
   const onMinimapClick = useCallback((local: { x: number; y: number }): void => {
     gestures.setViewport(worldToViewport(local, layout.bounds, gestures.viewport, sizeOf()));
   }, [gestures, layout.bounds, sizeOf]);
 
-  const toolbar = renderGraphToolbar(toolbarWiring({
-    nodes, verdicts, filter, adjacencyOn,
-    viewport: gestures.viewport,
-    onQuery: setQuery, onToggleType: toggleType, onToggleVerdict: toggleVerdict,
-    onAdjacencyToggle: toggleAdjacency,
-    onZoomIn: gestures.doZoomIn, onZoomOut: gestures.doZoomOut,
-    onFit: gestures.doFit, onClear: clearFilter,
-    searchMatches, searchTotal, onJump: jumpTo,
-    activeMatchIndex: activeMatch, onMoveMatch: moveMatch, onJumpActive: jumpActive,
-  }));
-
   const size = sizeOf();
+  const assembly = {
+    nodes, edges, verdicts, layout, filter, filterView, focusId,
+    viewport: gestures.viewport, size, trace, adjacencyOn,
+    toolbarBase: assemblyToolbarBaseOf({
+      nodes, verdicts, filter, adjacencyOn,
+      viewport: gestures.viewport,
+      onQuery: setQuery, onToggleType: toggleType, onToggleVerdict: toggleVerdict,
+      onAdjacencyToggle: toggleAdjacency,
+      onZoomIn: gestures.doZoomIn, onZoomOut: gestures.doZoomOut,
+      onFit: gestures.doFit, onClear: clearFilter,
+      searchMatches, searchTotal, onJump: jumpTo,
+      activeMatchIndex: activeMatch, onMoveMatch: moveMatch, onJumpActive: jumpActive,
+    }),
+    view: {
+      layoutMode: view.layoutMode,
+      onLayoutMode: view.setLayoutMode,
+      anomalyOnly: view.anomalyOnly,
+      onAnomalyToggle: view.toggleAnomaly,
+      hasSelection: view.hasSelection,
+      onFitSelection: view.fitSelection,
+      onExportSvg: view.exportSvg,
+      onFullscreen: view.toggleFullscreen,
+      fullscreen: view.fullscreen,
+      note: view.note,
+    },
+    onNodeClick,
+    hasMoved: gestures.hasMoved,
+    keyHandler: gestures.onKeyDown, describedBy: KEYHINT_ID, onNodeTrace,
+  };
+  const toolbar = renderGraphToolbar(assemblyToolbarOf(assembly));
+
   const graph = renderGraph(
     { nodes, edges },
     verdicts,
-    onNodeClick === undefined
-      ? undefined
-      // 拖拽越界时不触发点击：否则用户"拖了一下图"就跳进了节点详情抽屉。
-      : (n) => { if (!gestures.hasMoved()) onNodeClick(n); },
-    {
-      viewport: gestures.viewport,
-      filterView,
-      focusId,
-      layout,
-      // size 传可视区：交互态画布必须等于视口，否则放大后的内容会被 svg 自身
-      // 宽高裁掉（见 GraphRenderOptions.size 的注释）。小地图也只在这条路径出现。
-      size,
-      // 缩放键合并进 svg 的 onKeyDown —— svg 仍是**唯一** Tab 停靠点
-      // （既有 graphA11y/graphRoving 契约），见 graphCanvas 里 keyHandler 的注释。
-      keyHandler: gestures.onKeyDown,
-      describedBy: KEYHINT_ID,
-      // 追溯视图（cycle-84）：root 为 null 时 trace === EMPTY_TRACE，渲染与改造前一致。
-      trace,
-      onNodeTrace,
-    },
+    assemblyNodeClickOf(assembly),
+    assemblyGraphOptionsOf(assembly),
   );
 
   return createElement(
@@ -217,9 +229,9 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     renderViewportFrame({
       gestures: frameGesturesOf(gestures),
       wrapRef,
-      keyHintId: KEYHINT_ID,
-      keyHintText: keyHintText(),
-      height: VIEWPORT_HEIGHT,
+      // 全屏目标 = 视口容器（"这一块独占屏幕"，不是整个面板）。
+      fullscreenRef: containerRef,
+      keyHintId: KEYHINT_ID, keyHintText: keyHintText(), height: VIEWPORT_HEIGHT,
       stage: renderStage(stagePropsOf({
         graph, tooltip, layout, viewport: gestures.viewport, size, focusId,
         onFocusNode: onNodeFocus,
@@ -232,6 +244,5 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     }),
   );
 }
-
 /** 视口原语转出（面板/测试可复用，避免各处自己重算 clamp）。 */
 export { clampPan, fitToView, zoomAt } from './graphViewport.ts';

@@ -60,6 +60,16 @@ export interface FrameInput {
   gestures: FrameGestures;
   /** 容器 ref（像素尺寸查询挂在这）。 */
   wrapRef: { current: unknown };
+  /**
+   * 全屏目标元素（cycle-90）。
+   *
+   * 为什么是**同一个**容器：全屏的语义是「这一块独占屏幕」。若全屏目标是
+   * 整个面板，用户会看到面板里其它分区（账本、闭环体检）也一起放大 ——
+   * 那不是"全屏看图"，而是"全屏看面板"。
+   *
+   * 缺省 = 不请求全屏（零参调用仍可用）。
+   */
+  fullscreenRef?: { current: HTMLElement | null } | undefined;
   /** 键盘操作说明（`<p>` 的 id 与文案）。 */
   keyHintId: string;
   keyHintText: string;
@@ -67,6 +77,24 @@ export interface FrameInput {
   height: number;
   /** 舞台内容（悬停代理 + 图 + 预览卡 + 小地图）。 */
   stage: ReactElement;
+}
+
+/**
+ * 两个 ref 合并成一个回调 ref（React 19 的 `ref` 回调只能有一个）。
+ *
+ * 为什么需要：视口容器同时要挂**尺寸查询** ref（`getBoundingClientRect`）与
+ * **全屏目标** ref（`requestFullscreen` 的对象）。而 React 的 `ref` 属性
+ * 只有一个 —— 写两个会互相覆盖（后者赢），尺寸查询就失灵了（容器尺寸恒 0
+ * ⇒ 适配视图算成 0 比例）。
+ */
+function mergeRefs(
+  a: { current: unknown },
+  b: { current: HTMLElement | null },
+): (el: unknown) => void {
+  return (el: unknown): void => {
+    a.current = el;
+    b.current = (el as HTMLElement | null) ?? null;
+  };
 }
 
 export function renderViewportFrame(input: FrameInput): ReactElement {
@@ -79,6 +107,10 @@ export function renderViewportFrame(input: FrameInput): ReactElement {
       'data-anic-graph-viewport': 'true',
       'data-anic-graph-dragging': gestures.dragging ? 'true' : 'false',
       ref: wrapRef as unknown as (el: unknown) => void,
+      // 全屏目标：同一个容器（理由见 FrameInput.fullscreenRef）。
+      ...(input.fullscreenRef === undefined
+        ? {}
+        : { ref: mergeRefs(wrapRef, input.fullscreenRef) as unknown as (el: unknown) => void }),
       onWheel: gestures.onWheel as (ev: unknown) => void,
       onPointerDown: gestures.onPointerDown as (ev: unknown) => void,
       onPointerMove: gestures.onPointerMove as (ev: unknown) => void,

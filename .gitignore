@@ -6,3 +6,5 @@ artifacts/
 test-results/
 .dsh/
 .codegraph-visualizer/
+
+.preview/

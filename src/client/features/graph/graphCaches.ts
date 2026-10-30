@@ -17,6 +17,7 @@
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import { buildAdjacency } from './graphFilter.ts';
 import { layoutGraph, type GraphLayout } from './graphLayout.ts';
+import type { LayoutMode } from './graphLayoutSpec.ts';
 import { buildTraceAdjacency, type TraceAdjacency } from './graphTrace.ts';
 
 /** 邻居数表缓存（预览卡要显示"几条关系"）。 */
@@ -37,6 +38,8 @@ export function adjacencyOf(
  *
  * 169 节点布局约 0.1ms，本身不贵；但**引用不稳定**会让下游元素树每次全部重建，
  * 在 2s 轮询的数据 tick 下就是持续抖动。
+ *
+ * 布局模式（cycle-90）也是键的一部分：换了模式必须重算（布局产物完全不同）。
  */
 export function layoutOf(
   nodes: readonly WorkflowNode[],
@@ -45,25 +48,30 @@ export function layoutOf(
     current: {
       nodes: readonly WorkflowNode[];
       edges: readonly WorkflowEdge[];
+      mode: LayoutMode;
       layout: GraphLayout;
     } | null;
   },
+  mode: LayoutMode = 'lane',
 ): GraphLayout {
-  if (!sameLayoutKey(cache.current, nodes, edges)) {
-    cache.current = { nodes, edges, layout: layoutGraph(nodes, edges) };
+  if (!sameLayoutKey(cache.current, nodes, edges, mode)) {
+    cache.current = { nodes, edges, mode, layout: layoutGraph(nodes, edges, { mode }) };
   }
   const hit = cache.current;
   if (hit === null) throw new Error('layout cache invariant: unreachable');
   return hit.layout;
 }
 
-/** 布局缓存键：两个数组引用都没变 ⇒ 可复用上一次布局。 */
+/** 布局缓存键：两个数组引用与模式都没变 ⇒ 可复用上一次布局。 */
 export function sameLayoutKey(
-  a: { nodes: readonly WorkflowNode[]; edges: readonly WorkflowEdge[] } | null,
+  a: { nodes: readonly WorkflowNode[]; edges: readonly WorkflowEdge[]; mode?: LayoutMode } | null,
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
+  mode: LayoutMode = 'lane',
 ): boolean {
-  return a !== null && a.nodes === nodes && a.edges === edges;
+  if (a === null) return false;
+  const prevMode = a.mode ?? 'lane';
+  return a.nodes === nodes && a.edges === edges && prevMode === mode;
 }
 
 /** 追溯用双向邻接表缓存（cycle-84；edges 引用变化才重建）。 */

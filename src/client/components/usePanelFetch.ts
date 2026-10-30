@@ -37,11 +37,20 @@
  *     refetchInterval 函数式语义的手写等价物）。
  */
 import { useEffect, useRef } from 'react';
+// cycle-89：多项目隔离 —— 载荷守卫 + 在途响应丢弃（世代号）。
+import { acceptPayload, createEpochGuard } from './workspaceGuard.ts';
 
 /** 拉取失败三分类（调用方据此构造行级文案；与原三处降级文案一一对应）。 */
 export type FetchFailure =
   | { kind: 'http'; status: number }
-  | { kind: 'malformed' }
+  /**
+   * 形状不符 / 载荷被拒。
+   *
+   * `reason`（可选，cycle-89）：**为什么**被拒。只说「malformed」时，
+   * 「服务端返回了畸形数据」与「这个数据属于别的项目」在面板上长得一样 ——
+   * 而后者的正确动作是「切回原项目」，不是「等下一拍」。
+   */
+  | { kind: 'malformed'; reason?: string }
   | { kind: 'network'; message: string };
 
 export interface PanelFetchTarget {
@@ -79,11 +88,39 @@ function etagOf(res: unknown): string | null {
   }
 }
 
+/**
+ * 面板数据拉取钩子。
+ *
+ * @param targets       轮询目标（幂等 GET 集合）
+ * @param pollMs        轮询间隔（≤0 = 只首拍）
+ * @param manualKey     手动刷新键（变化 = 立即重拍）
+ * @param getHeaders    请求头工厂（`X-ANIC-Workspace` 由此带出）
+ * @param options       **可选**（cycle-89 多项目隔离）——既有调用方零改动
+ */
+export interface PanelFetchOptions {
+  /**
+   * 期望工作区（**期望侧**）。响应体若声明了工作区且与它不符 → 拒绝应用。
+   * 省略 = 不做载荷级校验（防线二仍然生效）。
+   */
+  expectedWorkspace?: string | null;
+  /**
+   * 世代号推进触发器（**可选**，cycle-89）。
+   *
+   * 返回 true 表示「工作区变了」→ 世代号递增 → 在途旧响应被丢弃。
+   *
+   * 为什么需要调用方提供：钩子内部不知道「工作区什么时候真的换了」——
+   * 它只知道 `manualKey` 变了。工作区切换必须能引起 `manualKey` 变化，
+   * 否则世代号永远不推进，在途丢弃就是空转的。
+   */
+  shouldAdvanceEpoch?: () => boolean;
+}
+
 export function usePanelFetch(
   targets: PanelFetchTarget[],
   pollMs: number,
   manualKey: number,
   getHeaders: () => Record<string, string>,
+  options: PanelFetchOptions = {},
 ): void {
   // targets 每次渲染都是新数组（含内联闭包）——ref 持最新引用，
   // effect 依赖保持 [pollMs, manualKey]（setState 函数引用稳定，闭包安全）。
@@ -94,6 +131,13 @@ export function usePanelFetch(
   // V-1：per-target ETag 学习（url → etag）。不进 React state——它是请求层
   // 内部状态，渲染不消费；ref 持有跨轮次存活。
   const etagsRef = useRef<Map<string, string>>(new Map());
+  // cycle-89：世代号守卫（跨 effect 存活——它标记的是「哪一批请求还算数」，
+  // 跨越 effect 边界正是它的职责；放 effect 局部会让切换工作区后旧请求
+  // 拿到一个「全新」的世代号而漏过丢弃检查）。
+  const epochRef = useRef(createEpochGuard());
+  // options 走 ref：effect 依赖保持 [pollMs, manualKey]（闭包安全）。
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     if (typeof fetch !== 'function') return undefined;
@@ -105,6 +149,11 @@ export function usePanelFetch(
     // cycle-40：失败指数退避——连续网络级失败 ×2（封顶 8 倍），成功复位。
     let backoff = 1;
     let netFailStreak = 0;
+    // cycle-89：工作区切换 → 世代号递增（让在途旧响应失效）。
+    // 判定由调用方的 `shouldAdvanceEpoch` 给出（钩子不知道工作区何时真换了）。
+    const opt = optionsRef.current;
+    if (opt.shouldAdvanceEpoch?.() === true) epochRef.current.advance();
+    const requestEpoch = epochRef.current.current;
     // cycle-40：AbortController——effect 卸载/手动刷新时中止 in-flight 残余请求。
     const abortCtl = new AbortController();
     const tick = async (): Promise<void> => {
@@ -134,6 +183,17 @@ export function usePanelFetch(
             if (etag) etagsRef.current.set(tgt.url, etag);
             const json: unknown = await res.json();
             if (!tgt.guard(json)) { tgt.onFail?.({ kind: 'malformed' }); return; }
+            // cycle-89 防线一：载荷守卫 —— 响应体声明的工作区与期望不符 → 拒绝应用。
+            // 这是「串味」的最后一道闸：即使请求带对了头，服务端若返回了别的项目的
+            // 载荷（缓存串了 / 路由读错工作区），也不能进 store。
+            const verdict = acceptPayload(optionsRef.current.expectedWorkspace, json);
+            if (!verdict.accepted) {
+              tgt.onFail?.({ kind: 'malformed', reason: verdict.reason });
+              return;
+            }
+            // cycle-89 防线二：在途丢弃 —— 世代号已变（期间切了工作区）→ 丢弃。
+            // 顺序上必须在载荷守卫**之后**：先确认「这是有效载荷」，再问「它还新吗」。
+            if (!epochRef.current.isCurrent(requestEpoch)) return;
             if (!cancelled) { tgt.apply(json); tgt.onRecover?.(); }
           } catch (e) {
             // abort 不是失败：主动取消（刷新/卸载）走的路，不进退避计数

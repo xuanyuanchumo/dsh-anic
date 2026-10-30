@@ -359,19 +359,21 @@ describe('flowsRoute', () => {
   // 注册表是模块级单例：builtin 5 流程须先注册（首个胜出——重复调用 no-op，安全）。
   beforeAll(() => { registerBuiltinFlows(); });
 
-  it('注册 9 条路由 + 全部 disposer 可回收', () => {
+  it('注册 10 条路由 + 全部 disposer 可回收', () => {
     const { ctx, routes, disposers } = makeCtx();
     const got = registerFlowsRoute(ctx, sendFn, { getWorkspaceRoot: () => null });
-    expect(routes.size).toBe(9);
+    expect(routes.size).toBe(10);
     for (const p of [
       '/anic/flows', '/anic/flows/status', '/anic/flows/state',
       '/anic/flows/gate-check/run', '/anic/flows/macro-phase/status',
       '/anic/flows/macro-phase/advance', '/anic/flows/archive/run',
       '/anic/flows/hitl/run', '/anic/flows/auto-fix/run',
+      // cycle-89：流程归属矩阵（join key 的消费面出口）
+      '/anic/api/flows/matrix',
     ]) expect(routes.has(p)).toBe(true);
     for (const d of got) if (typeof d === 'function') d();
     expect(routes.size).toBe(0);
-    expect(disposers).toHaveLength(9);
+    expect(disposers).toHaveLength(10);
   });
 
   it('GET /anic/flows — 注册表可序列化投影（5 流程描述子）', () => {
@@ -473,11 +475,11 @@ describe('flowsRoute', () => {
 /* ------------------------------------------------------------------ */
 
 describe('selfBootstrapRoute', () => {
-  it('注册 4 条路由（self/evaluate、self/gate-check、self/iterate、self/status）', () => {
+  it('注册 5 条路由（self/evaluate、self/gate-check、self/iterate、self/status、self/restart）', () => {
     const { ctx, routes } = makeCtx();
     registerSelfBootstrapRoutes(ctx, sendFn);
-    expect(routes.size).toBe(4);
-    for (const p of ['/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status']) {
+    expect(routes.size).toBe(5);
+    for (const p of ['/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status', '/anic/self/restart']) {
       expect(routes.has(p)).toBe(true);
     }
   });

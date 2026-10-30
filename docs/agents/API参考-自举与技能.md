@@ -77,6 +77,29 @@ parseGateVerdict(result) // 'PASS' | 'FAIL' | 'unknown'
 
 **响应 200**：`loadBootstrapState(cyclesDir)` 的**原始对象，无信封**。因此响应形状随 `BootstrapState` 演进而变，消费方不应假设固定字段。
 
+### 1.5 POST `/anic/self/bootstrap-other`（`crossBootstrapRoute.ts`，v0.49.0 新增）
+
+**跨工作区自举（「举他」）**：在**另一个项目**上跑同一套自举循环。
+
+**请求体**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `targetWorkspace` | string（**绝对路径**） | 目标项目根。相对路径被拒（会随宿主 cwd 漂移，可能在错地方创建 `.cycles/`） |
+| `action` | `"init"` \| `"evaluate"` \| `"gate-check"` | 缺省 `evaluate` |
+
+**响应 200**：`{ ok, action, target: { root, cyclesDir, scriptsSource }, flowId?, score?, verdict?, sourceUnchanged, sourceFingerprint, sourceFingerprintAfter }`。
+
+**`sourceUnchanged` 是源零写入的凭据**：调用前后对**源**工作区 `.cycles/**` 取指纹，
+两者 `digest` 相同即证明源未被触碰。响应同时返回前后两份指纹供调用方自行比对 ——
+不返回「我保证没写」这种自述。
+
+**状态码**：`404` 目标不存在 / 与源相同；`400` 目标非绝对路径或不是目录；
+`412` 目标未初始化（`.cycles/` 不存在）或无可用技能脚本；`200` 成功。
+
+**技能来源**（`scriptsSource`）：`target` = 目标项目自带技能副本；
+`plugin` = 用插件随附副本（目标没装技能时）。
+
 ---
 
 ## 2. skill 域

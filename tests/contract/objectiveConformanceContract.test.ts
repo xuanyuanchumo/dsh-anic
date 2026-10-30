@@ -129,12 +129,16 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
      * cycle-83：65 → 67（config 同域新增 `/anic/api/config/paths` 与
      * `/anic/api/config/rollback` 两条写面）；67 → 69（产物治理域新增
      * `POST /anic/api/archive/baseline` 与 `GET /anic/api/archive/inventory`）。
+     * cycle-89：69 → 70（自举域新增 `POST /anic/self/restart`：重置事实基线并重启）；
+     * cycle-89 二轮：70 → 73（新增 `POST /anic/self/bootstrap-other` 跨项目自举、
+     * `POST /anic/api/tech-debt/triage` 技术债分诊、`GET /anic/api/flows/matrix`
+     * 流程归属矩阵）。
      *
      * 为什么这里**不**改成从 README 读回来：本断言的价值就是"两条独立计数器对同一个
      * 真相"；改成读 README 就退化成同义反复，README 写错时两边一起错（假绿）。
      */
-    expect(defs.length).toBe(69);
-    expect(defs.filter((d) => d.producedAt !== null).length).toBe(69);
+    expect(defs.length).toBe(73);
+    expect(defs.filter((d) => d.producedAt !== null).length).toBe(73);
   });
 
   /* ── 以下四条对应 objective 的**扩展限定**（质量属性与全生命周期评审体系）── */

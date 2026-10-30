@@ -28,10 +28,12 @@ import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import { FAIL_PULSE_STYLE } from './gateColors.ts';
 import { renderGraphDataTable } from './graphDataTable.ts';
 import { layoutGraph, type GraphLayout } from './graphLayout.ts';
-import { visibilityOf, OPACITY, type FilterView } from './graphFilter.ts';
+import { visibilityOf, type FilterView } from './graphFilter.ts';
 import { IDENTITY, transformOf, type Viewport } from './graphViewport.ts';
-import { renderArrowMarker, renderEdge, renderNode } from './graphNodeRender.ts';
+import { renderArrowMarker, renderNode } from './graphNodeRender.ts';
+import { renderEdges } from './graphEdgeRenderAll.ts';
 import { renderCanvas } from './graphCanvas.ts';
+import { renderLaneHeaders } from './graphLaneHeader.ts';
 import { traceRoleOf, type TraceResult } from './graphTrace.ts';
 import { t } from '../../i18n.ts';
 
@@ -75,6 +77,13 @@ export interface GraphRenderOptions {
   trace?: TraceResult;
   /** 双击节点进入该节点的上下游追溯（cycle-84）。缺省不挂处理器。 */
   onNodeTrace?: (node: WorkflowNode) => void;
+  /**
+   * 泳道表头（cycle-90）。
+   *
+   * 缺省 = **不渲染表头**（零参调用仍是改造前那张图）。存在时按布局算好的
+   * `laneHeaders` 画 —— 渲染层不碰坐标（见 `graphLayout.ts` 头注）。
+   */
+  laneHeaders?: boolean;
   /**
    * `aria-describedby` 指向的元素 id（键盘操作说明）。
    *
@@ -140,45 +149,20 @@ export function renderGraph(
   // 不给每条边各自算一遍坐标。这也是"单 svg + 单 transform"能被断言的形式。
   const worldChildren: ReactElement[] = [];
 
-  for (const e of layout.edges) {
-    // 边端点必须用**布局后**的坐标：`data.nodes` 存的是快照坐标，
-    // 直接取 `a.x` 会画出改造前的长条——这是本轮最容易踩的一处。
-    const pa = positionOf.get(e.from);
-    const pb = positionOf.get(e.to);
-    if (pa === undefined || pb === undefined) continue;
-    // 追溯态边：方向判定用**集合归属**而不是几何方向。
-    // 上游边 = from 在 up 集合且 to 也在 up 或就是 root（链条朝 root 收敛）；
-    // 下游边 = from 在 down 或就是 root，且 to 在 down（链条从 root 发散）。
-    // 两边都满足（环）时按下游显示：环上"谁先谁后"本就无意义，给一个稳定取舍
-    // 好过在两条规则间跳来跳去。
-    const edgeTrace = trace === undefined || trace.root === null
-      ? undefined
-      : trace.down.has(e.to) && (trace.down.has(e.from) || trace.root === e.from)
-        ? 'down' as const
-        : trace.up.has(e.from) && (trace.up.has(e.to) || trace.root === e.to)
-          ? 'up' as const
-          : undefined;
-    worldChildren.push(
-      renderEdge({
-        from: e.from,
-        to: e.to,
-        // cycle-83：边语义进渲染。漏了它六种边会全部退化成无差别直线，
-        // 而"图上分不清时序/证据/分支"正是本轮要修的缺陷。
-        type: e.type,
-        fromPos: pa,
-        toPos: pb,
-        // 边跟着端点一起淡：只淡节点不淡边，会留下一团悬空线条，看起来像渲染 bug。
-        // 取两端中**较亮**的那个：一端在焦点邻域里就该看得见这条关系。
-        opacity: filterView === undefined
-          ? undefined
-          : Math.max(
-              OPACITY[visibilityOf(e.from, filterView.matching, filterView.highlight)],
-              OPACITY[visibilityOf(e.to, filterView.matching, filterView.highlight)],
-            ),
-        ...(edgeTrace === undefined ? {} : { trace: edgeTrace }),
-      }),
-    );
+  // 泳道表头（cycle-90）：**先画**（在卡片之下），否则表头会被卡片盖住。
+  // 挂在 world 里 ⇒ 与它标注的卡片一起随缩放平移移动（固定在屏幕上会让
+  // 表头指着别的列）。
+  if (opts?.laneHeaders === true) {
+    const laneCounts = new Map(layout.lanes.map((l) => [l.type, l.count]));
+    worldChildren.push(...renderLaneHeaders({
+      headers: layout.laneHeaders,
+      counts: laneCounts,
+      matching: filterView?.matching,
+    }));
   }
+
+  // 边（追溯方向判定与可见度传播见 graphEdgeRenderAll 头注）。
+  worldChildren.push(...renderEdges({ edges: layout.edges, positionOf, filterView, trace }));
 
   for (const n of layout.nodes) {
     worldChildren.push(

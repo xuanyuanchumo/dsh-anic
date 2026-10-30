@@ -31,10 +31,17 @@ import type { PanelFetchTarget } from './components/usePanelFetch.ts';
 import type { PanelActions } from './components/panelActions.ts';
 import { governanceTargets } from './governanceTargets.ts';
 import { configTarget } from './features/config/configTarget.ts';
+// cycle-89：自举状态（状态/事实基线/陈旧判据）——4s 档：自举是长事务，
+// 一次性拉取会让用户看不到 EVALUATING→GATE_CHECKING 的过程（见 bootstrapTarget 头注）。
+import { bootstrapTarget } from './features/bootstrap/bootstrapTarget.ts';
 import { ORG_STATUS_URL, FLOWS_STATUS_URL } from './panelLiveTargets.ts';
+// cycle-89：归属矩阵端点。
+import { FLOW_MATRIX_URL } from './features/flows/flowMatrixTypes.ts';
 import { isObjectLike, isFlowStatus } from './features/live/fetchJson.ts';
 import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from './features/flows/renderFlows.ts';
+// cycle-89：流程归属矩阵（join key 消费面）。
+import { isFlowMatrix, type FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
 import {
   isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL,
   type CycleListJson, type CycleStateJson,
@@ -63,6 +70,8 @@ export function periodicTarget(s: PanelActions, ledgerLimit: number): PanelFetch
   return [
     { url: ORG_STATUS_URL, guard: isObjectLike, apply: (v) => { s.setOrgStatus(v as OrgStatusJson); }, onFail: fail('orgStatus'), onRecover: recover('orgStatus') },
     { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { s.setFlowsStatus(v as FlowStatusJson); }, onFail: fail('flowsStatus'), onRecover: recover('flowsStatus') },
+    // cycle-89：归属矩阵（归属率 / 孤儿 / 门禁证据覆盖的量化条数据源）。
+    { url: FLOW_MATRIX_URL, guard: isFlowMatrix, apply: (v) => { s.setFlowMatrix(v as FlowMatrixJson); }, onFail: fail('flowMatrix'), onRecover: recover('flowMatrix') },
     // cycle 时间线两端点（宏观节奏条）：list 给序列、state 给「当前推进到哪」。
     { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { s.setCycleList(v as CycleListJson); }, onFail: fail('cycleList'), onRecover: recover('cycleList') },
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { s.setCycleState(v as CycleStateJson); }, onFail: fail('cycleState'), onRecover: recover('cycleState') },
@@ -77,6 +86,12 @@ export function periodicTarget(s: PanelActions, ledgerLimit: number): PanelFetch
       (v) => { s.setConfig(v); },
       (msg) => { s.failConfig(msg); },
       () => { s.recoverConfig(); },
+    ),
+    // cycle-89：自举状态（失败落到 endpoint 粒度 key 'bootstrap'，分区聚合显示）。
+    bootstrapTarget(
+      (v) => { s.setBootstrap(v); },
+      fail('bootstrap'),
+      recover('bootstrap'),
     ),
   ];
 }

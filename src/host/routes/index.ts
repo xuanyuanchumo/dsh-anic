@@ -26,6 +26,8 @@ import { registerReviewRoute } from './reviewRoute.ts';
 import { registerEvolutionRoute } from './evolutionRoute.ts';
 import { registerGovernanceRoute } from './governanceRoute.ts';
 import { registerSelfBootstrapRoutes } from './selfBootstrapRoute.ts';
+// cycle-89：跨工作区自举（「举他」）—— 在目标项目上跑同一循环，源工作区零写入。
+import { registerCrossBootstrapRoute } from './crossBootstrapRoute.ts';
 import { registerSkillRoutes } from './skillRoute.ts';
 import { registerSkillInstallRoute } from './skillInstallRoute.ts';
 import { registerSkillHealthRoute } from './skillHealthRoute.ts';
@@ -44,6 +46,8 @@ import { registerConfigRoute } from './configRoute.ts';
 // cycle-83：产物治理（归档基线重置 + 清单）。搬迁目录、绝不碰账本（INV-9）。
 import { registerArchiveResetRoute } from './archiveResetRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
+// cycle-89 T-12：拆卸隔离（单个 disposer 抛错不阻断其余）。
+import { safeDisposeAll, disposeErrorSink } from '../runtime/safeDispose.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
 
@@ -145,6 +149,8 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   // ── self 域（M7 自举 + M8 跨项目 + 技能自动安装）──
   disposers.push(...registerSelfBootstrapRoutes(c, send));
+  // cycle-89「举他」：跨工作区自举。与自举同域（self），但作用域是**另一个项目**。
+  disposers.push(...registerCrossBootstrapRoute(c, send));
   disposers.push(...registerSkillRoutes(c, send));
   disposers.push(...registerSkillInstallRoute(ctx, { send, getWorkspaceRoot }));
   // 技能健康观测面（cycle-20 P3 收口）：FlowTracker → analyzeSkillHealth。
@@ -177,5 +183,8 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;
-  return () => { for (const d of cleanups) d(); };
+  // cycle-89 T-12：拆卸隔离——单个 disposer 抛错**不得阻断其余**。
+  // 原 `for (const d of cleanups) d()` 会因一次抛错而留下**未注销的路由**，
+  // 热重载后同路径双注册、旧实现仍可被调用。
+  return () => { safeDisposeAll(cleanups, disposeErrorSink('anic routes'), 'anic routes'); };
 }

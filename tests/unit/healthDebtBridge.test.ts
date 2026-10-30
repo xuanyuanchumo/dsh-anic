@@ -79,12 +79,14 @@ describe('cycle-55 T-5501 persistHealthSuggestionsAsDebt 落盘语义', () => {
     expect(after).toBe(before);
   });
 
-  it('跨日新提案：同 id 不同日期产新文件（恶化可追踪）', () => {
+  it('跨日同建议**不重复建债**（cycle-89 修复：同一问题不被记多天）', () => {
+    // cycle-89 之前：跨日会产新文件（同 id 不同日期）——那让「1 个问题」变成
+    // 「N 天 N 条债」，债务计数失真。现在跨日未决同建议 → 不新建。
     persistHealthSuggestionsAsDebt(dir, [sugg()], NOW);
     const r2 = persistHealthSuggestionsAsDebt(dir, [sugg()], '2026-10-22T09:00:00.000Z');
-    expect(r2.written).toBe(1);
-    expect(r2.file).toBe('health-2026-10-22.json');
-    expect(existsSync(join(dir, 'tech-debt', 'health-2026-10-22.json'))).toBe(true);
+    expect(r2.written).toBe(0);
+    expect(r2.skipped).toBe(1);
+    expect(existsSync(join(dir, 'tech-debt', 'health-2026-10-22.json'))).toBe(false);
   });
 
   it('损坏既有文件按空集重建（不抛不吞）', () => {
@@ -127,11 +129,15 @@ describe('cycle-55 T-5501 persistHealthSuggestionsAsDebt 落盘语义', () => {
     expect(raw[0].severity).toBe('critical');
   });
 
-  it('cycle-56 T-5601 复活防御不误伤 open 态：未消费的同建议跨日仍落新提案（既有语义保持）', () => {
+  it('cycle-89 跨日去重不误伤 open 态：未消费的同建议跨日**不落新提案**（债务计数不失真）', () => {
     persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], NOW);
-    // 未 consume——open 态，跨日新提案（cycle-55 既有语义：恶化可追踪/未偿还在视野内）
+    // 未 consume——open 态。cycle-89 之前此处会落新提案（每天一条），
+    // 现在不落：同一条债留在最早那份文件里，面板计数 = 真实问题数。
     const r2 = persistHealthSuggestionsAsDebt(dir, [sugg({ severity: 'warn', script: 'gate-check' })], '2026-10-22T09:00:00.000Z');
-    expect(r2.written).toBe(1);
-    expect(r2.file).toBe('health-2026-10-22.json');
+    expect(r2.written).toBe(0);
+    expect(r2.skipped).toBe(1);
+    // 仍然只有一份未决条目（读面验证）。
+    const listing = listTechDebt(dir);
+    expect(listing.open.filter((o) => o.entry.id.startsWith('health-sugg-gate-check'))).toHaveLength(1);
   });
 });

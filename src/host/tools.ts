@@ -3,6 +3,8 @@
  * that other sessions/agents can invoke (M8 G-TOOL).
  * INV-24: 'tools' in inject but we probe ctx.get('tools', false) for graceful degradation.
  */
+// cycle-89 T-12：拆卸隔离（单个 disposer 抛错不阻断其余）。
+import { safeDisposeAll, disposeErrorSink } from './runtime/safeDispose.ts';
 import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
 import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
@@ -227,17 +229,12 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // HITL 三段修复工具（anic_flows_hitl，R3 阶段 4）拆分至 toolsHitlGateway.ts
   disposers.push(...registerHitlTools(tools, { getRoot, register: reg }));
 
-  // 自动修复循环工具（anic_flows_auto_fix，R3 阶段 5）拆分至 toolsAutoFixGateway.ts
+  // 自动修复循环 / 热重载 / 状态全景均已按一域一文件拆出（T3 纪律）。
   disposers.push(...registerAutoFixTools(tools, { getRoot, register: reg }));
-  // cycle-80：anic_reload_self = ctx.hmr 消费面（ctx 仅传入供可选探测，绝不进硬 inject）
   disposers.push(...registerReloadTools(tools, { getRoot, register: reg, ctx: c }));
-  // 状态全景工具（anic_status）拆分至 toolsStatusGateway.ts（cycle-39 T3：
-  // presentCall 补齐后 tools.ts 264 行超限——一域一文件纪律，聚合面不变）
   disposers.push(...registerStatusTool(reg, getRoot));
 
-  // 技能调用域工具（anic_install + anic_skill 通用网关）拆分至 toolsSkillGateway.ts；
-  // 自举域工具（anic_bootstrap_cycle + anic_bootstrap_analyze）拆分至 toolsBootstrapGateway.ts
-  // （T3 ≤250 行模块化纪律，cycle-16）；disposer 一并纳入本聚合器的清理面。
+  // 技能调用域（toolsSkillGateway）/ 自举域（toolsBootstrapGateway）已拆出（T3 纪律，cycle-16）；
   // cycle-74：加载器**注入**「已注册面」读取闭包（不自行 import 捕获模块——那会成真实环）。
   disposers.push(...registerIndexLoaderTools(reg, registeredFaces));
   disposers.push(...registerSkillGatewayTools(tools, { getRoot, register: reg }));
@@ -245,5 +242,8 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;
-  return () => { for (const d of cleanups) d(); };
+  // cycle-89 T-12：拆卸隔离——单个 disposer 抛错**不得阻断其余**。
+  // 工具侧的 disposer 常包着能力撤销（ctx.effect cleanup）；
+  // 一次抛错会让权限半途残留，后续整条链路跟着冻结。
+  return () => { safeDisposeAll(cleanups, disposeErrorSink('anic tools'), 'anic tools'); };
 }

@@ -22,6 +22,7 @@ import { GROUP_LABEL, renderGroupSeparator, renderToolbarGroup } from './graphTo
 import { renderLegend } from './graphToolbarLegend.ts';
 import { renderSearchChildren } from './graphToolbarSearch.ts';
 import { renderAuxGroup, renderZoomGroup } from './graphToolbarActions.ts';
+import { renderViewGroup, type ViewGroupInput } from './graphToolbarView.ts';
 import { t } from '../../i18n.ts';
 
 interface RenderProps {
@@ -49,6 +50,14 @@ interface RenderProps {
   activeMatchIndex?: number;
   onMoveMatch?: (delta: number) => void;
   onJumpActive?: () => void;
+  /**
+   * 视图组（cycle-90）：布局模式 / 仅看异常 / 缩放到选中 / 导出 / 全屏。
+   *
+   * **整组可选**：既有契约测试（`graphInteractiveContract` ②）直接调本函数时
+   * 只传旧字段，缺省时**不渲染这一组** —— 零参调用仍是"改造前的工具栏"。
+   * 这样老断言（"每组控件齐全"）不会因为新控件而误判，测试也能按需断言新控件。
+   */
+  view?: ViewGroupInput;
 }
 
 /** chip 的可见文案（类型名，动态键族 `graph.lane.<type>`）。 */
@@ -206,6 +215,11 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     renderAuxGroup({
       adjacencyOn, filterActive, onAdjacencyToggle: props.onAdjacencyToggle, onClear: props.onClear,
     }),
+
+    // ── 组 6：视图（布局模式 / 仅看异常 / 缩放到选中 / 导出 / 全屏）──
+    // 缺省**不渲染**（见 RenderProps.view 的注释：零参调用 = 改造前工具栏）。
+    props.view === undefined ? null : renderGroupSeparator('before-view'),
+    props.view === undefined ? null : renderViewGroup(props.view),
 
     renderLegend(typeCounts),
   );

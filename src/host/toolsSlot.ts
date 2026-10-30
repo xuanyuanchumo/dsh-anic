@@ -8,6 +8,8 @@
  * 修在一个共同的出口才能对新工具、新字段持续生效（语义裁决见 runtime/jsonSanitize.ts）。
  */
 import { sanitizeForWire } from './runtime/jsonSanitize.ts';
+// cycle-89 T-04：未知参数键守卫（参数面语义裁决，独立成文件守 T3 ≤250 行）。
+import { withArgumentGuard } from './toolsArgGuard.ts';
 
 /**
  * 工具调用呈现视图（DSH ToolCallView 子集）。
@@ -179,7 +181,9 @@ export function wireGuard(tool: ToolRegistration): ToolRegistration {
   const inner = tool.execute;
   return {
     ...tool,
-    execute: async (args, exec) => sanitizeToolValue(await inner(args, exec)),
+    // cycle-89 T-04：未知键守卫接在**唯一出口**（wireGuard），对新工具自动生效，
+    // 无需在 20+ 个 gateway 里逐个打补丁。守卫实现见 toolsArgGuard.ts。
+    execute: withArgumentGuard(tool, async (args, exec) => sanitizeToolValue(await inner(args, exec))),
   };
 }
 

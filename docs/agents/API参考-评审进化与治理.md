@@ -144,6 +144,31 @@ totalRetries, totalBreakerTrips
 
 **配套读取面**：`GET /anic/api/tech-debt/list`（§2.5）。
 
+### 2.6b POST `/anic/api/tech-debt/triage`（`evolutionRoute.ts`，v0.49.0 新增）
+
+**技术债分诊**：按**当前健康读数**给每条提案一个终态，让债务队列能真正收敛。
+
+**为什么需要它**：health-\* 提案由每日评估自动生成，而去重此前只看**同日**文件 ——
+于是「auto-fix-loop 超时率 75%」这**同一个问题**在 10-28 / 10-29 / 10-30 各生成一条提案。
+面板看起来是「3 个问题」，实际是「1 个问题被记了 3 次」。这不是显示难看，是**债务计数失真**：
+用户按数字决定修什么，就会修错地方。（根因修复见 `healthDebtBridge.ts` 的跨日去重。）
+
+**三态裁决**（机器只裁决「测量条件是否复现」——可复算事实；「该不该修」是人的判断）：
+
+| 裁决 | 含义 | 处置 |
+|---|---|---|
+| `stale` | 条件不复现（脚本已 healthy / 超时率已降 / 耗时已回落） | **自动关闭**（带 `resolvedAt/resolvedBy/resolutionEvidence` 审计三字段） |
+| `reproduced` | 条件复现 | 保留待修 |
+| `unverifiable` | 非 health 维度（debt-F\*/G1 等）——**机器不裁决** | 保留待人工 |
+
+**Body**：`{ apply?: boolean（缺省 true）, actor?: string }`。
+
+**响应 200**：`{ ok, applied, total, marked, errors, decisions: [{ id, verdict, evidence }], byVerdict: { stale, reproduced, unverifiable } }`。
+
+**边界（R-31）**：本端点**只做记账**，不执行任何修复。
+
+**配套读取面**：`GET /anic/api/tech-debt/list`（§2.5）。
+
 ### 2.7 POST `/anic/autonomy/downgrade`（`evolutionRoute.ts:149`）
 
 **证据化自主级回退**（R3 阶段 1 余量）——与 2.3 breakers 的纯决策视图不同，这是技能 `cmdAutoFallback` 的插件等价物，**真正写入 config.yml**。

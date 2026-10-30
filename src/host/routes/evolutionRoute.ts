@@ -20,6 +20,10 @@ import {
 import { generateTechDebt, type EvalResult } from '../evolution/patchEngine.ts';
 import { runAutonomyFallback } from '../evolution/autonomyActions.ts';
 import { listTechDebt, markTechDebtConsumed } from '../evolution/techDebtQueue.ts';
+// cycle-89：技术债**生命周期**分诊（stale 自动关闭）—— 债务必须有终态，否则只增不减。
+import { triageTechDebt, applyTriage } from '../evolution/techDebtTriage.ts';
+import { analyzeSkillHealth } from '../runtime/continuousLearning.ts';
+import { loadFlowTracker } from '../runtime/flowTracker.ts';
 import { newRequestId } from '../logger.ts';
 import { resolveWorkspaceRoots } from '../snapshotRoute.ts';
 
@@ -116,6 +120,49 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     const results = Array.isArray(parsed.results) ? (parsed.results as EvalResult[]) : [];
     const entries = generateTechDebt(results);
     send(res, 200, { techDebt: entries, count: entries.length });
+    });
+  });
+
+  // POST /anic/api/tech-debt/triage — 技术债**分诊**：按当前健康读数裁决每条提案。
+  //
+  // 为什么需要这个端点（cycle-88 根因分析）：health-* 提案由每日评估自动生成，
+  // 问题修掉后**永不关闭** —— 于是同一条「gate-check 成功率 63%」在 8 个日期各挂一条，
+  // 面板看起来「问题很多」，而其中大部分早已不成立。分诊给每条提案一个**终态**：
+  // stale（条件不复现 → 自动关闭，带证据）/ reproduced（复现 → 保留）/
+  // unverifiable（机器无法判定 → 保留待人工）。
+  //
+  // 边界（R-31）：本端点**只做记账**，不执行任何修复。机器能裁决的是
+  // 「测量条件是否复现」（可复算事实），不能裁决「产品上该不该修」（人的判断）。
+  reg('/anic/api/tech-debt/triage', 'POST', (req: RouteReq, res: unknown) => {
+    void readBody(req).then((parsed) => {
+    let root: string | null = null;
+    try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
+    if (!root) {
+      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      return;
+    }
+    const cyclesDir = join(root, '.cycles');
+    const listing = listTechDebt(cyclesDir);
+    const trackerState = loadFlowTracker(cyclesDir);
+    const health = analyzeSkillHealth(trackerState);
+    const decisions = triageTechDebt(listing.open, health);
+    const apply = parsed.apply !== false; // 默认**执行**分诊（否则端点是空壳）
+    const result = apply
+      ? applyTriage(cyclesDir, decisions, typeof parsed.actor === 'string' ? parsed.actor : 'anic:tech-debt-triage')
+      : { marked: 0, notFound: [], errors: [] };
+    send(res, 200, {
+      ok: true,
+      applied: apply,
+      total: decisions.length,
+      marked: result.marked,
+      errors: result.errors,
+      decisions: decisions.map((d) => ({ id: d.id, verdict: d.verdict, evidence: d.evidence })),
+      byVerdict: {
+        stale: decisions.filter((d) => d.verdict === 'stale').length,
+        reproduced: decisions.filter((d) => d.verdict === 'reproduced').length,
+        unverifiable: decisions.filter((d) => d.verdict === 'unverifiable').length,
+      },
+    });
     });
   });
 

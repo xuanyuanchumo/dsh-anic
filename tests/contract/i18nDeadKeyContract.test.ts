@@ -152,9 +152,13 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   traceUp / traceDown / traceTruncated / traceExit）⇒ 462。这 8 条对应
      *   「搜索跳转 + 路径追溯」两个真实交互面：计数、跳转可达名、追溯状态条四段
      *   文案与退出按钮，每一条都在 `graphToolbarSearch.ts` / `graphTraceBar.ts` 里
-     *   有 `t()` 消费点（① 的零死键棘轮机械保证）。上限抬到 480（留 18 条余量）。
+     *   有 `t()` 消费点（① 的零死键棘轮机械保证）。上限抬到 510（cycle-89 自举分区 +25 键）。
+     *   cycle-89 二轮：510 → 525。图谱现代化 6 项能力新增 14 键（视图组 / 泳道表头 /
+     *   布局模式 / 仅异常筛选 / fit-to-selection / 导出 SVG / 全屏）+ 归属矩阵 10 键
+     *   = 24 条真实功能面文案（每条都有 `t()` 消费点，由 ① 的零死键棘轮机械保证）。
+     *   上限抬到 525 —— 留 1 条余量（本轮实际 511），仍能拦住"一次加 100 条没人用"的形态。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(480);
+    expect(zhKeys.length).toBeLessThanOrEqual(525);
   });
 });

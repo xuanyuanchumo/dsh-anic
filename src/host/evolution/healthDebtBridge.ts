@@ -69,6 +69,72 @@ export interface HealthDebtResult {
 const SEV_RANK: Record<DebtSeverity, number> = { low: 1, medium: 2, high: 3, critical: 4 };
 
 /**
+ * 跨日未决条目索引（cycle-89）：建议 id → 那条未决提案的位置。
+ *
+ * 为什么要它：修复前去重只看**同日**文件，于是「auto-fix-loop 超时率 75%」
+ * 这**同一个问题**在 3 个日期各生成一条提案 —— 面板上是「3 个问题」，
+ * 实际是「1 个问题被记了 3 次」。这不是显示问题，是**债务计数失真**：
+ * 用户按数字决定修什么，就修错了地方。
+ *
+ * 只收 `resolved !== true` 的条目（已偿还的走复活防御，不算「仍欠着」）。
+ */
+interface OpenEntryRef {
+  /** 所在文件绝对路径。 */
+  filePath: string;
+  /** 该条目的原始 id（含日期后缀）。 */
+  entry: TechDebtEntry;
+}
+
+/** 建议 id → 未决条目（同 id 多条时取日期最新的那条）。 */
+function openSuggestionsById(dir: string): Map<string, OpenEntryRef> {
+  const map = new Map<string, OpenEntryRef>();
+  if (!existsSync(dir)) return map;
+  for (const f of readdirSync(dir)) {
+    if (!f.startsWith('health-') || !f.endsWith('.json')) continue;
+    const filePath = join(dir, f);
+    try {
+      const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+      if (!Array.isArray(raw)) continue;
+      for (const e of raw as TechDebtEntry[]) {
+        if (typeof e?.id !== 'string' || e.resolved === true) continue;
+        const m = e.id.match(/^health-(.*)-\d{4}-\d{2}-\d{2}$/);
+        const suggId = m?.[1];
+        if (suggId === undefined) continue;
+        const prev = map.get(suggId);
+        // 同 suggId 多条未决：取**日期最新**的那条（文件名字典序 = 日期序）。
+        if (prev === undefined || e.id > prev.entry.id) map.set(suggId, { filePath, entry: e });
+      }
+    } catch {
+      // 损坏文件跳过——防御不因脏数据失效
+    }
+  }
+  return map;
+}
+
+/**
+ * 更新一条未决提案的 severity（真实恶化时用）。
+ *
+ * 为什么是**改**而不是新建：新建会让队列里同时存在「旧的一条 + 新的一条」，
+ * 反而多了一条债。升级的正确语义是「同一条债变严重了」。
+ * 写失败**不抛**：升级失败只是「本次没记下恶化」，不能让整次持久化失败。
+ */
+function updateOpenSeverity(filePath: string, entryId: string, next: TechDebtEntry): void {
+  try {
+    const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+    if (!Array.isArray(raw)) return;
+    const list = raw as TechDebtEntry[];
+    const idx = list.findIndex((e) => e.id === entryId);
+    if (idx < 0) return;
+    const prev = list[idx];
+    if (prev === undefined) return;
+    list[idx] = { ...prev, severity: next.severity, description: next.description };
+    atomicWriteFileSync(filePath, JSON.stringify(list, null, 2));
+  } catch {
+    // 写失败不抛（见函数头注）
+  }
+}
+
+/**
  * 从历史 health-*.json 提取「已 resolved 的建议 id → 落盘时的 severity」。
  *
  * entry.id 形如 `health-<suggId>-<YYYY-MM-DD>`——suggId 用正则剥前后缀还原。
@@ -101,11 +167,20 @@ function resolvedSuggestionHistory(dir: string): Map<string, DebtSeverity> {
 /**
  * 健康建议 → tech-debt 提案文件（.cycles/tech-debt/health-<date>.json）。
  *
- * 幂等语义（两层）：
- * 1. 同日幂等：读同日文件已有的 entry id 集合，同 id 跳过；
- * 2. 复活防御（cycle-56）：扫全部 health-*.json，同 suggId 已 resolved 且
+ * 幂等语义（**三层**，cycle-89 补第 1 层）：
+ *
+ * 1. **跨日未决去重**（cycle-89 新增）：同一条建议若在**之前的日期文件**里
+ *    已有**未决**条目 → **不新建**，只更新那条的 severity/描述（若变化）。
+ *    修复前：去重只看**同日**文件（`knownIds` 来自当天文件），于是
+ *    「auto-fix-loop 超时率 75%」这条**同一个问题**在 10-28 / 10-29 / 10-30
+ *    各生成一条提案 —— 3 天 3 条，面板上看起来是「3 个问题」，
+ *    实际是「1 个问题被记了 3 次」。这正是 cycle-88 根因分析里说的
+ *    「债务没有生命周期」。
+ * 2. 同日幂等：读同日文件已有的 entry id 集合，同 id 跳过；
+ * 3. 复活防御（cycle-56）：扫全部 health-*.json，同 suggId 已 resolved 且
  *    当前 severity 未超过历史最高 → 跳过（已偿还的债务不因日期翻页复活）；
  *    severity 升级 → 重开新提案（真实恶化）。
+ *
  * written/skipped/skippedResolved 如实分开计数——面板与测试都能区分
  * 「新债/同日已登记/已偿还防御」。
  * 写失败抛给调用方（Post-Verify 纪律：写不进去不算落盘）。
@@ -133,6 +208,9 @@ export function persistHealthSuggestionsAsDebt(
   }
   const knownIds = new Set(existing.map((e) => e.id));
   const resolvedHist = resolvedSuggestionHistory(dir);
+  // cycle-89：跨日未决去重 —— 找出「在别的日期文件里、仍未决」的同建议条目。
+  // 只认**未决**（open）：已 resolved 的走复活防御逻辑（第 3 层）。
+  const openElsewhere = openSuggestionsById(dir);
 
   const fresh: TechDebtEntry[] = [];
   let skipped = 0;
@@ -140,6 +218,16 @@ export function persistHealthSuggestionsAsDebt(
   for (const s of suggestions) {
     const entry = suggestionToEntry(s, nowIso);
     if (knownIds.has(entry.id)) {
+      skipped++;
+      continue;
+    }
+    // cycle-89：同建议已在**其它日期**文件里未决 → 不新建（同一个问题不重复记债）。
+    // severity 升级时仍要更新那条（真实恶化）—— 所以这里落到 update 而不是纯 skip。
+    const priorOpen = openElsewhere.get(s.id);
+    if (priorOpen !== undefined) {
+      if (SEV_RANK[entry.severity] > SEV_RANK[priorOpen.entry.severity]) {
+        updateOpenSeverity(priorOpen.filePath, priorOpen.entry.id, entry);
+      }
       skipped++;
       continue;
     }

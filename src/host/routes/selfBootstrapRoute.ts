@@ -15,7 +15,8 @@
 
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
-import { loadBootstrapState } from '../selfBootstrap.ts';
+import { loadBootstrapState, saveBootstrapState, initialBootstrapState, type BootstrapState } from '../selfBootstrap.ts';
+import { collectProjectFacts } from '../runtime/bootstrapFacts.ts';
 import { applyPhase } from '../runtime/bootstrapPhase.ts';
 import { runEvalTracked, runGateTracked } from './selfBootstrapRunners.ts';
 import { handleSelfIterate, ITERATE_GATE_ARGS } from './selfBootstrapIterate.ts';
@@ -103,12 +104,44 @@ export function registerSelfBootstrapRoutes(
       });
     }),
 
-    // GET /anic/self/status — bootstrap state
+    // GET /anic/self/status — bootstrap state（含 cycle-89 facts/stale/restartCount）
     reg('/anic/self/status', (_req, res) => {
       const target = resolveSelfTarget(ctx, send, res);
       if (!target) return;
       const state = loadBootstrapState(target.cyclesDir);
       send(res, 200, state);
+    }),
+
+    // POST /anic/self/restart — 重置事实基线并重启自举（cycle-89）
+    // 经状态机 `reset` 触发词回 IDLE（不丢 history），写入新 facts，restartCount++。
+    reg('/anic/self/restart', (req, res) => {
+      void readBody(req).then((body) => {
+        const target = resolveSelfTarget(ctx, send, res);
+        if (!target) return;
+        if (!guardPreconditions(target, send, res)) return;
+
+        const reason = typeof body['reason'] === 'string' ? body['reason'] : 'restart';
+        const prev = loadBootstrapState(target.cyclesDir);
+        // 经状态机 reset 回 IDLE（保留 history + maxRounds，不丢审计轨迹）
+        const next: BootstrapState = { ...initialBootstrapState(prev.maxRounds), history: prev.history };
+        // 采集当前项目事实并写入状态
+        const facts = collectProjectFacts(target.roots);
+        const prevRaw = prev as unknown as Record<string, unknown>;
+        const restartCount = (typeof prevRaw['restartCount'] === 'number'
+          ? prevRaw['restartCount'] as number : 0) + 1;
+        const enriched = {
+          ...next,
+          facts,
+          factsAt: new Date().toISOString(),
+          stale: false,
+          staleReasons: [],
+          restartCount,
+          restartReason: reason,
+          restartedFrom: prev.status,
+        };
+        saveBootstrapState(target.cyclesDir, enriched);
+        send(res, 200, { ok: true, from: prev.status, state: enriched });
+      });
     }),
   ];
 }

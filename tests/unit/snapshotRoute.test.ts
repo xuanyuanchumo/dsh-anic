@@ -343,11 +343,15 @@ describe('宿主入口 apply', () => {
     '/anic/api/trust', '/anic/api/autonomy', '/anic/api/breakers', '/anic/api/tech-debt',
     // cycle-16 G-C3：tech-debt 消费侧（GET list 读面 + consume 记账写面）
     '/anic/api/tech-debt/list', '/anic/api/tech-debt/consume',
+    // cycle-89：技术债分诊（按当前健康读数裁决每条提案的终态，让债务队列可收敛）
+    '/anic/api/tech-debt/triage',
     // R3 阶段 1 余量：证据化自主级回退（技能 cmdAutoFallback 插件等价物）
     '/anic/autonomy/downgrade',
     '/anic/governance/archive', '/anic/governance/budget', '/anic/governance/sweep', '/anic/governance/prune',
     // M7 自举闭环
     '/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status',
+    // cycle-89：跨工作区自举（「举他」）——在目标项目跑同一循环，源工作区零写入
+    '/anic/self/bootstrap-other',
     // M8 跨项目技能调用
     '/anic/skill/list', '/anic/skill/invoke', '/anic/evaluate', '/anic/iterate',
     // M11 技能内联 + 原生脚本；cycle-19 eco P0 新增 repair（doctor 语义并入 status）
@@ -372,6 +376,10 @@ describe('宿主入口 apply', () => {
     '/anic/api/config/paths', '/anic/api/config/rollback',
     // cycle-83：产物治理（归档清单只读 + 归档基线重置写面）——archiveResetRoute 两条
     '/anic/api/archive/inventory', '/anic/api/archive/baseline',
+    // cycle-89：自举事实基线重启（重置 EXHAUSTED + 写新 facts，经状态机 reset）
+    '/anic/self/restart',
+    // cycle-89：流程归属矩阵（join key 的**消费面** —— 此前只有生产没有出口）
+    '/anic/api/flows/matrix',
   ];
 
   it('有 effect：setup 经 effect 执行并带 label；effect 的返回 disposer 由宿主承接', () => {

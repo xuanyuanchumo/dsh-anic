@@ -210,3 +210,22 @@ export function centerOnWorld(world: Point, size: Size, viewport: Viewport, scal
     ty: cy - finite(world.y, 0) * s,
   };
 }
+
+/**
+ * 当前视口在**世界坐标**里覆盖的矩形（cycle-90 导出 SVG / fit-to-selection 用）。
+ *
+ * 为什么需要它：导出要"所见即所得"——屏幕上那一块对应世界里的哪块矩形，
+ * 必须由视口反解（`world = (screen - t) / s`），而不是靠猜。
+ *
+ * 边界：`size` 为 0 或非有限时回落到单位矩形（避免产 NaN viewBox——
+ * 一个 NaN viewBox 会让 SVG 整块不渲染，而导出文件是**离线**产物，没有用户
+ * 能在现场发现它坏了）。
+ */
+export function visibleRectOf(viewport: Viewport, size: Size): Rect {
+  const s = clampScale(viewport.scale);
+  const minX = -finite(viewport.tx, 0) / s;
+  const minY = -finite(viewport.ty, 0) / s;
+  const w = Math.max(1, finite(size.width, 0) / s);
+  const h = Math.max(1, finite(size.height, 0) / s);
+  return { minX, minY, maxX: minX + w, maxY: minY + h, width: w, height: h };
+}
