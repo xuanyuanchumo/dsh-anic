@@ -99,10 +99,47 @@ export function resolveFlows(layers: {
         warnings.push(`non-boolean value for '${id}' at ${layer} layer (ignored, default kept)`);
         continue;
       }
+      // cycle-90 修正：**层不支持 ⇒ 该层写入被拒**（fail-closed）。
+      //
+      // 实测反例：`flow.selfInit` / `flow.gateRecord` / `flow.budgetEnforce` /
+      // `flow.agentsOrchestration` 的 `layers` **不含 'user'**，但 user 层写入
+      // 此前**照样生效** —— resolveFlows 不看 `layers`，只按层序覆盖。
+      // 后果是**双重失真**：
+      //   ① 面板的 checkbox 让用户以为能关（`prefsDrawer.ts` 按 layers 渲染 title，
+      //      但 checkbox 本身没禁）——用户点了，界面变了；
+      //   ② 而该层写入本应被拒（`panel.selfInitOff` 那条 locale 键写的就是
+      //      「该开关只支持工作区/部署层，用户层不可写」）—— 真相与界面相反。
+      //
+      // 修法：层不在该开关的 `layers` 里 ⇒ **忽略该层写入 + 产出 warning**，
+      // 不改生效值。这样「不可写」在**数据面**与**界面面**同时成立。
+      const def = FLOWS.find((f) => f.id === id);
+      if (def !== undefined && !def.layers.includes(layer)) {
+        warnings.push(`'${id}' does not support the ${layer} layer (ignored; supported: ${def.layers.join('/')})`);
+        continue;
+      }
       flows[id] = { enabled: value, source: layer };
     }
   }
   return { flows, warnings };
+}
+
+/**
+ * 该开关在**用户层**是否可写（面板据此禁用 checkbox 并给出提示）。
+ *
+ * 为什么需要独立函数：`resolveFlows` 是**合并**语义（读三层配置），
+ * 而面板要的是**单层可写性**（这个开关我能不能点）。
+ * 两者是不同的抽象层 —— 混在一起会让面板为了画一个 disabled checkbox
+ * 而去构造三层配置。
+ *
+ * 与 `resolveFlows` 的拒绝逻辑**同源**（都读 `FlowDefinition.layers`），
+ * 避免两处各判一次、判出不同结果。
+ */
+export function isUserWritable(flowId: string): boolean {
+  const def = FLOWS.find((f) => f.id === flowId);
+  // 未知 id ⇒ **可写**（保守：让用户能试，由 resolveFlows 产出 unknown 告警）。
+  // 反过来（未知判为不可写）会让新加的开关在配好 locale 前就变成死开关。
+  if (def === undefined) return true;
+  return def.layers.includes('user');
 }
 
 /** 关闭中的 flow id 列表（INV-30 观测面的数据源） */

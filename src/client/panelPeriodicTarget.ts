@@ -42,6 +42,8 @@ import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from './features/flows/renderFlows.ts';
 // cycle-89：流程归属矩阵（join key 消费面）。
 import { isFlowMatrix, type FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
+// cycle-90：生命周期指标。
+import { isLifecycleMetrics, LIFECYCLE_METRICS_URL, type LifecycleMetricsJson } from './features/flows/lifecycleTypes.ts';
 import {
   isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL,
   type CycleListJson, type CycleStateJson,
@@ -72,6 +74,8 @@ export function periodicTarget(s: PanelActions, ledgerLimit: number): PanelFetch
     { url: FLOWS_STATUS_URL, guard: isFlowStatus, apply: (v) => { s.setFlowsStatus(v as FlowStatusJson); }, onFail: fail('flowsStatus'), onRecover: recover('flowsStatus') },
     // cycle-89：归属矩阵（归属率 / 孤儿 / 门禁证据覆盖的量化条数据源）。
     { url: FLOW_MATRIX_URL, guard: isFlowMatrix, apply: (v) => { s.setFlowMatrix(v as FlowMatrixJson); }, onFail: fail('flowMatrix'), onRecover: recover('flowMatrix') },
+    // cycle-90：生命周期指标（KM / EWMA / 分位数+Gini 的读数出口）。
+    { url: LIFECYCLE_METRICS_URL, guard: isLifecycleMetrics, apply: (v) => { s.setLifecycleMetrics(v as LifecycleMetricsJson); }, onFail: fail('lifecycleMetrics'), onRecover: recover('lifecycleMetrics') },
     // cycle 时间线两端点（宏观节奏条）：list 给序列、state 给「当前推进到哪」。
     { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { s.setCycleList(v as CycleListJson); }, onFail: fail('cycleList'), onRecover: recover('cycleList') },
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { s.setCycleState(v as CycleStateJson); }, onFail: fail('cycleState'), onRecover: recover('cycleState') },

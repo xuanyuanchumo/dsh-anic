@@ -352,6 +352,8 @@ describe('宿主入口 apply', () => {
     '/anic/self/evaluate', '/anic/self/gate-check', '/anic/self/iterate', '/anic/self/status',
     // cycle-89：跨工作区自举（「举他」）——在目标项目跑同一循环，源工作区零写入
     '/anic/self/bootstrap-other',
+    // cycle-90：生命周期指标（KM 生存分析 / EWMA 控制图 / 分位数+Gini）
+    '/anic/api/flows/lifecycle',
     // M8 跨项目技能调用
     '/anic/skill/list', '/anic/skill/invoke', '/anic/evaluate', '/anic/iterate',
     // M11 技能内联 + 原生脚本；cycle-19 eco P0 新增 repair（doctor 语义并入 status）

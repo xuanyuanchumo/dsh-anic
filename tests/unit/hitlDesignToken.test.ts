@@ -51,6 +51,20 @@ describe('H1：设计令牌表不判为敏感文件', () => {
     expect(r.circuit).toBe(true);
   });
 
+  it('**测试文件含 token 字样 → 豁免**（cycle-90 第二处同类误报）', () => {
+    // `tests/unit/hitlDesignToken.test.ts` 名字含 token，但它是「测这个守卫的
+    // 测试文件」，不是「存凭据的文件」⇒ 不该被判成敏感文件未受保护。
+    const r = evaluateH1(['tests/unit/hitlDesignToken.test.ts'], 'node_modules/' + String.fromCharCode(10), []);
+    expect(r.passed).toBe(true);
+    expect(r.circuit).toBe(false);
+  });
+
+  it('**真凭据容器即便在 tests/ 下也不豁免**', () => {
+    const r = evaluateH1(['tests/fixtures/credentials.json'], 'node_modules/' + String.fromCharCode(10), []);
+    expect(r.passed).toBe(false);
+    expect(r.circuit).toBe(true);
+  });
+
   it('**mytokens.ts 不被豁免**', () => {
     const r = evaluateH1(['mytokens.ts'], 'node_modules/\n', []);
     expect(r.passed).toBe(false);

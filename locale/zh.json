@@ -585,5 +585,30 @@
     "gateLabel": "门禁证据",
     "none": "无",
     "noGateEvidence": "暂无门禁证据"
+  },
+  "flowLifecycle": {
+    "title": "生命周期指标",
+    "window": "数据窗口",
+    "unattributed": "归属覆盖",
+    "orphansNote": "{n} 条孤儿不参与按门分组统计",
+    "ledgerNote": "账本 {n} 条裁决（{gates}；H1–H4 账本内 0 条）",
+    "survivalMedian": "门禁修复中位数",
+    "survivalCi": "95% 置信区间",
+    "repairEpisodes": "修复 episode（失败→通过）",
+    "censored": "右删失",
+    "runPassRate": "跑门禁通过率",
+    "runs": "run 数",
+    "outOfControl": "越界点",
+    "sensitivity": "需连续 ≥{n} 次失败才触发 3σ 规则",
+    "runBoundary": "run 边界按 {n}s 间隔划分",
+    "p50": "P50",
+    "p95Type7": "P95（Type 7 插值）",
+    "p95NearestRank": "P95（最近秩·SLA 口径）",
+    "gini": "Gini 系数",
+    "shapeLongTail": "长尾（少数极慢样本主导）",
+    "shapeBalanced": "均衡",
+    "truncated": "⚠ 数据窗口已截断（丢弃 {n} 条最旧记录）",
+    "insufficient": "样本不足（n={n} < {min}），不可判定",
+    "sensitivityFloor": "3σ 规则在本口径下触不到（EWMA 距中心线最多 {n}σ）"
   }
 }

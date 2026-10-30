@@ -26,7 +26,9 @@ import { PHASE_IDS } from '../flows/macroPhaseEngine.ts';
 import { loadFlowProjection } from '../flows/persistence.ts';
 // cycle-89：流程 ↔ 循环/相位/门禁 矩阵（join key 的**消费面** —— 此前只有生产没有出口）。
 import { buildFlowMatrixForWorkspace } from '../flows/flowMatrixView.ts';
+import { filterByWorkspace } from '../flows/flowWorkspaceScope.ts';
 import { loadFlowTracker } from '../runtime/flowTracker.ts';
+// cycle-90：生命周期指标（KM 生存分析 / EWMA 控制图 / 分位数 + Gini）。
 import { readBody, type RouteReq } from './routeContext.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
@@ -71,8 +73,8 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   });
 
   // GET /anic/flows/status — 一站式观测面（D10 宿主域接线：客户端面板消费）
-  // 单流程 /anic/flows/state 面板侧要发 N 次请求；本路由一次返回全部注册流程
-  // + 各自投影（无投影 = 从未运行过，如实为 null 不伪造 IDLE）。
+  // 单流程 /anic/flows/state 面板侧要发 N 次请求；本路由一次返回全部流程 + 各自投影
+  //（无投影 = 从未运行过，如实为 null 不伪造 IDLE）。
   reg('/anic/flows/status', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
     const cyclesDir = root ? `${root}/.cycles` : null;
@@ -99,9 +101,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
     const d = listFlows().find((f) => f.id === flowId);
     if (!d) return send(res, 404, { error: `ANIC_ROUTE_UNKNOWN_FLOW:${flowId}` });
     const cyclesDir = `${root}/.cycles`;
-    const projection = existsSync(cyclesDir)
-      ? loadFlowProjection(cyclesDir, flowId)
-      : null;
+    const projection = existsSync(cyclesDir) ? loadFlowProjection(cyclesDir, flowId) : null;
     // 无投影 = 从未运行过（IDLE 的默认态不落盘 —— 投影只记已发生的事实）
     send(res, 200, { flowId, projection, descriptor: descriptorView(d) });
   });
@@ -109,7 +109,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   // GET /anic/api/flows/matrix — 流程 ↔ 循环/相位/门禁 矩阵（cycle-89）
   //
   // 为什么需要这个出口：joinFlows / coverageMetrics 生产了归属数据，但此前
-  // **没有任何路由暴露它** —— 「生产了但没人消费」，正是用户点名的空心问题。
+  // **没有任何路由暴露它** —— 「生产了但没人消费」（用户点名的空心问题）。
   // 隔离纪律（fail-closed）：拿不到工作区 → 500，**绝不**返回全项目的流。
   reg('/anic/api/flows/matrix', (req, res) => {
     const root = deps.getWorkspaceRoot(req);

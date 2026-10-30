@@ -18,6 +18,8 @@ import type { OrgStatusJson } from './features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from './features/flows/renderFlows.ts';
 // cycle-89：流程归属矩阵（join key 的消费面）。
 import type { FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
+// cycle-90：生命周期指标（KM 生存分析 / EWMA 控制图 / 分位数+Gini）。
+import type { LifecycleMetricsJson } from './features/flows/lifecycleTypes.ts';
 import type { CycleListJson, CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from './features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from './features/hitl/renderHitl.ts';
@@ -64,6 +66,13 @@ export interface PanelState {
    * 而不是渲染一张全 0 的假量化表（那会把「取不到」读成「归属率 0%」）。
    */
   flowMatrix: FlowMatrixJson | null;
+  /**
+   * 生命周期指标（cycle-90）—— `GET /anic/api/flows/lifecycle` 的响应。
+   *
+   * null 语义与其它 4s 档切片一致：「还没拉到」。分区据此不渲染主体，
+   * 而不是渲染一张全 0 的假读数表（那会把「取不到」读成「通过率 0%」）。
+   */
+  lifecycleMetrics: LifecycleMetricsJson | null;
   cycleList: CycleListJson | null;
   cycleState: CycleStateJson | null;
   ledgerList: LedgerListJson | null;
@@ -142,6 +151,7 @@ export function createInitialPanelState(): PanelState {
     orgStatus: null,
     flowsStatus: null,
     flowMatrix: null,
+    lifecycleMetrics: null,
     cycleList: null,
     cycleState: null,
     ledgerList: null,

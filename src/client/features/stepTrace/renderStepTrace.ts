@@ -8,6 +8,7 @@ import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import { StatusDot } from '../../components/statusDot.ts';
 import { toneColor, type ToneName } from '../../components/dataRow.ts';
+import { composeStepLabel } from './traceLabels.ts';
 
 export interface TraceStepJson {
   nodeId: string;
@@ -42,6 +43,21 @@ function statusToneOf(status: string): ToneName {
   return 'pending';
 }
 
+/**
+ * 步骤行的「类型 · 状态」标签。
+ *
+ * 改造前这里是 `${s.kind} · ${s.status}` —— 用户看到的是裸英文 token
+ * （`micro-step · done`）。现在两段都走词表（`trace.status*` / `graph.lane.*`），
+ * 未知词回落**原始 token**：绝不让"键名本身"漏到用户面（`trace.statusDone`
+ * 比 `done` 更糟——它既不是人话，也不是真实状态）。
+ *
+ * 词表查找用 `t` 注入 ⇒ traceLabels.ts 保持纯函数、可独立单测，且能构造
+ * "键不存在"这一态（真 locale 五个状态键都在，用真 `t()` 永远测不出兜底）。
+ */
+function stepLabelOf(s: TraceStepJson): string {
+  return composeStepLabel(s.kind, s.status, t);
+}
+
 /** 纯渲染：StepTrace JSON → 元素树（smoke 可断言）。 */
 export function renderStepTrace(trace: StepTraceJson): ReactElement {
   const rows = trace.steps.map((s) =>
@@ -57,7 +73,7 @@ export function renderStepTrace(trace: StepTraceJson): ReactElement {
       },
       StatusDot({ color: toneColor(statusToneOf(s.status)), size: 10, border: true }),
       createElement('span', { style: { minWidth: 160, color: token('anic-text') } }, s.name || s.nodeId),
-      createElement('span', { style: { color: token('anic-text-dim') } }, `${s.kind} · ${s.status}`),
+      createElement('span', { style: { color: token('anic-text-dim') } }, stepLabelOf(s)),
       s.basis === 'heuristic'
         ? createElement('span', {
             'data-anic-heuristic': 'true',

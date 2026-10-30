@@ -36,6 +36,8 @@ import { registerDualBootstrapRoute } from './dualBootstrapRoute.ts';
 import { registerTruthAuditRoute } from './truthAuditRoute.ts';
 import { registerInvocationRoute } from './invocationRoute.ts';
 import { registerFlowsRoute } from './flowsRoute.ts';
+// cycle-90：生命周期指标路由（KM 生存分析 / EWMA 控制图 / 分位数+Gini）。
+import { registerLifecycleMetricsRoute } from './lifecycleMetricsRoute.ts';
 // cycle-72 T-7207：闭环体检（注册↔生产↔消费 三态矩阵）只读查询面。
 import { registerClosureAuditRoute } from './closureAuditRoute.ts';
 // cycle-80：热更新重载运维通道（POST /anic/api/reload，ctx.hmr 的 HTTP 消费面）。
@@ -175,6 +177,8 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   // ── flows 域（R3 阶段 2：流程状态流转机观测面 + 运行面）──
   disposers.push(...registerFlowsRoute(c, send, { getWorkspaceRoot }));
+  // cycle-90：生命周期指标（三个数学模型的读数出口）。
+  disposers.push(...registerLifecycleMetricsRoute(c, send, { getWorkspaceRoot }));
 
   // ── runtime 域（cycle-80：热更新重载运维通道）──
   // 为什么进 self/runtime 面而非 data：它会触发宿主拆装插件（有副作用），属运维动作；

@@ -7,7 +7,7 @@
  * （INV-30：全部开关状态可观测）。开关 hover 显示关闭形态契约（degradation）。
  */
 import { createElement, type ReactElement } from 'react';
-import { FLOWS, PREFS_KEY, parseRawPrefs, resolveFlows, type FlowLayer } from '../../../shared/flows.ts';
+import { FLOWS, PREFS_KEY, isUserWritable, parseRawPrefs, resolveFlows, type FlowLayer } from '../../../shared/flows.ts';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 
@@ -80,24 +80,47 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
   const rows = FLOWS.map((f) => {
     const state = resolved.flows[f.id] ?? { enabled: true, source: null as FlowLayer | null };
     const sourceLabel = sourceLabelOf(state.source);
+    // cycle-90：该开关是否支持**用户层**写入（`layers` 不含 'user' ⇒ 不可写）。
+    //
+    // 实测反例：`flow.selfInit` 的 layers 是 workspace/deployment，但此前 checkbox
+    // **可点**且点击会写进用户层 —— 而用户层写入本应被拒（`resolveFlows` 已修）。
+    // 于是用户点一下、界面变了、而真相没变 ——「面板在骗人」。
+    //
+    // 现在：不可写 ⇒ checkbox **禁用** + title 换成专门文案（`panel.selfInitOffTitle`）。
+    // 该文案说明「为什么不能点」（只支持工作区/部署层），而不只是「禁用」。
+    const writable = isUserWritable(f.id);
+    const title = writable ? f.degradation : t('panel.selfInitOffTitle');
     return createElement(
       'label',
-      { key: f.id, 'data-anic-flow-row': f.id, style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '3px 0', cursor: 'pointer' }, title: f.degradation },
+      { key: f.id, 'data-anic-flow-row': f.id, 'data-anic-flow-writable': writable ? 'true' : 'false', style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '3px 0', cursor: writable ? 'pointer' : 'default' }, title },
       createElement('input', {
         type: 'checkbox',
         'data-anic-flow-toggle': f.id,
         checked: state.enabled,
+        disabled: !writable,
         // cycle-41（a11y 收紧）：包裹 label 已提供可达名（既有模式正确）；
         // 显式 aria-label 让名字不依赖 label 包裹结构的解析——自动化检测器
         // （不解析 label 关联的那类）与未来 DOM 重构都稳妥。
         'aria-label': t(f.labelKey),
         onChange: () => {
+          // 双保险：即便 UI 层被绕过（自动化/脚本直接写 prefs），
+          // 也不把不可写开关的改动写进用户层。resolveFlows 侧同样会拒（fail-closed）。
+          if (!writable) return;
           const next: Record<string, boolean> = { ...user, [f.id]: !state.enabled } as Record<string, boolean>;
           writeUserPrefs(next);
           onChange(next);
         },
       }),
-      createElement('span', { style: { flex: 1, color: token('anic-text') } }, t(f.labelKey)),
+      createElement('span', { style: { flex: 1, color: token('anic-text'), opacity: writable ? 1 : 0.6 } }, t(f.labelKey)),
+      // 不可写开关的**说明行**（`panel.selfInitOff`）：告诉用户「它已按某层关闭 /
+      // 你不能在这里改」，而不是只留一个灰掉的 checkbox（那读起来像 bug）。
+      writable
+        ? null
+        : createElement(
+          'span',
+          { 'data-anic-flow-off-note': f.id, style: { fontSize: 10, color: token('anic-text-faint') } },
+          t('panel.selfInitOff'),
+        ),
       createElement('span', { style: { fontSize: 10, color: token('anic-text-faint') } }, t('prefs.sourceLine', { source: sourceLabel, layers: f.layers.join('/') })),
     );
   });

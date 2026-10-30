@@ -27,6 +27,8 @@ import type { OrgStatusJson } from '../features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from '../features/flows/renderFlows.ts';
 // cycle-89：流程归属矩阵切片。
 import type { FlowMatrixJson } from '../features/flows/flowMatrixTypes.ts';
+// cycle-90：生命周期指标切片。
+import type { LifecycleMetricsJson } from '../features/flows/lifecycleTypes.ts';
 import type { CycleListJson, CycleStateJson } from '../features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from '../features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from '../features/hitl/renderHitl.ts';
@@ -77,6 +79,8 @@ export interface PanelActions {
   setFlowsStatus(v: FlowStatusJson): void;
   /** 流程归属矩阵落地（cycle-89 4s 档；量化条的数据源）。 */
   setFlowMatrix(v: FlowMatrixJson): void;
+  /** 生命周期指标落地（cycle-90 4s 档）。 */
+  setLifecycleMetrics(v: LifecycleMetricsJson): void;
   setCycleList(v: CycleListJson): void;
   setCycleState(v: CycleStateJson): void;
   setSkillHealth(v: SkillHealthJson): void;
@@ -166,6 +170,7 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     setOrgStatus: (v) => { store.setState({ orgStatus: v }); },
     setFlowsStatus: (v) => { store.setState({ flowsStatus: v }); },
     setFlowMatrix: (v) => { store.setState({ flowMatrix: v }); },
+    setLifecycleMetrics: (v) => { store.setState({ lifecycleMetrics: v }); },
     setCycleList: (v) => { store.setState({ cycleList: v }); },
     setCycleState: (v) => { store.setState({ cycleState: v }); },
     setSkillHealth: (v) => { store.setState({ skillHealth: v }); },

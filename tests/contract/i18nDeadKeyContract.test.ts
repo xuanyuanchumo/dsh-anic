@@ -60,32 +60,33 @@ const RESERVED: ReadonlyArray<{ key: string; reason: string }> = [
     reason: '类元数据：scripts/validate-dsh.mjs:75 要求非空、dshConformance 断言其真值、宿主按属性路径读插件描述——'
       + '不是 t() 查找，故扫描器（只认引号字面量）看不见它。删了会直接打穿 lint 与 conformance 契约。',
   },
-  {
-    key: k('panel', 'selfInitOff'),
-    reason: '功能缺口：flow.selfInit 关闭态在工具栏**零说明**（自举按钮仍可点，点了只会拿到失败反馈）。'
-      + '该文案正是关闭态说明，待接线而非多余。',
-  },
-  {
-    key: k('panel', 'selfInitOffTitle'),
-    reason: '功能缺口：同上关闭态的 title 提示（解释该开关只支持工作区/部署层）。与 selfInitOff 成对，保留成对。',
-  },
-  {
-    key: k('trace', 'statusActive'),
-    reason: '功能缺口：renderStepTrace.ts:60 直接把裸英文 token 拼进用户面（kind + status 两段），'
-      + '四个状态词的中文键存在却未接线——用户看到的是 done/active/failed，不是"完成/进行中"。',
-  },
-  {
-    key: k('trace', 'statusFailed'),
-    reason: '功能缺口：同 trace.statusActive（步骤状态文本未本地化，当前显示裸 token）。',
-  },
-  {
-    key: k('trace', 'statusSkipped'),
-    reason: '功能缺口：同 trace.statusActive（步骤状态文本未本地化，当前显示裸 token）。',
-  },
-  {
-    key: k('trace', 'statusPending'),
-    reason: '功能缺口：同 trace.statusActive（步骤状态文本未本地化，当前显示裸 token）。',
-  },
+  // cycle-90：`panel.selfInitOff` / `panel.selfInitOffTitle` **已接线**，
+  // 从 RESERVED 移出（零死键棘轮 ① 要求未消费键集 ⇄ RESERVED 双向相等）。
+  //
+  // 接线落点：`src/client/features/prefs/prefsDrawer.ts` ——
+  //   - `panel.selfInitOffTitle` → 不可写开关（layers 不含 'user'）的 checkbox title；
+  //   - `panel.selfInitOff` → 同开关的说明行（`data-anic-flow-off-note`）。
+  //
+  // 接线的同时修了根因（cycle-90）：`resolveFlows` 此前**不检查** `layers` ——
+  // user 层能写 `flow.selfInit`（layers 只有 workspace/deployment）而照样生效。
+  // 于是面板 checkbox 可点、界面变了、真相没变。根因修在 `src/shared/flows.ts`：
+  // 层不支持 ⇒ 该层写入被拒并产出 warning；面板侧用 `isUserWritable()` 禁用 checkbox。
+  // cycle-90：`trace.statusActive` / `statusFailed` / `statusSkipped` / `statusPending`
+  // **已接线**，从 RESERVED 移出（零死键棘轮 ① 要求未消费键集 ⇄ RESERVED 双向相等）。
+  //
+  // 接线落点：`src/client/features/stepTrace/traceLabels.ts`（新增）+
+  // `renderStepTrace.ts`（改为调用 `composeStepLabel(s.kind, s.status, t)`）。
+  //
+  // ## 关键实现约束（踩过才知道）
+  //
+  // ① **不能用拼键**（`t('trace.status' + cap(status))`）——
+  //    闭环体检的 i18n 扫描器只认**引号字面量里的完整键名**，拼出来的键在源码里
+  //    不可枚举 ⇒ 词表侧仍判「无人消费」⇒ 死键照旧红。
+  //    ⇒ 必须用**显式映射表**（`STATUS_KEYS` / `KIND_KEYS`），
+  //    与 `renderClosure.ts` 的 `KIND_KEYS` 先例同款。
+  // ② **缺键必须回落原始 token**（不是键名）—— 宿主与客户端是两条独立发版链，
+  //    新状态词可能在旧词表里不存在；显示 `trace.statusBlocked` 比显示 `blocked` 更糟。
+  //    判定「取不到」用 `label === key`（`t()` 缺键时返回键名本身，空串也是合法回退）。
 ];
 
 const summary = runClosureAudit(PLUGIN_ROOT);
@@ -156,9 +157,14 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   cycle-89 二轮：510 → 525。图谱现代化 6 项能力新增 14 键（视图组 / 泳道表头 /
      *   布局模式 / 仅异常筛选 / fit-to-selection / 导出 SVG / 全屏）+ 归属矩阵 10 键
      *   = 24 条真实功能面文案（每条都有 `t()` 消费点，由 ① 的零死键棘轮机械保证）。
-     *   上限抬到 525 —— 留 1 条余量（本轮实际 511），仍能拦住"一次加 100 条没人用"的形态。
+     *   cycle-90：525 → 540。生命周期指标新增 22 键（`flowLifecycle.*`：标题 / 数据窗口 /
+     *   归属覆盖 / 孤儿说明 / 账本口径 / KM 中位数 / CI / episode / 删失 / 通过率 / run 数 /
+     *   越界点 / 灵敏度 / run 边界 / P50 / P95 双口径 / Gini / 长尾形态 / 截断 / 样本不足）。
+     *   ⚠️ 这 22 键的**意义**是：让「读不出来」与「读出来是 0」在界面上**可区分**
+     *   （`insufficient` / `degenerate` / `truncated` 各有自己的文案）。
+     *   上限抬到 540 —— 留 7 条余量（本轮实际 533），仍能拦住"一次加 100 条没人用"的形态。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(525);
+    expect(zhKeys.length).toBeLessThanOrEqual(540);
   });
 });

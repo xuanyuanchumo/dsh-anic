@@ -585,5 +585,30 @@
     "gateLabel": "Gate evidence",
     "none": "none",
     "noGateEvidence": "No gate evidence"
+  },
+  "flowLifecycle": {
+    "title": "Lifecycle Metrics",
+    "window": "Data window",
+    "unattributed": "Attribution coverage",
+    "orphansNote": "{n} orphan flows excluded from gate-grouped stats",
+    "ledgerNote": "{n} ledger verdicts ({gates}; 0 H1–H4 entries)",
+    "survivalMedian": "Median gate repair time",
+    "survivalCi": "95% CI",
+    "repairEpisodes": "Repair episodes (fail→pass)",
+    "censored": "Right-censored",
+    "runPassRate": "Gate-run pass rate",
+    "runs": "Runs",
+    "outOfControl": "Out-of-control points",
+    "sensitivity": "Needs ≥{n} consecutive failures to trip 3σ",
+    "runBoundary": "Run boundary: {n}s gap",
+    "p50": "P50",
+    "p95Type7": "P95 (Type 7)",
+    "p95NearestRank": "P95 (nearest rank, SLA)",
+    "gini": "Gini coefficient",
+    "shapeLongTail": "Long-tail (few extreme samples dominate)",
+    "shapeBalanced": "Balanced",
+    "truncated": "⚠ Window truncated ({n} oldest dropped)",
+    "insufficient": "Insufficient data (n={n} < {min})",
+    "sensitivityFloor": "3σ rule unreachable at this granularity (EWMA floor {n}σ from centre line)"
   }
 }
