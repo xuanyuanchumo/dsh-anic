@@ -52,3 +52,50 @@ export function safeReadFileSync(filePath: string, fallback = ''): string {
     return fallback;
   }
 }
+
+/**
+ * **带瞬时重试的 rename**（cycle-91）—— 目录移动与文件覆盖共用。
+ *
+ * ## 为什么需要（cycle-91 实测缺陷）
+ *
+ * `atomicWriteFileSync` 早就有了瞬时重试（cycle-13 抖动加固），但**目录级
+ * rename 没有** ⇒ 三处归档路径（`archiveEngine.ts` / `artifactArchiveBaseline.ts`
+ * / `artifactArchiveRestore.ts`）在 Windows 上会被杀软/搜索索引器短暂持句柄
+ * 而 **EPERM**。
+ *
+ * **实测反例**（cycle-91 收口，真机）：`anic_flows_archive --cycle 90` ⇒
+ * ```
+ * Error: EPERM: operation not permitted,
+ *   rename 'D:\...\cycles\cycle-90' -> 'D:\...\archive\cycle-90'
+ * ```
+ * ⇒ **归档功能在真机上不可用**（且失败是硬错误，无优雅降级）。
+ *
+ * ## 为什么不是"忽略 EPERM"
+ *
+ * 归档是**移动**（不是复制）⇒ 失败意味着循环目录留在原地而 archive 下没有它
+ * ⇒ 状态是"半完成"（manifest 说归档了，实际没归档）⇒ **比抛错更糟**
+ * （撒谎）。⇒ 必须**重试到成功或抛出真实错误**。
+ *
+ * ## 退避参数
+ *
+ * 与 `atomicWriteFileSync` 同款（1ms/5ms/25ms）：Windows 的句柄占用窗口
+ * 实测在**毫秒级**（杀软扫描 / 索引器 stat），三次退避共 31ms 足够覆盖；
+ * 再长会拖慢**每次**归档（正常路径零延迟）。
+ */
+export function safeRenameSync(from: string, to: string): void {
+  const delays = [1, 5, 25];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      lastError = e;
+      if (!isTransientRenameError((e as NodeJS.ErrnoException).code)) throw e;
+      const backoff = delays[attempt];
+      if (backoff === undefined) break;
+      sleepSync(backoff);
+    }
+  }
+  throw lastError;
+}

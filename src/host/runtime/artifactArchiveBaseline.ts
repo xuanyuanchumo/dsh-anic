@@ -22,9 +22,10 @@
  * 落盘一律走 `shared/fs-safe.ts` 的 `atomicWriteFileSync`（写临时再 rename，
  * 防并发读看到半写 JSON）；目录移动用 `renameSync`（同卷原子）。
  */
-import { existsSync, mkdirSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
+import { moveDirectory } from './dirMove.ts';
 import {
   isCycleCompleteForArchive,
   listActiveCycles,
@@ -183,7 +184,13 @@ export function archiveBaseline(cyclesDir: string, opts: BaselineOptions = {}): 
       kept.push({ name, reason: 'missing-cycle-dir', detail: 'already present in archive; active copy preserved' });
       continue;
     }
-    renameSync(from, to);
+    // cycle-91：逐文件移动（目录 rename 被环境禁止，见 dirMove.ts 头注）。
+    const mv = moveDirectory(from, to);
+    if (!mv.ok) {
+      warnings.push(`${name}: move failed — ${mv.reason ?? 'unknown'}`);
+      kept.push({ name, reason: 'move-failed', detail: mv.reason ?? 'unknown' });
+      continue;
+    }
     archived.push(name);
     const entry = active.find((c) => c.name === name);
     manifestCycles.push({

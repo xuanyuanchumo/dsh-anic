@@ -13,7 +13,8 @@
  *    会让后续所有 previousHash 指向幽灵，verifyLedger 必报 CHAIN_BREAK）。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { moveDirectory } from '../runtime/dirMove.ts';
 import { join } from 'node:path';
 import { listCycleNames } from './macroPhaseEngine.ts';
 import { parseTaskRows } from './gateArtifacts.ts';
@@ -112,11 +113,18 @@ export function archiveOneCycle(workspaceRoot: string, cycleNum: number): Archiv
     const msg = `Cycle ${cycleName} already archived.`;
     return { ok: false, action: 'archive', message: msg, affected: [], error: msg };
   }
-  renameSync(cyclePath, archivePath);
+  // cycle-91：**不用目录 rename** —— 实测本机（Windows + 沙箱）禁止目录 rename
+  // （新建空目录 rename 也 EPERM，文件 rename 正常 ⇒ 环境层面的禁止，非瞬时锁）。
+  // ⇒ 改用「逐文件移动 + 删除源目录」（`dirMove.ts`），逐项可重入。
+  const moved = moveDirectory(cyclePath, archivePath);
+  if (!moved.ok) {
+    const msg = `Archive move failed for ${cycleName}: ${moved.reason ?? 'unknown error'} (moved=${String(moved.moved)}, skipped=${String(moved.skipped)})`;
+    return { ok: false, action: 'archive', message: msg, affected: [], error: msg };
+  }
   return {
     ok: true,
     action: 'archive',
-    message: `Archived ${cycleName} to ${archivePath} — ledger untouched (append-only hash chain, INV-9).`,
+    message: `Archived ${cycleName} to ${archivePath} (${String(moved.moved)} files moved) — ledger untouched (append-only hash chain, INV-9).`,
     affected: [cycleName],
   };
 }

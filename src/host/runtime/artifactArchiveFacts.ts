@@ -43,7 +43,12 @@ export type ArchiveBlockReason =
    * 为什么要单独一个原因而不是"不出现"：`kept` 的语义是"这轮为什么还留在活跃区"。
    * 静默从结果里消失会让调用方以为"它已经被归档了"——而它其实还在原地。
    */
-  | 'not-selected';
+  | 'not-selected'
+  /**
+   * cycle-91：搬移失败（Windows + 沙箱禁止目录 rename ⇒ 逐文件移动；
+   * 中途失败或源目录残留 ⇒ 该轮仍留在活跃区）。
+   */
+  | 'move-failed';
 
 /** 一轮的归档可得性判定（`complete=true` 时 reason 为 undefined）。 */
 export interface CompletenessVerdict {

@@ -23,9 +23,10 @@
  * 读者会以为存在两份副本。所以真写路径在移动成功后**立即**重写 manifest
  * （原子写）；dryRun 只在结果里报告将要删哪条。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
+import { moveDirectory } from './dirMove.ts';
 import {
   readLedgerFacts,
   readManifest,
@@ -161,7 +162,9 @@ export function restoreArchivedCycle(
 
   try {
     mkdirSync(join(cyclesDir, 'cycles'), { recursive: true });
-    renameSync(archivedDir, activeDir);
+    // cycle-91：逐文件移动（目录 rename 被环境禁止，见 dirMove.ts 头注）。
+    const mv = moveDirectory(archivedDir, activeDir);
+    if (!mv.ok) throw new Error(mv.reason ?? 'move failed');
   } catch (e) {
     warnings.push(`rename failed: ${e instanceof Error ? e.message : String(e)}`);
     return base;
