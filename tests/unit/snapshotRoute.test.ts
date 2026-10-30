@@ -368,6 +368,10 @@ describe('宿主入口 apply', () => {
     '/anic/flows/auto-fix/run',
     // cycle-82：配置与路径（GET 读 + POST 手术式写，回读断言 + 回滚）
     '/anic/api/config',
+    // cycle-83：路径覆盖表（两段式）+ 备份回滚（两段式）——与 config 同域的三条动作
+    '/anic/api/config/paths', '/anic/api/config/rollback',
+    // cycle-83：产物治理（归档清单只读 + 归档基线重置写面）——archiveResetRoute 两条
+    '/anic/api/archive/inventory', '/anic/api/archive/baseline',
   ];
 
   it('有 effect：setup 经 effect 执行并带 label；effect 的返回 disposer 由宿主承接', () => {

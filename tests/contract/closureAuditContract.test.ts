@@ -257,7 +257,15 @@ describe('cycle-74 T-7410 未消费棘轮（防静默堆积——直接服务「
   // cycle-80：routes 46 → 47 —— 新增 `POST /anic/api/reload` 是**通道独占**（外部运维/脚本调用；
   // 本仓消费方是 anic_reload_self 工具 in-process，HTTP 面自身无调用点）。已按纪律补 owner/docRef/reason
   // 声明（channelRegistry），故按本文件自身要求「显式上调基线并说明理由」上调，不是放宽。
-  const BASELINE: Record<string, number> = { i18n: 39, routes: 47 };
+  //
+  // cycle-83：routes 47 → 49 —— 新增 `/anic/api/archive/baseline` 与 `/anic/api/archive/inventory`
+  // 两条产物治理面（本轮交付要求新建）。两者同样是**通道独占**：消费者是面板的"重置基线"按钮
+  // 与运维 curl，本仓代码不自调（自调会让基线重置失去运维留痕的意义）。已各自补
+  // owner/docRef/reason 声明，docRef 指向 `docs/agents/API参考-数据面.md` §7/§8——那两节写明了
+  // "为什么移动而不是删除（INV-9）"与准入判据，声明有据（validateDeclarationDocs 逐条校验通过）。
+  // 性质说明：这是**新增路由的必然结果**，不是"缺口变多"——两条都归入 declaredChannel，
+  // consumedGap 仍为 0。按棘轮纪律显式上调基线并说明理由（上调是义务面对，不是放宽判据）。
+  const BASELINE: Record<string, number> = { i18n: 39, routes: 49 };
 
   /**
    * 棘轮判据（**抽成纯函数**，好让反向自检能对着同一判据证明它两态可分）。

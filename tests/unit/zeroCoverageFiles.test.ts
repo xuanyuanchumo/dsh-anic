@@ -187,7 +187,11 @@ describe('graphDataTable（WCAG 1.1.1 等价数据表）', () => {
     const html = renderToStaticMarkup(createElement('div', null,
       renderGraphDataTable({ nodes: WORKFLOW_SNAPSHOT.nodes })));
     expect((html.match(/data-anic-table-node=/g) ?? []).length).toBe(WORKFLOW_SNAPSHOT.nodes.length);
-    expect(WORKFLOW_SNAPSHOT.nodes.length).toBeGreaterThanOrEqual(160);
+    // cycle-84：嵌入快照现在是**窗口化**的（默认最近 8 轮 ⇒ 41 节点）。
+    // 原阈值 160 是对着未窗口化旧工件写的，窗口化后它只会逼人关掉窗口。
+    // 改为"非空且每节点一行"的可判形式；规模本身由 archiveResetContract
+    // （窗口化 ≤ 全量 1/3）与 graphInteractiveContract（windowedOut > 0）守着。
+    expect(WORKFLOW_SNAPSHOT.nodes.length).toBeGreaterThanOrEqual(30);
   });
 });
 

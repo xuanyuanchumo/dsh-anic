@@ -1,39 +1,60 @@
 /**
- * 配置编辑器的客户端类型与形状守卫（cycle-82）。
+ * 配置编辑器的客户端类型与词表读取（cycle-82）。
  *
- * ## 为什么形状守卫写在这里而不是渲染器里
+ * ## 为什么词表键是「前缀 + 短名」（这条很重要）
  *
- * 半截响应（路由 500、老宿主没有该端点、字段被裁剪）进渲染器会产生**看起来
- * 正常但内容错乱**的表单——那时用户保存下去的是错值。守卫的作用是让这种响应
- * 整块不渲染（null），而不是渲染出一张"字段都在但值全是空"的假表单。
- * 这也是本仓 budget/ledger/flows 各分区的同款做法（isBudget / isLedgerList）。
- */
-import { isObjectLike } from '../../components/fetchJson.ts';
-import { t } from '../../i18n.ts';
-
-/**
- * 本分区词表键的**短名联合**（编译期防拼错）。
- *
- * ## 为什么键是「前缀 + 短名」而不是整串字面量（这条很重要）
- *
- * 新键还没进 `locale/*.json`（由 Lead 按 docs/anic/cycle-82-config-i18n.md 合并），
+ * 新键还没进 `locale/*.json`（由 Lead 按 docs/anic/cycle-8x-config-i18n.md 合并），
  * 而闭环体检有两条机械判据同时生效：
  *   - `i18nGhosts`：源码里出现 `t('config.title')` 这种**整串字面量** ⇒ 立刻被报成
  *     「幽灵消费」（键不存在），`closureAuditContract` ③ 变红；
  *   - `i18nClosure`：键进 locale 之后若无人消费 ⇒ 「死键」，`i18nDeadKeyContract` 红。
  * 前缀形态 `t('config.' + suffix)` 两头都安全：合并前键不存在（无幽灵、无死键），
  * 合并后 `dynamicKeyPrefixes` 以 `config.` 前缀认领全部 `config.*` 键（无死键）。
- * 仓内已有同款范式（`renderBudget` 的 `budget.status_${...}`）。
  *
  * 代价是拼错不再有幽灵提示，所以用字面量联合类型把拼错挡在**编译期**。
- * 这些文件里因此不出现任何 `config.xxx` 整串字面量。
+ *
+ * ## cycle-83 拆分：形状守卫移到 configGuards.ts
+ *
+ * 本文件保留「读什么/怎么归一」（词表、值归一化、响应形状的类型声明），
+ * 守卫（isConfigJson 等）与三种写响应形状在 configGuards.ts。
+ * 渲染层 import 两者，import 方向单一；两个文件都在 250 行内。
+ */
+import { t } from '../../i18n.ts';
+import type { BackupViewJson, PathOverridesJson } from './configGuards.ts';
+
+export type {
+  ConfigWriteJson, PathWriteJson, RollbackJson, BackupViewJson, PathOverridesJson,
+} from './configGuards.ts';
+export {
+  isConfigJson,
+  isConfigWriteJson,
+  isPathWriteJson,
+  isRollbackJson,
+  isPathOverridesJson,
+  isBackupViewJson,
+} from './configGuards.ts';
+
+/**
+ * 本分区词表键的**短名联合**（编译期防拼错；理由见文件头）。
  */
 export type ConfigTextSuffix =
   | 'title' | 'ariaLabel' | 'hint' | 'dirty' | 'dirtyCount'
   | 'save' | 'saving' | 'savedAt' | 'preview' | 'discard' | 'reset' | 'resetOne'
   | 'previewSummary' | 'saveSummary' | 'saveFailed' | 'backupAt'
   | 'pathTitle' | 'pathMeta' | 'pathDir' | 'pathMissing' | 'pathUnresolved'
-  | 'pathCopy' | 'pathCopyLabel' | 'pathProbeRejected' | 'pathProbeAccepted';
+  | 'pathCopy' | 'pathCopyLabel' | 'pathProbeRejected' | 'pathProbeAccepted'
+  // cycle-83：路径行内编辑 + 覆盖表状态（docs/anic/cycle-83-config-i18n.md）
+  | 'pathEdit' | 'pathEditSave' | 'pathEditCancel' | 'pathEditReset'
+  | 'pathEditHint' | 'pathDefault' | 'pathOverridden' | 'pathEditing' | 'pathNotEditable'
+  | 'pathOverridesIgnored' | 'pathOverridesActive' | 'pathOverridesNone'
+  | 'pathEditInvalid' | 'pathEditOutside'
+  // cycle-83：草稿冲突条（三态：无冲突 / 冲突 / 已撤销）
+  | 'conflictTitle' | 'conflictLine' | 'conflictAdopt' | 'conflictKeep'
+  | 'conflictDismiss' | 'conflictOriginal'
+  // cycle-83：备份下拉与回滚
+  | 'backupTitle' | 'backupNone' | 'backupRestore' | 'backupPreviewRestore'
+  | 'backupChanged' | 'backupRestoring' | 'backupRestored'
+  | 'backupRestoreFailed' | 'backupSafety';
 
 /** 词表前缀（导出供契约测试断言「该前缀被 dynamicKeyPrefixes 认领」）。 */
 export const CONFIG_I18N_PREFIX = 'config.';
@@ -47,14 +68,8 @@ export const CONFIG_I18N_PREFIX = 'config.';
  * 且该字面量以 `.`/`_` 结尾、紧跟 `+`」或反引号模板。写成
  * `t(CONFIG_I18N_PREFIX + suffix)` 时首个 token 是**标识符**，两种形态都不命中
  * ⇒ 扫描器看不见任何 `config.*` 消费 ⇒ locale 合并后 55 条键全被判**死键**
- * （cycle-82 实测踩到，Lead 定位）。
- *
- * 直接实验证据（同一段源码喂给 dynamicKeyPrefixes）：
- *   `t('config.' + suffix)`            → 认领 `config.` ✓
- *   `t(CONFIG_I18N_PREFIX + suffix)`   → 认领 0 个     ✗
- *   `t('config.' + 'group.' + group)`  → 认领 `config.` ✓
- *
- * 所以常量**保留导出**（契约测试要断言它被认领），只是绝不进 `t()` 的实参首位置。
+ * （cycle-82 实测踩到，Lead 定位）。所以常量**保留导出**（契约测试要断言它被认领），
+ * 只是绝不进 `t()` 的实参首位置。
  */
 export function cfgText(suffix: ConfigTextSuffix, params?: Record<string, string | number>): string {
   return t('config.' + suffix, params);
@@ -77,7 +92,7 @@ export interface ConfigFieldJson {
   maxLength: number;
 }
 
-/** 与 host/configEdit/paths.ts 的 PathEntry 逐字段对应。 */
+/** 与 host/configEdit/pathRegistry.ts 的 PathEntry 逐字段对应。 */
 export interface ConfigPathJson {
   id: string;
   labelKey: string;
@@ -88,6 +103,10 @@ export interface ConfigPathJson {
   bytes: number;
   mtime: string | null;
   source: string;
+  /** 解析结果套用了覆盖表（老宿主缺省 = false）。 */
+  overridden?: boolean;
+  /** 该路径项是否允许自定义（老宿主缺省 = 不可编辑，fail-closed）。 */
+  editable?: boolean;
 }
 
 /** GET /anic/api/config 响应。 */
@@ -95,87 +114,25 @@ export interface ConfigJson {
   workspace: string;
   values: Record<string, unknown>;
   schema: ConfigFieldJson[];
-  paths: { workspace: string; entries: ConfigPathJson[]; warnings: string[] };
+  paths: { workspace: string; entries: ConfigPathJson[]; warnings: string[]; overridesIgnored?: boolean };
   warnings: string[];
   rawHash: string | null;
   configFile: { exists: boolean; bytes: number; mtime: string | null };
   backups: string[];
   /** 仅当请求带 ?probePath= 时出现。 */
   probe?: { ok: boolean; entry?: ConfigPathJson; reason?: string; code?: string } | null;
+  /** cycle-83：覆盖表视图（缺省 = 老宿主，编辑入口按 editableIds 空集处理）。 */
+  pathOverrides?: PathOverridesJson;
+  /** cycle-83：备份摘要（缺省 = 老宿主，回落到 backups 名字列表）。 */
+  backupViews?: BackupViewJson[];
 }
 
-/** POST /anic/api/config 响应（dryRun 带 diff，真写带 applied/observed）。 */
-export interface ConfigWriteJson {
-  ok: boolean;
-  dryRun: boolean;
-  applied: boolean;
-  error: string;
-  changedFields: string[];
-  insertedFields: string[];
-  warnings: string[];
-  backupPath?: string | null;
-  observed?: Record<string, unknown> | null;
-  diff?: Array<{ kind: 'same' | 'add' | 'remove'; text: string; beforeLine: number | null; afterLine: number | null }>;
-  stats?: { changed: number; added: number; removed: number };
-  beforeHash?: string;
-  afterHash?: string;
-}
-
-/** 配置与路径表的唯一端点（相对路径——桌面端经 dsh-app 同源代理）。 */
+/** 配置端点（相对路径——桌面端经 dsh-app 同源代理）。 */
 export const CONFIG_URL = '/anic/api/config';
-
-const GROUPS = ['project', 'commands', 'macro', 'anic'] as const;
-const KINDS = ['string', 'command', 'int', 'bool', 'stringArray', 'enum'] as const;
-
-function isField(v: unknown): v is ConfigFieldJson {
-  if (!isObjectLike(v)) return false;
-  const o = v as Record<string, unknown>;
-  if (typeof o.id !== 'string' || typeof o.labelKey !== 'string') return false;
-  if (!GROUPS.includes(o.group as (typeof GROUPS)[number])) return false;
-  if (!KINDS.includes(o.kind as (typeof KINDS)[number])) return false;
-  if (typeof o.maxLength !== 'number') return false;
-  if (o.enumValues !== null && !Array.isArray(o.enumValues)) return false;
-  return true;
-}
-
-function isPathEntry(v: unknown): v is ConfigPathJson {
-  if (!isObjectLike(v)) return false;
-  const o = v as Record<string, unknown>;
-  if (typeof o.id !== 'string' || typeof o.labelKey !== 'string') return false;
-  if (o.kind !== 'dir' && o.kind !== 'file') return false;
-  if (typeof o.exists !== 'boolean' || typeof o.isDir !== 'boolean') return false;
-  if (typeof o.bytes !== 'number') return false;
-  if (o.path !== null && typeof o.path !== 'string') return false;
-  return true;
-}
-
-/**
- * 采信条件：schema 非空且**每一项**形状合法 + paths.entries 是合法数组。
- *
- * 为什么要求 schema 非空：空 schema 会让整张表单"渲染成功但一个字段都没有"，
- * 用户只会以为「这个项目没有可配项」——那是把接口故障伪装成正常态。
- */
-export function isConfigJson(v: unknown): v is ConfigJson {
-  if (!isObjectLike(v)) return false;
-  const o = v as Record<string, unknown>;
-  if (typeof o.workspace !== 'string') return false;
-  if (!isObjectLike(o.values)) return false;
-  if (!Array.isArray(o.schema) || o.schema.length === 0) return false;
-  if (!o.schema.every(isField)) return false;
-  if (!isObjectLike(o.paths)) return false;
-  const paths = o.paths as Record<string, unknown>;
-  if (!Array.isArray(paths.entries) || !paths.entries.every(isPathEntry)) return false;
-  if (!Array.isArray(o.warnings)) return false;
-  if (!isObjectLike(o.configFile)) return false;
-  return true;
-}
-
-/** 写入响应的形状守卫（ok 必须有，其余字段按需透传）。 */
-export function isConfigWriteJson(v: unknown): v is ConfigWriteJson {
-  if (!isObjectLike(v)) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o.ok === 'boolean' && Array.isArray(o.changedFields) && Array.isArray(o.warnings);
-}
+/** cycle-83：路径覆盖表端点。 */
+export const CONFIG_PATHS_URL = '/anic/api/config/paths';
+/** cycle-83：备份回滚端点。 */
+export const CONFIG_ROLLBACK_URL = '/anic/api/config/rollback';
 
 /** 表单草稿值 → 提交给 patch 的值（布尔/数字在这里定型，字符串原样）。 */
 export function draftToPatchValue(field: ConfigFieldJson, draft: string | boolean): unknown {

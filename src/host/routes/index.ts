@@ -41,6 +41,8 @@ import { registerHotReloadRoute } from './hotReloadRoute.ts';
 // cycle-82：配置与路径的可视化编辑面（GET/POST /anic/api/config）。
 // 归属 data 域：读是观测、写是**受控**治理动作（回读断言 + 回滚 + .bak）。
 import { registerConfigRoute } from './configRoute.ts';
+// cycle-83：产物治理（归档基线重置 + 清单）。搬迁目录、绝不碰账本（INV-9）。
+import { registerArchiveResetRoute } from './archiveResetRoute.ts';
 import { buildRouteContext, type SendFn } from './routeContext.ts';
 import { loadAgentCards } from '../agents.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
@@ -99,6 +101,11 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
     // 依赖 getWorkspaceRoot（X-ANIC-Workspace 头照常生效）——配置是**工作区**事实，
     // 与闭环体检（插件自身事实）语义相反，故必须走共享选择器而不是 resolvePluginRoot。
     ...registerConfigRoute(ctx, { send, getWorkspaceRoot }),
+    // cycle-83：产物治理（GET /anic/api/archive/inventory + POST /anic/api/archive/baseline）。
+    // 归属 governance 语义但放 data 域旁：它读的是工作区存档事实，写的是**目录搬迁**
+    // （不碰账本）。与 config 同款——必须走 getWorkspaceRoot（工作区事实），
+    // 不能用 resolvePluginRoot（那是"插件自身"的语义）。
+    ...registerArchiveResetRoute(ctx, { send, getWorkspaceRoot }),
   );
 
   // ── cycle 域 ──

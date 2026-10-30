@@ -96,15 +96,38 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
     expect(gate?.type).toBe('gate');
   });
 
-  it('账本事件逐条成节点并链接 event-seq 链', () => {
-    expect(snap.counts.ledgerEntries).toBe(2);
-    expect(snap.nodes.find((n) => n.id === 'evt:0')?.label).toContain('G0 PASS');
-    expect(snap.edges).toContainEqual({ from: 'evt:0', to: 'evt:1', type: 'event-seq' });
+  // ★cycle-83 判据更新（不是放宽）：默认路径的账本事件已由「每条一个 evt 节点」
+  // 改为「每轮一个门禁摘要组 + 徽章 + 可展开证据」（投影窗口的产物）。
+  // **旧契约没有丢**：它在 `window:'full'` 路径上原样保留（静态溯源工件走那条路径），
+  // 所以下面同时钉住两条腿——默认路径的聚合形态，与 full 路径的逐条形态。
+  it('默认路径：账本按轮聚合成摘要组（不是每条一个节点），徽章写在 label 上', () => {
+    expect(snap.counts.ledgerEntries).toBe(2); // 旧读数不变：账本条数仍是 2
+    const group = snap.nodes.find((n) => n.id === 'evt:group-0');
+    expect(group, '默认路径应产生 evt:group-0 摘要节点').toBeDefined();
+    // 徽章必须一眼可读：四门都在 label 上（未出现的门写 —）
+    expect(group?.label).toContain('G0 PASS');
+    expect(group?.label).toContain('G2 PASS');
+    // 反向自检：默认路径**不应**再有逐条 evt:0（否则聚合没生效）
+    expect(snap.nodes.some((n) => n.id === 'evt:0')).toBe(false);
+  });
+
+  it('full 路径：账本事件仍逐条成节点并链接 event-seq 链（旧契约原样保留）', () => {
+    const full = buildWorkflowSnapshot(writeFullFixture(), '2026-01-01T00:00:00.000Z', { window: 'full' });
+    expect(full.counts.ledgerEntries).toBe(2);
+    expect(full.nodes.find((n) => n.id === 'evt:0')?.label).toContain('G0 PASS');
+    expect(full.edges).toContainEqual({ from: 'evt:0', to: 'evt:1', type: 'event-seq' });
   });
 
   it('evidences 边只在宏图存在同名（小写）门节点时出现', () => {
-    expect(snap.edges).toContainEqual({ from: 'evt:0', to: 'wf:gate-g0', type: 'evidences' });
-    expect(snap.edges.some((e) => e.from === 'evt:1' && e.type === 'evidences')).toBe(false);
+    // 聚合路径：证据边从**组节点**指向门节点（组内含该门时才有边）。
+    const evid = snap.edges.filter((e) => e.type === 'evidences');
+    expect(evid.length).toBeGreaterThan(0);
+    expect(evid.every((e) => e.from.startsWith('evt:'))).toBe(true);
+    expect(evid.some((e) => e.to === 'wf:gate-g0')).toBe(true);
+    // full 路径：逐条形态下同一判据仍然成立（无同名门时无 evidences 边）
+    const full = buildWorkflowSnapshot(writeFullFixture(), '2026-01-01T00:00:00.000Z', { window: 'full' });
+    expect(full.edges).toContainEqual({ from: 'evt:0', to: 'wf:gate-g0', type: 'evidences' });
+    expect(full.edges.some((e) => e.from === 'evt:1' && e.type === 'evidences')).toBe(false);
   });
 
   it('cycle 目录用数值序（cycle-9 先于 cycle-10），cycle-seq 方向正确', () => {
@@ -137,14 +160,21 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
     }
   });
 
-  it('W-3 快档：gate-event 节点携带账本 detail（「为什么 PASS/FAIL」白盒层）', () => {
-    const evt = snap.nodes.find((n) => n.id === 'evt:0');
-    expect(evt?.detail).toBe('…'); // LEDGER fixture 的 detail 字段如实透传
+  it('W-3 快档：gate-event 节点携带账本 detail（「为什么 PASS/FAIL」白盒层，两条路径都在）', () => {
+    // ★cycle-83：默认路径的 detail 是**聚合证据**（组内逐条记录仍在，带条数标注），
+    // full 路径的 detail 是单条原文。两种形态都必须把账本 detail 如实带出去
+    // ——「聚合」与「看不见」的分界线就是这条证据链还在不在。
+    const group = snap.nodes.find((n) => n.id === 'evt:group-0');
+    expect(group?.detail).toContain('G0 PASS');
+    expect(group?.detail).toContain('…'); // fixture 的 detail 字段如实透传
+    expect(group?.detail).toContain('2 records');
+    const full = buildWorkflowSnapshot(writeFullFixture(), '2026-01-01T00:00:00.000Z', { window: 'full' });
+    expect(full.nodes.find((n) => n.id === 'evt:0')?.detail).toBe('…');
   });
 
-  it('W-3 全档（cycle-39）：G2 事件节点携带最新测试报告摘要（数字 + 分层行）', () => {
-    // evt:1 是 G2 PASS 事件（LEDGER fixture 第二条）
-    const g2 = snap.nodes.find((n) => n.id === 'evt:1');
+  it('W-3 全档（cycle-39）：含 G2 的门禁节点携带最新测试报告摘要（数字 + 分层行）', () => {
+    // ★cycle-83：报告挂在"最近一个含 G2 的组"上（fixture 的两条记录同属组 0）。
+    const g2 = snap.nodes.find((n) => n.id === 'evt:group-0');
     expect(g2?.testReport).toBeDefined();
     expect(g2?.testReport?.report).toBe('tr.md');
     expect(g2?.testReport?.passed).toBe(1301);
@@ -152,11 +182,24 @@ describe('buildWorkflowSnapshot（完整夹具）', () => {
     expect(g2?.testReport?.errors).toBe(0);
     expect(g2?.testReport?.layers.length).toBe(2);
     expect(g2?.testReport?.layers[0]).toContain('validate');
+    // full 路径仍是逐条形态：只有 G2 那条携带报告（最小数据面纪律不变）
+    const full = buildWorkflowSnapshot(writeFullFixture(), '2026-01-01T00:00:00.000Z', { window: 'full' });
+    expect(full.nodes.find((n) => n.id === 'evt:1')?.testReport?.passed).toBe(1301);
+    expect(full.nodes.find((n) => n.id === 'evt:0')?.testReport).toBeUndefined();
   });
 
-  it('W-3 全档：非 G2 事件节点不携带 testReport（最小数据面纪律）', () => {
-    const g0 = snap.nodes.find((n) => n.id === 'evt:0');
-    expect(g0?.testReport).toBeUndefined();
+  it('W-3 全档：不含 G2 的组不携带 testReport（最小数据面纪律）', () => {
+    // 造一份只有 G0 的账本 ⇒ 那个组不该挂测试报告（挂上去就是"每轮都像跑过测试"）。
+    const cycles = makeCyclesDir();
+    mkdirSync(join(cycles, 'gates'), { recursive: true });
+    writeFileSync(join(cycles, 'gates', 'ledger.json'), JSON.stringify({
+      entries: [{ gate: 'G0', result: 'PASS', detail: 'x', timestamp: '2026-10-13T00:00:00.000Z', previousHash: null, hash: 'h0' }],
+      chainHead: 'h0',
+    }));
+    const onlyG0 = buildWorkflowSnapshot(cycles, '2026-01-01T00:00:00.000Z');
+    const node = onlyG0.nodes.find((n) => n.id === 'evt:group-0');
+    expect(node).toBeDefined();
+    expect(node?.testReport).toBeUndefined();
   });
 });
 
@@ -164,9 +207,25 @@ describe('buildWorkflowSnapshot（缺源降级）', () => {
   it('空 .cycles 不 throw，返回可用空图与 L? 兜底', () => {
     const cycles = makeCyclesDir();
     const snap = buildWorkflowSnapshot(cycles, '2026-01-01T00:00:00.000Z');
-    expect(snap.counts).toEqual({ nodes: 1, edges: 0, cycles: 0, ledgerEntries: 0, incidents: 0 });
+    // ★cycle-83：counts 新增三个投影读数（activeCycles / archivedCycles / windowedOut），
+    // 既有五字段的值与语义**逐字不变**。这里逐个字段断言（而不是 toEqual 整个对象），
+    // 是为了让"新增字段"与"旧字段被改动"在同一处可区分——后者才是真破坏。
+    expect(snap.counts.nodes).toBe(1);
+    expect(snap.counts.edges).toBe(0);
+    expect(snap.counts.cycles).toBe(0);
+    expect(snap.counts.ledgerEntries).toBe(0);
+    expect(snap.counts.incidents).toBe(0);
+    // 新增三字段在空项目上必须是 0/0/0（不是 undefined、也不是 NaN）
+    expect(snap.counts.activeCycles).toBe(0);
+    expect(snap.counts.archivedCycles).toBe(0);
+    expect(snap.counts.windowedOut).toBe(0);
     expect(snap.autonomy).toBe('L?');
     expect(snap.nodes.map((n) => n.id)).toEqual(['aux:auto']);
+    // 空项目：无当前轮、无归档节点（不生成空壳节点）
+    expect(snap.window.current).toBeNull();
+    expect(snap.archived.nodeId).toBeNull();
+    // 反向自检：既有五字段断言确实有判别力（改一个值必须不等）
+    expect(snap.counts.nodes).not.toBe(2);
   });
 
   it('畸形 ledger.json 不 throw（结构损坏按 0 条处理）', () => {

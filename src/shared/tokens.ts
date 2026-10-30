@@ -192,6 +192,10 @@ export function token(name: TokenName): string {
   return `var(--${name}, ${SEMANTIC[name]})`;
 }
 
+// 宿主主题上游（cycle-83）：`var(--anic-x, var(--dsw-alias-y, <原语>))`。
+// 拆至 hostTokens.ts（250 行纪律）；此处转出保持调用面不变。
+export { hostToken, hostUpstreamOf } from './hostTokens.ts';
+
 /**
  * 生成面板作用域的令牌块（挂载时一次性注入 head）。
  *

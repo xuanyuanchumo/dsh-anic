@@ -148,8 +148,13 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      * 第五族文档生命周期矩阵 + 跨项目隔离判定的分类标签），不是膨胀：每一条都有 `t()`
      * 消费点，由 ① 的零死键棘轮反过来保证——加键不接线的那天，① 先红，不是这里。
      * 上限同步抬到 460 —— 留 36 条正常余量，同时仍能拦住"一次加 100 条没人用"的形态。
+     *   cycle-84 新增 graph.* 8 条（noMatch / matchCount / jumpTo / traceRoot /
+     *   traceUp / traceDown / traceTruncated / traceExit）⇒ 462。这 8 条对应
+     *   「搜索跳转 + 路径追溯」两个真实交互面：计数、跳转可达名、追溯状态条四段
+     *   文案与退出按钮，每一条都在 `graphToolbarSearch.ts` / `graphTraceBar.ts` 里
+     *   有 `t()` 消费点（① 的零死键棘轮机械保证）。上限抬到 480（留 18 条余量）。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(460);
+    expect(zhKeys.length).toBeLessThanOrEqual(480);
   });
 });

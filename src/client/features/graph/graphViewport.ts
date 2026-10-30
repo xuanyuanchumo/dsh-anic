@@ -187,3 +187,26 @@ export function toWorld(viewport: Viewport, screen: Point): Point {
 export function scalePercent(viewport: Viewport): number {
   return Math.round(clampScale(viewport.scale) * 100);
 }
+
+/**
+ * 把某个**世界坐标点**移到视口正中的视口（cycle-84 搜索跳转 / 追溯定位用）。
+ *
+ * 为什么单独一个纯函数而不是让调用方拼 `tx/ty`：跳转有两个易错点，
+ * ① 目标点必须在**当前 scale 下**换算（用 1.0 换算会让放大状态下跳到别处）；
+ * ② 跳到画布边缘的节点时，居中后的 tx/ty 可能超出可拖范围 —— 调用方必须再过
+ * `clampPan`。本函数只负责"数学上居中"，钳制交给既有 `clampPan`（单一职责，
+ * 且 `clampPan` 已有逐档边界单测）。
+ *
+ * 可选 `scale` 用于"跳转时顺手放大"：传 undefined 保持当前比例（默认行为，
+ * 用户已调好的比例不该被跳转重置）。
+ */
+export function centerOnWorld(world: Point, size: Size, viewport: Viewport, scale?: number): Viewport {
+  const s = clampScale(scale ?? viewport.scale);
+  const cx = finite(size.width, 0) / 2;
+  const cy = finite(size.height, 0) / 2;
+  return {
+    scale: s,
+    tx: cx - finite(world.x, 0) * s,
+    ty: cy - finite(world.y, 0) * s,
+  };
+}

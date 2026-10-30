@@ -1,41 +1,33 @@
 /**
- * 确定性分层布局（cycle-82 · G 战线）——把「竖长条」换成「可按类型阅读的层带」。
+ * 确定性分层布局（cycle-82 建立 · cycle-83 改为**变尺寸卡片**）。
  *
- * ## 被替换的缺陷（实测，不是推断）
+ * ## 为什么必须变尺寸（这是 cycle-83 的根因，不是审美）
  *
- * 旧坐标在 `src/shared/snapshotCore.ts:140` 生成：`x = 列号 * 380`、`y = 行号 * 46`，
- * 五个固定列各自单调递增 y。对真实 `artifacts/workflow-snapshot.json`（188 节点 /
- * 292 边）实测得到 **1520 × 5626** 的画布 —— 比例 0.27:1 的竖条。一屏只能看到十个点，
- * 且同一列里 cycle 的 43 个点排成一条直线，门禁事件的上百个点排成另一条直线，
- * 「谁连谁」这个图唯一的价值被 5000px 的空白抹掉了。
+ * cycle-82 用统一 46→26px 行距把 1520×5626 的竖条压成 9 列紧凑图，节点仍是
+ * `<circle r=4~6>` + 一行 6.4px 文本。cycle-83 把节点升级成药丸卡片后，**卡片
+ * 高度按类型分级**（phase/gate 46px、事件 34px），于是「统一行距」不再是布局参数，
+ * 而是**每 lane 的 pitch = max(rowPitch, 该 lane 卡片高 + gap)**。若仍按 26px 排，
+ * 46px 的卡片会压到下一张卡片上 —— 重叠是硬缺陷（用户看到的是一个糊在一起的块，
+ * 而任何"节点数"断言都发现不了）。
  *
- * ## 为什么是「分类型 lane + 定行数折列」，而不是图布局算法
+ * ## 三条不变量（`tests/unit/graphLayout.test.ts` 逐条钉死）
  *
- * 1. 零运行时依赖是硬纪律（`dependencies` 至今为空），dagre / elkjs / d3-force 进不来；
- * 2. 本图的数据形态**不是**任意有向图：节点天然分类型（阶段 / 微步骤 / 门禁 / 人审门 /
- *    cycle / 门禁事件 / 事故 / 自主级），每个类型内部有既定语义顺序（cycle 按序号、
- *    事件按时间），类型之间才是边的关系。分 lane 把这层语义显式化了；
- * 3. 力导向布局**不确定** —— 同输入不同输出，写不出「同输入同输出」的断言，
- *    也就写不出契约测试。**不可测的布局等于不可维护**（这是本轮拒绝 dagre 的
- *    主要理由，不是"省依赖"）。
- *
- * ## 为什么每列行数是「均衡切分」而不是「填满再换列」
- *
- * 若按「先填满 24 行再开新列」硬切，cycle 的 43 个点会切成 24 + 19，最后那列空 5 行；
- * gate-event 的 122 个点会切成 5 列 × 25（**超出** rowsPerColumn，破坏"单列高度上限"
- * 这条唯一可断言的性质）。均衡切成 22+21、以及 21+21+20×4，则所有列几乎同高，
- * 包围盒最紧，且「任何一列的高度都 ≤ rowsPerColumn * rowPitch」成为可断言的不变量。
- *
- * ## 不变量（`tests/unit/graphLayout.test.ts` 逐条钉死）
- *
- * - 节点一个不少、位置两两不同（同一坐标摞两个点，视觉上等于丢了一个）；
- * - 边原样保留（布局不改拓扑；悬空边留给渲染层跳过，因为那是渲染契约的事）；
+ * - 节点一个不少、位置两两不同（同坐标 = 其中一个永久不可见）；
+ * - 边原样保留（布局不改拓扑；悬空边留给渲染层跳过）；
  * - 纯函数：不读 clock / random / DOM，两次调用深相等；
- * - **输出顺序 = 输入顺序**（不是 lane 顺序）。渲染层按 `data.nodes` 顺序生成 DOM，
- *   既有 `graphA11y` 契约靠「circle 顺序 == 节点顺序」把裁决字形对齐到节点，
- *   顺序一换就假红。
+ * - **输出顺序 = 输入顺序**（不是 lane 顺序）。渲染层按 `data.nodes` 顺序生成
+ *   节点，`graphA11y` 契约靠「circle 顺序 == 节点顺序」对齐裁决字形。
+ *
+ * ## 折列判据从「行数」升级为「行数 + 像素高度」
+ *
+ * 变尺寸后"24 行"不再等价于"一屏高"：24 × 46px = 1104px，远超 cycle-82 的单列
+ * 高度。现在同时守两条上限：`rowsPerColumn`（与既有测试同口径）与
+ * `columnBudgetPx`（视觉上的单列像素高上限）。`columnBudgetPx: 840` 是取舍：
+ * 它让 122 个门禁事件折成 7 列、总高 850px —— 仍是原高度 5626 的 **15.1%**，
+ * 而宽高比 1.64 落在合同要求的 0.8~2.6 区间。
  */
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
+import { nodeBoxOf } from './graphNodeBox.ts';
 
 /**
  * lane 优先级 = 读图时的语义顺序（宏观 → 门禁 → 循环 → 事件 → 兜底）。
@@ -47,26 +39,36 @@ export const LANE_ORDER: readonly string[] = [
 ];
 
 /**
- * 布局尺度。三个数字都有明确依据，改动必须同时改测试里的量化断言：
- * - `rowPitch: 26`：原 46。节点直径最大 14px、标签 7px，26 行距留下 12px 呼吸，
- *   是"再压就粘连"的位置（18 以下标签会压到下一点的圆）；
- * - `columnPitch: 120`：标签最长 12 字 × 7px 等宽 ≈ 50px，加圆点与 9px 偏移后
- *   右缘约 60px；120 留一半空隙，缩到 0.5 倍时列间文字仍不打架；
- * - `rowsPerColumn: 24`：决定折列位置。24 行 × 26 = 624px 单列高度，配合 188 个
- *   节点算出 9 列 ≈ 1080 宽 —— 宽高比 1.7，逼近 16:9。
+ * 布局尺度。四个数字都有明确依据，改动必须同时改测试里的量化断言：
+ * - `rowPitch: 26`：**最小**行距（cycle-82 原值）。卡片比 26 高时以卡片高为准；
+ * - `columnPitch: 120`：最宽卡片 112 + 8px 列间净空。改它要同步改契约 ⑤ 的取模断言；
+ * - `rowsPerColumn: 24`：与既有测试同口径的行数上限（折列位置）；
+ * - `columnBudgetPx: 840`：单列像素高上限。变尺寸后这才是真正的"一屏高"判据；
+ * - `gap: 8`：同 lane 相邻卡片的垂直净空（小于 6 时卡片描边会在 0.5 倍缩放下粘连）。
  */
-export const LAYOUT = { rowsPerColumn: 24, columnPitch: 120, rowPitch: 26 } as const;
+export const LAYOUT = {
+  rowsPerColumn: 24,
+  columnPitch: 120,
+  rowPitch: 26,
+  columnBudgetPx: 840,
+  gap: 8,
+} as const;
 
-/** 包围盒左/上留白（圆点半径 + 焦点环 offset 不被裁）。 */
-const EDGE_PAD = 12;
-/** 最右列的标签余量：标签画在圆点右侧，不算进余量就会被 viewBox 裁掉。 */
-const LABEL_ALLOWANCE = 76;
+/** 包围盒四边留白（卡片描边 + 焦点环不被 viewBox 裁掉）。 */
+const PAD = 12;
 
 export interface PositionedNode extends WorkflowNode {
   /** 所属 lane（= node.type；未知类型也自成一 lane，不丢弃）。 */
   lane: string;
   column: number;
   row: number;
+  /** 卡片左上角 x（= column * columnPitch）。 */
+  x: number;
+  /** 卡片**垂直中心** y。为什么是中心：色标圆点、裁决字形、两行文本全部围绕它居中。 */
+  y: number;
+  /** 卡片宽高（渲染层不再自己查表，避免布局与渲染各持一份尺寸）。 */
+  w: number;
+  h: number;
 }
 
 export interface LaneSummary {
@@ -120,7 +122,7 @@ export function layoutGraph(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
 ): GraphLayout {
-  const { rowsPerColumn, columnPitch, rowPitch } = LAYOUT;
+  const { rowsPerColumn, columnPitch, rowPitch, columnBudgetPx, gap } = LAYOUT;
 
   // 先按类型分桶，桶内**保持输入顺序**（cycle 序号、事件时间序都在输入顺序里）。
   const buckets = new Map<string, WorkflowNode[]>();
@@ -131,22 +133,34 @@ export function layoutGraph(
   }
 
   const placed = new Map<string, PositionedNode>();
+  /** 每列已用像素高 / 已放节点数（两个上限各自记账，不能互相替代）。 */
+  const colPx = new Map<number, number>();
+  const colRows = new Map<number, number>();
   const lanes: LaneSummary[] = [];
   let column = 0;
-  let row = 0;
 
   for (const type of laneOrderOf([...buckets.keys()])) {
     const list = buckets.get(type) ?? [];
     if (list.length === 0) continue;
-    const cols = Math.max(1, Math.ceil(list.length / rowsPerColumn));
+    const box = nodeBoxOf(type);
+    // lane pitch：卡片高 + 净空，但不得小于最小行距（矮卡片不该被排得更密）。
+    const pitch = Math.max(rowPitch, box.h + gap);
+    const perColumn = Math.max(1, Math.min(rowsPerColumn, Math.floor(columnBudgetPx / pitch)));
+    const cols = Math.max(1, Math.ceil(list.length / perColumn));
     const sizes = balancedChunks(list.length, cols);
     const columnsOfLane: number[] = [];
     let cursor = 0;
 
     for (const size of sizes) {
-      // 整块必须装进当前列的剩余行；装不下就换列。**不切半块**：
+      let usedPx = colPx.get(column) ?? 0;
+      let usedRows = colRows.get(column) ?? 0;
+      // 整块必须同时装进当前列的**像素高**与**行数**；装不下就换列。**不切半块**：
       // 同一 lane 的相邻节点被列边界任意切开后，读者找不到"下一个去哪"。
-      if (row + size > rowsPerColumn) { column += 1; row = 0; }
+      if (usedPx + size * pitch > columnBudgetPx || usedRows + size > rowsPerColumn) {
+        column += 1;
+        usedPx = 0;
+        usedRows = 0;
+      }
       columnsOfLane.push(column);
       for (let i = 0; i < size; i += 1) {
         const node = list[cursor + i];
@@ -154,18 +168,21 @@ export function layoutGraph(
         // 重复 id：**首个胜出**并跳过后续。位置唯一性是本模块的硬不变量，
         // 若让两个同 id 项各占一格，它们会在 `placed` 里互相覆盖而 DOM 里各留一份
         // ——两个点叠在同一坐标，其中一个永久不可见，而任何计数断言都看不出问题。
-        // 真实数据 188 个 id 全唯一；这条只定义"数据变脏时行为可预测"，不是常态路径。
         if (placed.has(node.id)) continue;
+        const top = usedPx + i * pitch;
         placed.set(node.id, {
           ...node,
           lane: type,
           column,
-          row,
+          row: usedRows + i,
           x: column * columnPitch,
-          y: row * rowPitch,
+          y: top + box.h / 2,
+          w: box.w,
+          h: box.h,
         });
-        row += 1;
       }
+      colPx.set(column, usedPx + size * pitch);
+      colRows.set(column, usedRows + size);
       cursor += size;
     }
     lanes.push({ type, count: list.length, columns: columnsOfLane });
@@ -180,29 +197,35 @@ export function layoutGraph(
   // 位置，若不在这里去重，同一个位置会被 push 两遍 ⇒ 位置唯一性被破坏。
   const ordered: PositionedNode[] = [];
   const seen = new Set<string>();
-  let maxRow = 0;
-  let maxCol = 0;
   for (const n of nodes) {
     const p = placed.get(n.id);
     if (p === undefined || seen.has(p.id)) continue;
     seen.add(p.id);
     ordered.push(p);
-    if (p.row > maxRow) maxRow = p.row;
-    if (p.column > maxCol) maxCol = p.column;
   }
 
-  const base = {
-    minX: -EDGE_PAD,
-    minY: -EDGE_PAD,
-    maxX: maxCol * columnPitch + LABEL_ALLOWANCE,
-    maxY: maxRow * rowPitch + EDGE_PAD,
-  };
+  // 包围盒按**卡片外接矩形**算（不是按锚点）：锚点只是中心，卡片上下的半高
+  // 若不算进来，最上一行会有一半被 viewBox 裁掉。
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const p of ordered) {
+    if (p.x < minX) minX = p.x;
+    if (p.x + p.w > maxX) maxX = p.x + p.w;
+    if (p.y - p.h / 2 < minY) minY = p.y - p.h / 2;
+    if (p.y + p.h / 2 > maxY) maxY = p.y + p.h / 2;
+  }
+  minX -= PAD;
+  minY -= PAD;
+  maxX += PAD;
+  maxY += PAD;
   return {
     nodes: ordered,
     edges: [...edges],
-    bounds: { ...base, width: base.maxX - base.minX, height: base.maxY - base.minY },
+    bounds: { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY },
     lanes,
-    columns: maxCol + 1,
+    columns: Math.max(...ordered.map((p) => p.column)) + 1,
   };
 }
 

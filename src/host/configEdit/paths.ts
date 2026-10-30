@@ -1,12 +1,19 @@
 /**
- * 插件路径表（cycle-82 路径可视化）。
+ * 插件路径表（cycle-82 路径可视化；cycle-83 接覆盖表）。
  *
  * ## 为什么这件事必须做（用户原话点名）
  *
  * 「配置/路径支持自定义可视化编辑等」——`.cycles` 各文档的生命周期此前只在
  * CLI/SKILL.md 里描述，用户无法回答「我的账本到底写到哪个文件、技能装在哪、
- * dist 在哪」。路径表把这条链**显式化**，并且每项都带 exists/bytes/mtime，
+ * dist 在哪」。路径表把这条链**显式化**，每项带 exists/bytes/mtime，
  * 让「说存在」变成「读到证据才算存在」。
+ *
+ * ## 两层：默认（登记表） + 覆盖（`.cycles/paths.json`）
+ *
+ * 登记表在 `pathRegistry.ts`（**唯一真相源**），覆盖表在 `pathOverrides.ts`。
+ * 本文件只做合并：默认值 + 覆盖 → 解析结果。合并规则只有一条——
+ * **覆盖里有合法条目就用它，整份非法就整份回默认**（fail-closed，理由见
+ * pathOverrides 文件头：半套生效比没有更危险）。
  *
  * ## 安全边界（这是路径可视化，不是任意文件浏览器）
  *
@@ -16,114 +23,84 @@
  *
  * ## 一套推导，不留第二份
  *
- * workspace 相对项一律 `join(root, ...)`；技能目录走 `skillInvoker.resolveSkillScriptsDir`
- * 与 `inlineSkillRoot`；插件根/dist 走 `pluginRoot.resolvePluginRoot`——
- * 这几个解析器已经是全仓唯一实现，这里**只消费不复制**（G-SINGLE）。
+ * 判据 `isInside` 直接**委托** `closureAudit/isolationScan.inWorkspace`
+ * （`relative()` 而非 `startsWith()`：后者会把 `/a/proj-evil` 判成在 `/a/proj` 内）。
+ * 本文件不写第二份 realpath/前缀判据——两份判据漂移是这类安全面的经典失守形态。
  */
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
-import { inlineSkillRoot, resolveSkillScriptsDir } from '../skillInvoker.ts';
-import { pluginAssetDir, resolvePluginRoot } from '../pluginRoot.ts';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { inWorkspace } from '../closureAudit/isolationScan.ts';
+import {
+  buildPathContext,
+  defaultPathOf,
+  overridablePathIds,
+  PATH_DEFS,
+  pathLabel,
+  probeEntry,
+  type PathEntry,
+  type PathTable,
+} from './pathRegistry.ts';
+import { loadPathOverrides, type PathResolveResult } from './pathOverrides.ts';
 
-export type PathKind = 'dir' | 'file';
+export type { PathEntry, PathTable, PathKind, PathDef } from './pathRegistry.ts';
+export {
+  PATH_DEFS,
+  overridablePathIds,
+  pathDefById,
+  buildPathContext,
+  defaultPathOf,
+} from './pathRegistry.ts';
+export type { PathResolveResult } from './pathOverrides.ts';
+export { loadPathOverrides } from './pathOverrides.ts';
 
 /**
- * 词表键构造：`config.` 前缀 + 短名（与 configSchema 同款理由——locale 合并由
- * Lead 统一做，整串字面量会在合并前被闭环体检报成幽灵消费；前缀形态两头干净）。
+ * `child` 是否等于 `parent` 或位于其下（按路径段比较）。
+ *
+ * **委托** isolationScan.inWorkspace，不在这里重写——两份判据一旦漂移，
+ * 「路径表说是界内」与「隔离守卫说是越界」会同时成立，而用户只看到前者。
  */
-const label = (suffix: string): string => 'config.' + suffix;
-
-export interface PathEntry {
-  /** 稳定 id（客户端按此分组/复制）。 */
-  id: string;
-  /** 词表键（docs/anic/cycle-82-config-i18n.md）。 */
-  labelKey: string;
-  /** 绝对路径；不可解析时为 null（如插件根未找到）。 */
-  path: string | null;
-  /** 该项语义上的形态（目录/文件）——用来说明「本来是目录」，不用于判定存在性。 */
-  kind: PathKind;
-  exists: boolean;
-  isDir: boolean;
-  bytes: number;
-  /** ISO 时间戳；不存在/不可读为 null。 */
-  mtime: string | null;
-  /** 推导来源的一句话说明（为什么是这个路径，不是别的）。 */
-  source: string;
-}
-
-export interface PathTable {
-  workspace: string;
-  entries: PathEntry[];
-  warnings: string[];
-}
-
-/** 单条路径探测（永不抛：权限/竞态一律落到 exists=false）。 */
-function probe(id: string, labelKey: string, kind: PathKind, path: string | null, source: string): PathEntry {
-  if (path === null) {
-    return { id, labelKey, path: null, kind, exists: false, isDir: false, bytes: 0, mtime: null, source };
-  }
-  try {
-    if (!existsSync(path)) {
-      return { id, labelKey, path, kind, exists: false, isDir: false, bytes: 0, mtime: null, source };
-    }
-    const st = statSync(path);
-    return {
-      id, labelKey, path,
-      kind,
-      exists: true,
-      isDir: st.isDirectory(),
-      bytes: st.isDirectory() ? 0 : st.size,
-      mtime: st.mtime.toISOString(),
-      source,
-    };
-  } catch {
-    return { id, labelKey, path, kind, exists: false, isDir: false, bytes: 0, mtime: null, source };
-  }
+export function isInside(parent: string, child: string): boolean {
+  return inWorkspace(parent, child);
 }
 
 /**
- * 构建路径表（只读）。
+ * 构建路径表（默认 + 覆盖两层）。
  *
  * 顺序即重要性：工作区 → .cycles 契约文件 → 生命周期目录 → 技能 → 插件。
  * 客户端按此顺序渲染，用户从上往下读就是「我的项目长什么样」。
+ *
+ * warnings 里既有推导告警（plugin root 找不到）也有覆盖告警（整份被忽略），
+ * 两者都是「表里这个值为什么不是你期望的」——不区分来源就等于没解释。
  */
-export function collectPaths(workspaceRoot: string): PathTable {
-  const root = resolve(workspaceRoot);
-  const cycles = join(root, '.cycles');
+export function collectPaths(workspaceRoot: string, resolved?: PathResolveResult): PathTable {
+  const ctx = buildPathContext(workspaceRoot);
+  const overrides = resolved ?? loadPathOverrides(ctx.root);
   const warnings: string[] = [];
+  if (ctx.pluginRoot === null) warnings.push('plugin root not resolvable (package.json with name=dsh-anic not found upward)');
+  warnings.push(...overrides.warnings);
+  if (overrides.present && overrides.ignored) {
+    warnings.push('覆盖表整份被忽略：解析一律回落到登记表的默认路径（不做半套生效）');
+  }
 
-  let skillScripts: string | null = null;
-  try { skillScripts = resolveSkillScriptsDir(root); } catch { skillScripts = null; }
-  let inlineRoot: string | null = null;
-  try { inlineRoot = inlineSkillRoot(); } catch { inlineRoot = null; }
-  let pluginRoot: string | null = null;
-  try { pluginRoot = resolvePluginRoot() || null; } catch { pluginRoot = null; }
-  if (pluginRoot === null) warnings.push('plugin root not resolvable (package.json with name=dsh-anic not found upward)');
+  const entries: PathEntry[] = PATH_DEFS.map((def) => {
+    const ov = overrides.overrides[def.id];
+    if (ov !== undefined) return probeEntry(def, ctx, { path: ov.abs, overridden: true });
+    return probeEntry(def, ctx, { path: defaultPathOf(def, ctx), overridden: false });
+  });
 
-  const entries: PathEntry[] = [
-    probe('workspace', label('path.workspace'), 'dir', root, '宿主会话工作区（X-ANIC-Workspace 头优先）'),
-    probe('cycles', label('path.cycles'), 'dir', cycles, 'workspace/.cycles（所有生命周期文档的根）'),
-    probe('config', label('path.config'), 'file', join(cycles, 'config.yml'), 'canonical 配置（INV-25 唯一入口）'),
-    probe('ledger', label('path.ledger'), 'file', join(cycles, 'gates', 'ledger.json'), '门禁账本（哈希链）'),
-    probe('workflowState', label('path.workflowState'), 'file', join(cycles, 'workflow-state.json'), '工作流当前状态快照'),
-    probe('flowTracker', label('path.flowTracker'), 'file', join(cycles, 'flow-tracker.json'), '技能流程跟踪（anic_skill 写入）'),
-    probe('cyclesDocs', label('path.cyclesDocs'), 'dir', join(cycles, 'cycles'), '每轮 cycle-N 文档目录'),
-    probe('evals', label('path.evals'), 'dir', join(cycles, 'evals'), '评估报告'),
-    probe('techDebt', label('path.techDebt'), 'dir', join(cycles, 'tech-debt'), '技术债登记'),
-    probe('incidents', label('path.incidents'), 'dir', join(cycles, 'incidents'), '事故取证'),
-    probe('archive', label('path.archive'), 'dir', join(cycles, 'archive'), '归档循环'),
-    probe('skillInstalled', label('path.skillInstalled'), 'dir', join(root, '.dsh', 'skills', 'ai-native-iteration-cycle'), '工作区已装技能（可升级副本）'),
-    probe('skillScripts', label('path.skillScripts'), 'dir', skillScripts, 'resolveSkillScriptsDir 解析结果（环境变量 → 工作区 → cwd → 内联）'),
-    probe('skillInline', label('path.skillInline'), 'dir', inlineRoot, '插件内联技能底座（assets/skill）'),
-    probe('pluginRoot', label('path.pluginRoot'), 'dir', pluginRoot, 'resolvePluginRoot（标记驱动向上查找 package.json）'),
-    probe('dist', label('path.dist'), 'dir', pluginRoot ? join(pluginRoot, 'dist') : null, '构建产物目录（宿主加载 dist/host.js）'),
-    probe('assets', label('path.assets'), 'dir', pluginRoot ? join(pluginRoot, 'assets') : null, '插件随包资产'),
-    probe('agents', label('path.agents'), 'dir', (() => { try { return pluginAssetDir('agents') || null; } catch { return null; } })(), 'agent 卡目录（pluginAssetDir）'),
-    probe('artifacts', label('path.artifacts'), 'dir', join(root, 'artifacts'), '工作区工件输出（workflow-snapshot.json 等）'),
-  ];
-
-  return { workspace: root, entries, warnings };
+  return { workspace: ctx.root, entries, warnings, overridesIgnored: overrides.ignored };
 }
+
+/** 生效的覆盖（`id → 相对路径`）——客户端据此显示「默认 / 自定义」。 */
+export function activeOverrides(resolved: PathResolveResult): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [id, v] of Object.entries(resolved.overrides)) out[id] = v.rel;
+  return out;
+}
+
+/** 可覆盖 id 的稳定顺序（客户端逐项渲染编辑入口；顺序 = 登记表顺序）。 */
+export const EDITABLE_PATH_IDS: readonly string[] = overridablePathIds();
+
 export type PathRequestResult =
   | { ok: true; entry: PathEntry }
   | { ok: false; reason: string; code: PathRejectCode };
@@ -137,15 +114,6 @@ export type PathRejectCode =
 /** realpath 容错：不存在的路径返回 null（后面的 NOT_FOUND 分支会给出更好的原因）。 */
 function safeRealpath(p: string): string | null {
   try { return realpathSync(p); } catch { return null; }
-}
-
-/** `child` 是否等于 `parent` 或位于其下（按路径段比较，不做字符串前缀——`/a/bc` 不是 `/a/b` 的子项）。 */
-export function isInside(parent: string, child: string): boolean {
-  const p = resolve(parent);
-  const c = resolve(child);
-  if (p === c) return true;
-  const withSep = p.endsWith(sep) ? p : p + sep;
-  return c.startsWith(withSep);
 }
 
 /**
@@ -178,5 +146,13 @@ export function resolveCustomPath(workspaceRoot: string, raw: unknown): PathRequ
   if (!isInside(realWs, real)) {
     return { ok: false, code: 'PATH_OUTSIDE_WORKSPACE', reason: '路径经符号链接解析后落在工作区之外' };
   }
-  return { ok: true, entry: probe('custom', label('path.custom'), 'file', real, '自定义请求路径（已通过 realpath 边界校验）') };
+  const ctx = buildPathContext(workspaceRoot);
+  const custom = {
+    id: 'custom', suffix: 'path.custom', kind: 'file' as const,
+    source: '自定义请求路径（已通过 realpath 边界校验）',
+  };
+  return { ok: true, entry: probeEntry(custom, ctx, { path: real, overridden: false }) };
 }
+
+/** 词表键构造（客户端自定义路径行复用同一前缀规则）。 */
+export { pathLabel };

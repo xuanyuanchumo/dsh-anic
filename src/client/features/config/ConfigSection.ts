@@ -1,5 +1,5 @@
 /**
- * 配置与路径分区组件（cycle-82）—— store 切片 + 动作层 → 纯渲染器。
+ * 配置与路径分区组件（cycle-82；cycle-83 增路径编辑/冲突条/回滚接线）。
  *
  * ## 为什么独立成文件而不是塞进 components/panelSections.ts
  *
@@ -13,21 +13,36 @@
  * 配置分区满足这一条但理由不同——它是**唯一可写分区**，用户点开面板就是要改配置，
  * 折叠一层会让"保存按钮在哪"变成一次多余点击。其余静态分区继续默认收纳。
  *
- * ## 草稿不在这里存
+ * ## 本文件只剩「组装」：写侧动作在 configActions.ts
  *
- * 草稿在 `panelState.configDrafts`（见 panelActions.applyConfig 的合并不变量）。
- * 本组件只把"事实 + 草稿 + 写结果"取出来交给纯渲染器，并把点击翻译成动作层调用。
+ * 提交/路径保存/回滚的时序纪律（begin→await→finish、失败保留输入、写后刷新）
+ * 都在 configActions.ts。这里只做订阅切片、算冲突、把点击翻译成动作调用——
+ * 两种职责混在一起会越过 250 行，也会让「怎么渲染」与「怎么做写」纠缠。
+ *
+ * ## 「旧基线」为什么用 rawHash 区分而不是另存一份影子状态
+ *
+ * 冲突判据需要**旧基线**。GET 响应自带 `rawHash`：ref 里存 `{hash, values}`。
+ * 渲染时若 `ref.hash !== cfg.rawHash` 说明磁盘在这两拍之间变过，ref 里那份
+ * values 就是用户开始编辑时看到的基线。一个来源（服务端事实 + 它的哈希），
+ * 不需要第二份影子状态。ref 在 **effect 里**更新而不是渲染期——渲染期写 ref
+ * 在 React 严格模式双调下会丢掉基线。
  */
-import { memo, useCallback, type ReactElement } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { usePanelSlice } from '../../components/panelStore.ts';
 import { bindPanelActions, type PanelActions } from '../../components/panelActions.ts';
 import type { PanelDataStore, PanelState } from '../../panelState.ts';
 import { t } from '../../i18n.ts';
 import { renderFoldableSection } from '../../components/sectionShell.ts';
 import { useSectionFailure, bodyOrFailure, type SectionBody } from '../../components/sectionFailure.ts';
-import { renderConfigEditor, type ConfigEditorInput } from './configRender.ts';
-import { draftsToPatch, submitConfigPatch } from './configTarget.ts';
-import { valueToDraftText } from './configTypes.ts';
+import { renderConfigEditor, type ConfigEditorHandlers, type ConfigEditorInput } from './configRender.ts';
+import { valueToDraftText, type ConfigJson, type ConfigPathJson } from './configTypes.ts';
+import {
+  adoptServerDraft, conflictSignature, detectConflicts, pendingConflicts, type FieldConflict,
+} from './configConflict.ts';
+import {
+  useConfigSubmit, usePathEdit, usePathSave, useRollback,
+  type BackupFeedback,
+} from './configActions.ts';
 
 const selConfig = (s: PanelState) => s.config;
 const selDrafts = (s: PanelState) => s.configDrafts;
@@ -39,39 +54,33 @@ const selError = (s: PanelState) => s.configError;
 /** 面板实例唯一容器 id 的基础名（多实例同 id 会让 aria 关联静默错位，B5.1 教训）。 */
 export const CONFIG_PANEL_ID = 'anic-config-panel';
 
-/**
- * 提交（dryRun 或真写）。
- *
- * 三个动作层的时序是**刻意**的：begin → await → finish/fail。中间那段 await
- * 期间 busy=true 让按钮禁用——否则用户连点两次会产生两个并发写，而后端是
- * "读-改-写"语义，两个并发写的第二个是基于旧快照算的 patch（丢更新）。
- */
-function useConfigSubmit(store: PanelDataStore): {
-  onPreview: () => void;
-  onSave: () => void;
-} {
-  const run = useCallback(async (dryRun: boolean): Promise<void> => {
-    const actions: PanelActions = bindPanelActions(store);
-    const state = store.getState();
-    const cfg = state.config;
-    if (cfg === null) return;
-    const patch = draftsToPatch(cfg.schema, cfg.values, state.configDrafts);
-    if (Object.keys(patch).length === 0) return; // 无改动不提交（预览/保存都禁用，这里是二道保险）
-    actions.beginConfigWrite();
-    const out = await submitConfigPatch(patch, dryRun);
-    if (out.body === null) { actions.failConfigWrite(out.error ?? 'unknown', null); return; }
-    if (out.body.ok === false && !dryRun) { actions.failConfigWrite(out.body.error || 'rejected', out.body); return; }
-    if (dryRun) {
-      // 预览不改草稿、不改 baseline：它只是"如果保存会发生什么"的一次问答。
-      actions.finishConfigPreview(out.body);
-      return;
-    }
-    actions.finishConfigWrite(out.body, new Date().toISOString());
-  }, [store]);
+/** 供契约测试断言「路径项可编辑性来自服务端」（只有 editable 为真才出编辑按钮）。 */
+export function editablePaths(cfg: ConfigJson): ConfigPathJson[] {
+  return cfg.paths.entries.filter((e) => e.editable === true);
+}
 
-  const onPreview = useCallback((): void => { void run(true); }, [run]);
-  const onSave = useCallback((): void => { void run(false); }, [run]);
-  return { onPreview, onSave };
+/**
+ * 冲突计算（纯读三份事实；「上一次拉到」的基线由调用方给）。
+ *
+ * 副作用只有一处：把「本拍事实 + 它的哈希」记进 ref（供下一拍算基线）。
+ * 它在 **effect 里**执行——渲染期写 ref 在 React 严格模式双调下会丢掉基线。
+ */
+function useConflicts(
+  config: ConfigJson | null,
+  drafts: Record<string, string | boolean>,
+  baselineRef: { current: { hash: string | null; values: Record<string, unknown> } },
+  acknowledged: readonly string[],
+): FieldConflict[] {
+  const hash = config === null ? null : config.rawHash;
+  const stale = config !== null && baselineRef.current.hash !== null && baselineRef.current.hash !== hash;
+  // 哈希变了 ⇒ ref 里那份才是「用户开始编辑时看到的」旧事实；没变 ⇒ 就是当前事实。
+  const baseline = stale ? baselineRef.current.values : (config?.values ?? {});
+  useEffect(() => {
+    if (config === null) return;
+    baselineRef.current = { hash: config.rawHash, values: config.values };
+  }, [config, baselineRef]);
+  const all = config === null ? [] : detectConflicts(config.schema, config.values, baseline, drafts);
+  return pendingConflicts(all, acknowledged);
 }
 
 function ConfigSectionImpl({ store, panelId }: { store: PanelDataStore; panelId: string }): ReactElement {
@@ -85,16 +94,38 @@ function ConfigSectionImpl({ store, panelId }: { store: PanelDataStore; panelId:
   const actions: PanelActions = bindPanelActions(store);
   const { onPreview, onSave } = useConfigSubmit(store);
 
-  const input: ConfigEditorInput = {
-    config,
-    drafts,
-    writeResult,
-    savedAt,
-    busy,
-    // 拉取失败与写错误是两条通道：前者是"不知道磁盘现在是什么"，后者是"写了没成功"。
-    error: error === '' ? null : error,
-  };
-  const editor = renderConfigEditor(input, {
+  const [acknowledged, setAcknowledged] = useState<readonly string[]>([]);
+  const [backupBusy, setBackupBusy] = useState<string | null>(null);
+  const [backupResult, setBackupResult] = useState<BackupFeedback | null>(null);
+  const baselineRef = useRef<{ hash: string | null; values: Record<string, unknown> }>({ hash: null, values: {} });
+
+  const conflicts = useConflicts(config, drafts, baselineRef, acknowledged);
+  // 编辑态的唯一持有者：begin/save 的失败写回都走它（setState 一并下传）。
+  const edit = usePathEdit();
+  const savePath = usePathSave(store, edit.setState);
+  const runRollback = useRollback(store, setBackupBusy, setBackupResult);
+
+  const onAdoptServer = useCallback((fieldId: string): void => {
+    const cfg = store.getState().config;
+    if (cfg === null) return;
+    const field = cfg.schema.find((f) => f.id === fieldId);
+    if (field === undefined) return;
+    const picked = conflicts.find((c) => c.fieldId === fieldId);
+    const next = adoptServerDraft(field, cfg.values);
+    if (next !== undefined) bindPanelActions(store).setConfigDraft(fieldId, next);
+    if (picked !== undefined) setAcknowledged((prev) => [...prev, conflictSignature(picked)]);
+  }, [store, conflicts]);
+
+  const onKeepMine = useCallback((fieldId: string): void => {
+    const found = conflicts.find((c) => c.fieldId === fieldId);
+    if (found !== undefined) setAcknowledged((prev) => [...prev, conflictSignature(found)]);
+  }, [conflicts]);
+
+  const onDismiss = useCallback((): void => {
+    setAcknowledged((prev) => [...prev, ...conflicts.map(conflictSignature)]);
+  }, [conflicts]);
+
+  const handlers: ConfigEditorHandlers = {
     onChange: (id, draft) => { actions.setConfigDraft(id, draft); },
     onReset: (id) => {
       // 还原单个字段 = 把草稿设回服务端事实值（不是删草稿键：删键会让"未修改"
@@ -113,8 +144,34 @@ function ConfigSectionImpl({ store, panelId }: { store: PanelDataStore; panelId:
     onPreview,
     onSave,
     onDiscard: () => { actions.clearConfigDrafts(); },
-  }, panelId);
+    // cycle-83：路径行内编辑（服务端是唯一判据权威，本地只挡形状）。
+    onEditBegin: (id) => { edit.begin(id, config?.pathOverrides?.active[id] ?? ''); },
+    onEditChange: (id, value) => { edit.change(id, value); },
+    onEditCancel: () => { edit.cancel(); },
+    onEditSave: (id) => { if (edit.state !== null) void savePath(id, edit.state.value, false); },
+    onEditReset: (id) => { void savePath(id, '', true); },
+    onAdoptServer,
+    onKeepMine,
+    onDismiss,
+    onPreviewRestore: (name) => { void runRollback(name, true); },
+    onRestore: (name) => { void runRollback(name, false); },
+  };
 
+  const input: ConfigEditorInput = {
+    config,
+    drafts,
+    writeResult,
+    savedAt,
+    busy,
+    // 拉取失败与写错误是两条通道：前者是"不知道磁盘现在是什么"，后者是"写了没成功"。
+    error: error === '' ? null : error,
+    conflicts,
+    pathEdit: edit.state,
+    backupBusy,
+    backupResult,
+  };
+
+  const editor = renderConfigEditor(input, handlers, panelId);
   const body: SectionBody = bodyOrFailure(editor, 'config', failure);
   return renderFoldableSection({ id: 'config', title: t('fold.config'), defaultOpen: true, children: body });
 }

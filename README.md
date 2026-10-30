@@ -19,7 +19,7 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
 - 23 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复 / 自主级升级 / 热重载 `anic_reload_self`）
-- 65 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit` + cycle-80 热重载 `POST /anic/api/reload` + cycle-82 配置与路径 `GET/POST /anic/api/config`）
+- 69 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit` + cycle-80 热重载 `POST /anic/api/reload` + cycle-82 配置与路径 `GET/POST /anic/api/config` + cycle-83 路径覆盖 `POST /anic/api/config/paths` 与备份回滚 `POST /anic/api/config/rollback` + cycle-83 产物治理 `/anic/api/archive/baseline`）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
@@ -69,7 +69,10 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **终态重入四流程修复（v0.14.0 / cycle-12，D-1101）**：task 型流程终态后可重新入轮——gate-check（PASSED/FAILED→RUNNING）、archive（DONE→RUNNING）、hitl（PASSED/FAILED→RUNNING）三流程补 run 边，macro-phase 经正典比对排除（maintain 是末相无 reset 语义）；`tests/unit/flowTerminalReentry.test.ts` 四层 9 用例（描述子齐全性/机器层放行/集成层二轮/排除钉）。**桌面端宿主实证（D-1102）**：桌面宿主上插件 fiberPhase active、anic_* 工具真实执行、org-status/workflow-snapshot 路由 200、plugin_manager 禁用→启用往返无 duplicate-route（R12 HMR 安全性真机实证）；v0.13.0+ 新面受 Node 模块缓存限制需宿主自然重启生效。67 文件 837 用例全绿。
 
 - 客户端贡献：`conversation.view` 顶层标签 `ANIC`（`kind:'list'` 可叠加，不顶掉既有标签）。
-- 渲染真实 `.cycles/`：嵌入快照随构建更新（当前 169 节点 / 217 边 / autonomy L4，以 smoke 遥测为准）。
+- 渲染真实 `.cycles/`：嵌入快照随构建更新（**基线重置后**：活跃 5 轮 / 归档 78 轮 / 当前 38 节点 / 48 边 / 折叠 68 组账本 / autonomy L4，以 smoke 遥测为准）。窗口默认只放最近 8 轮（`.cycles/config.yml` 的 `snapshotWindow`，合法区间 1–64），被折叠的账本组在 `evt:folded`、归档轮次在 `evt:archived` 节点如实可见——「避免过度产物影响判断」的可视化形态。
+- 产物治理（cycle-83 能力 · cycle-86 首次真机执行）：`POST /anic/api/archive/baseline` 两段式（dryRun 与真写共用同一判据）把可完成的历史轮搬进 `.cycles/archive/`，**账本只读不动**（INV-9），落 `manifest.json` + `baseline-reset.json` 审计；未完成轮逐个点名保留。本仓实测归档 77 轮、扫描面降 94%、账本 210 条与链头零变化。
+- 图谱可导航（cycle-84/85）：搜索跳转（回车直达 + 命中胶囊 + 计数）、**↑/↓ 遍历候选**（`aria-current` 单值）、双击节点**上下游路径追溯**（双向有界 BFS，root/up/down 三色描边 + 状态条 + 三条退出通道）、双击空白**适配视图**、hover 抬升与追溯投影；全部带 `data-anic-*` 可断言锚点与 jsdom 契约。
+- 健康度语义（cycle-85）：裁决类脚本的 `exit 1`（门禁正确拒绝）**不再计为故障**——健康面同时输出「原始成功率 / 有效成功率 / 有效负裁决次数」三个数，建议严重度按有效成功率定。本仓实测：`gate-check` 由 degraded 纠正为 **healthy**（有效负裁决 15 次），`eval-runner` 由「假故障」纠正为 **expensive**（真的慢，均值 69s）。
 - 流程状态机（R3）：FlowRegistry 5 流程（gate-check/macro-phase/archive/hitl/auto-fix）专属状态机 + 模块引擎；面板 flows 分区实时可视化；Tier-2 多智能体 LLM 评审通道（真模型逐门逐角色）。
 - 零 bundle 依赖（react 之外全部外置或内联）；SVG 渲染，无布局引擎。
 

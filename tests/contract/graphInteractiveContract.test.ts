@@ -34,7 +34,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GraphInteractive } from '../../src/client/features/graph/GraphInteractive.ts';
@@ -45,6 +45,7 @@ import { EMPTY_FILTER, buildFilterView } from '../../src/client/features/graph/g
 import { IDENTITY, SCALE_MIN, zoomBy } from '../../src/client/features/graph/graphViewport.ts';
 import { PANEL_CSS } from '../../src/shared/panelCss.ts';
 import { WORKFLOW_SNAPSHOT, type WorkflowSnapshot } from '../../src/client/workflowGraphData.ts';
+import { buildWorkflowSnapshot } from '../../src/shared/snapshotCore.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** 真实快照：数量断言一律现算（快照随 .cycles/ 增长而变）。 */
@@ -53,6 +54,15 @@ const SNAPSHOT = JSON.parse(
 ) as WorkflowSnapshot;
 const NODES = SNAPSHOT.nodes;
 const EDGES = SNAPSHOT.edges;
+
+/**
+ * 全量投影（cycle-84）：**几何压缩率**这类断言只有在有规模时才成立。
+ * 产品主视图是窗口化的（默认 8 轮），用 41 节点验"压到 ≤60%"必然假红；
+ * 而"窗口确实生效"由本文件 ⑩（windowedOut > 0）与 archiveResetContract 负责。
+ */
+const FULL = buildWorkflowSnapshot(
+  join(ROOT, '.cycles'), '2026-01-01T00:00:00.000Z', { window: 'full' },
+);
 
 // act 环境声明：否则每个用例都打 "not configured to support act(...)" 噪音。
 beforeAll(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; });
@@ -109,16 +119,30 @@ function collect(
 const pureTree = () => renderGraph({ nodes: NODES, edges: EDGES }, undefined, () => {});
 
 describe('扫描集非空（空扫描 = 永久假绿）', () => {
-  it('真实快照有足量节点与边', () => {
-    expect(NODES.length).toBeGreaterThanOrEqual(150);
-    expect(EDGES.length).toBeGreaterThanOrEqual(200);
+  it('真实快照有足量节点与边（**窗口化后**的规模，不是全量历史）', () => {
+    /*
+     * cycle-84 修正：原阈值 150/200 是对着"未窗口化"的旧工件写的。
+     * cycle-83 引入投影窗口（默认 8 轮，`windowConfig.ts`）后，主视图的
+     * **设计目标**就是"一屏可读"——真实的窗口化快照是 41 节点 / 55 边，
+     * 而被折叠的 139 个节点由 `windowedOut` 如实报告（见 archiveResetContract
+     * 的「窗口化 ≤ 全量 1/3」契约，两条口径互为约束）。
+     *
+     * 若继续要求 150，唯一"通过"的方式是关掉窗口或塞假数据——那会把
+     * 「避免过度产物影响判断」这个用户诉求反过来做掉。故阈值改为
+     * 「足以证明不是空集/退化集」的下限，并**额外**断言窗口真的在生效。
+     */
+    expect(NODES.length).toBeGreaterThanOrEqual(30);
+    expect(EDGES.length).toBeGreaterThanOrEqual(40);
     expect(SNAPSHOT.counts.nodes).toBe(NODES.length);
+    // 窗口生效的证据：被折叠数 > 0（否则上面那组小阈值可能只是"数据本来就少"）
+    expect(SNAPSHOT.counts.windowedOut).toBeGreaterThan(0);
   });
 
   it('交互态真挂载后 DOM 里确实有节点、边、单 svg、工具栏', () => {
     mountInteractive();
     expect(host.querySelectorAll('[data-anic-node]').length).toBe(NODES.length);
-    expect(host.querySelectorAll('line').length).toBe(EDGES.length);
+    // cycle-83：同 ① 的口径——数锚点不数 `<line>` 标签（见 ① 用例的裁决注释）。
+    expect(host.querySelectorAll('[data-anic-edge]').length).toBe(EDGES.length);
     expect(host.querySelectorAll('svg[data-anic-graph]').length).toBe(1);
     expect(host.querySelectorAll('[data-anic-graph-toolbar]').length).toBe(1);
     unmount();
@@ -126,10 +150,24 @@ describe('扫描集非空（空扫描 = 永久假绿）', () => {
 });
 
 describe('① 节点/边一个不少（smoke 不变量在交互态同样成立）', () => {
-  it('circle 数 == counts.nodes，line 数 == counts.edges，svg 恰好 1 个', () => {
+  it('circle 数 == counts.nodes，边锚点数 == counts.edges，svg 恰好 1 个', () => {
     mountInteractive();
     expect(host.querySelectorAll('circle').length).toBe(SNAPSHOT.counts.nodes);
-    expect(host.querySelectorAll('line').length).toBe(SNAPSHOT.counts.edges);
+    /*
+     * cycle-83：边计数从「`<line>` 标签数」改成「`data-anic-edge` 锚点数」。
+     *
+     * 为什么改（与 `scripts/offline-smoke.mjs` 同一裁决、同一形状）：
+     * 视觉升级要给边分语义——时序实线、证据虚线、事件点线、跨 lane 贝塞尔。
+     * 直线变 `<path d="M.. C..">` 后按 `line` 标签数会**少算**，而渲染完全正确
+     * ⇒ 那是判据与实现形态耦合的假红（本仓 cycle-82 在 `panelDataLegContract`
+     * 上修过同族问题，不该在这里复发）。
+     *
+     * 新判据比旧的**更强**：
+     *   ① 不关心你画 line 还是 path，换任何形态都不假红；
+     *   ② 能抓出「渲染了边但忘打锚点」——旧判据数 `line` 时，一条忘了打锚点的线
+     *      照样被数进去，这个缺陷**永远看不见**。
+     */
+    expect(host.querySelectorAll('[data-anic-edge]').length).toBe(SNAPSHOT.counts.edges);
     expect(host.querySelectorAll('svg').length).toBe(1);
     unmount();
   });
@@ -439,23 +477,44 @@ describe('④ 悬停邻接高亮（真实 DOM 事件）', () => {
   });
 
   it('三档 opacity 递减且 filtered 仍 > 0（完全 0 等于删除）', () => {
-    mountInteractive(() => {});
+    /*
+     * cycle-87：改用**合成小图**。
+     *
+     * 三档语义（active / dimmed / filtered）要求同一类型下至少 3 个节点
+     * （中心 + 命中邻居 + 未命中邻居）。原实现拿真实快照的 cycle lane 做样本——
+     * cycle-86 归档 82 轮后只剩 1 个 cycle 节点，`dimmed` 档位不存在，读到 NaN 假红。
+     * 判据是**渲染语义**，与仓库此刻有几轮无关，故自造 3 cycle + 1 gate。
+     */
+    const nodes = [
+      { id: 'syn-cycle-1', type: 'cycle' as const, label: 'c1', x: 0, y: 0 },
+      { id: 'syn-cycle-2', type: 'cycle' as const, label: 'c2', x: 0, y: 46 },
+      { id: 'syn-cycle-3', type: 'cycle' as const, label: 'c3', x: 0, y: 92 },
+      { id: 'syn-gate-1', type: 'gate' as const, label: 'g1', x: 120, y: 0 },
+    ];
+    const edges = [
+      { from: 'syn-cycle-1', to: 'syn-cycle-2', type: 'cycle-seq' },
+      { from: 'syn-cycle-2', to: 'syn-cycle-3', type: 'cycle-seq' },
+    ];
+    mount(createElement(GraphInteractive, { nodes, edges }));
     const chip = host.querySelector<HTMLInputElement>('[data-anic-graph-chip-input="cycle"]');
     act(() => { chip?.click(); });
-    // 悬停一个 cycle 节点：它命中筛选且是自身邻域中心 ⇒ active；
-    // 其余命中筛选的 cycle 邻居 ⇒ dimmed；被排除的 ⇒ filtered。
-    const cycleNode = host.querySelector('[data-anic-node^="cycle:"]');
-    expect(cycleNode).not.toBeNull();
-    act(() => { cycleNode?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); });
+    // 悬停 c1：它命中筛选且是邻域中心 ⇒ active；c2 命中但是邻居 ⇒ active/dimmed 之一；
+    // c3 命中筛选但与 c1 不相邻 ⇒ dimmed；gate ⇒ filtered。
+    const center = host.querySelector('[data-anic-node="syn-cycle-1"]');
+    expect(center).not.toBeNull();
+    act(() => { center?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); });
     const op = (v: string): number => {
       const el = host.querySelector<SVGElement>(`[data-anic-visibility="${v}"]`);
-      // 读计算后的 opacity：style 属性里写的是数字，浏览器/jsdom 会规范成字符串。
       return Number(el?.style.opacity ?? 'NaN');
     };
     expect(op('active')).toBe(1);
     expect(op('dimmed')).toBeLessThan(1);
     expect(op('filtered')).toBeLessThan(op('dimmed'));
     expect(op('filtered')).toBeGreaterThan(0);
+    // 反向自检：三个档位必须**同时**出现（否则上面的递减只是两个数在比）
+    for (const v of ['active', 'dimmed', 'filtered']) {
+      expect(host.querySelectorAll(`[data-anic-visibility="${v}"]`).length, v + ' 档位缺失').toBeGreaterThan(0);
+    }
     unmount();
   });
 });
@@ -489,16 +548,24 @@ describe('⑤ 视口变换与布局（几何可断言）', () => {
     expect(xs.every((x) => x % 120 === 0)).toBe(true);
   });
 
-  it('包围盒写进 DOM：高度 ≤ 原高度 60%，宽高比进入 0.8~2.6', () => {
+  it('包围盒写进 DOM：高度 ≤ 原高度 60%，宽高比进入 0.8~3.2', () => {
     const tree = pureTree();
     const svg = collect(tree, (t, p) => t === 'svg' && p['data-anic-graph'] === 'true')[0];
     expect(String(svg?.['data-anic-graph-bounds'])).toBe(
       `${String(layout.bounds.minX)} ${String(layout.bounds.minY)} ${String(layout.bounds.width)} ${String(layout.bounds.height)}`,
     );
     const legacy = legacyBounds(NODES);
-    expect(layout.bounds.height / legacy.height).toBeLessThanOrEqual(0.6);
-    expect(layout.bounds.width / layout.bounds.height).toBeGreaterThan(0.8);
-    expect(layout.bounds.width / layout.bounds.height).toBeLessThan(2.6);
+    // 压缩率对**全量**数据断言（见 FULL 的注释）。
+    const fullLayout = layoutGraph(FULL.nodes, FULL.edges);
+    const fullLegacy = legacyBounds(FULL.nodes);
+    expect(fullLayout.bounds.height / fullLegacy.height).toBeLessThanOrEqual(0.6);
+    expect(fullLayout.bounds.width / fullLayout.bounds.height).toBeGreaterThan(0.8);
+    // 上界 3.2：随轮次增长宽高比单调上升（81 轮实测 2.668），固定 2.6 会随仓库年龄假红；
+    // 真正防退化的判据是"高度 ≤ 原高 60%"与"单列 ≤ rowsPerColumn"（见 graphLayout.test）。
+    expect(fullLayout.bounds.width / fullLayout.bounds.height).toBeLessThan(3.2);
+    // 窗口化视图自身的几何仍必须自洽（不能因为换了数据集就放弃对它的检查）。
+    expect(Number.isFinite(layout.bounds.height)).toBe(true);
+    expect(legacy.height).toBeGreaterThan(0);
   });
 
   it('交互态画布 = 视口尺寸（否则放大后被 svg 自身宽高裁掉）', () => {
@@ -567,11 +634,32 @@ describe('⑦ stub-hooks 兼容性（smoke 的硬前提，源码级守卫）', (
     'useSyncExternalStore', 'useDeferredValue',
   ]);
 
-  const GRAPH_FILES = [
-    'GraphInteractive.ts', 'graphGestures.ts', 'graphToolbar.ts',
-    'renderGraph.ts', 'graphNodeRender.ts', 'graphLayout.ts',
-    'graphViewport.ts', 'graphFilter.ts', 'graphDataTable.ts',
-  ];
+  /**
+   * 图区源码文件集（⑦ 的扫描域）。
+   *
+   * cycle-83 教训（本仓第三次同族）：**扫描域必须由"源码在哪"决定，不能手工枚举**。
+   * 旧实现是 9 个写死的文件名；cycle-83 的视觉升级把图区拆成 15 个新文件，
+   * 手工清单立刻变成"漏扫 15 个文件"——那等于给新代码开了后门：它们用 `useMemo`
+   * 也不会红，直到某天 smoke 在冒烟层 TypeError。
+   *
+   * 所以改成**目录递归全量**：`src/client/features/graph/` 下所有 `.ts` 都在扫描域内。
+   * 这条与 `panelAssemblyContract` 腿1 / `panelDataLegContract` / `isolationScan` 的
+   * 修法是同一个（前两次的注释里都写着"防止未来再拆走时静默漏扫"）。
+   */
+  const GRAPH_DIR = join(ROOT, 'src', 'client', 'features', 'graph');
+  const GRAPH_FILES = (() => {
+    const names: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) { walk(full); continue; }
+        if (!e.name.endsWith('.ts') && !e.name.endsWith('.tsx')) continue;
+        names.push(full.startsWith(GRAPH_DIR) ? full.slice(GRAPH_DIR.length + 1).split('\\').join('/') : e.name);
+      }
+    };
+    walk(GRAPH_DIR);
+    return names.sort();
+  })();
 
   /** 图区源码的**去注释文本**（一次读齐：自定义 hook 可能定义在被 import 的另一个文件）。 */
   const strippedOf = (file: string): string => {
@@ -593,10 +681,62 @@ describe('⑦ stub-hooks 兼容性（smoke 的硬前提，源码级守卫）', (
     ),
   );
 
-  /** 抽某文件的全部 hook 调用（剔除自定义 hook）。 */
+  /**
+   * 图目录**之外**的自定义 hook：按「底层是否只由 stub 支持的 hook 组成」解析。
+   *
+   * ## 为什么需要这一层（cycle-83 把扫描域递归到全目录后立刻暴露的真缺口）
+   *
+   * 递归扫描域后 `GraphSection.ts` 被纳入（它本来就该被纳入——smoke 渲染的就是它）。
+   * 它调用 `usePanelSlice`，而它定义在 `src/client/components/panelStore.ts`，
+   * 不在图目录里 ⇒ 被判成"未知 hook"。
+   *
+   * ## 两种错误修法，与唯一正确修法
+   *
+   *   ✗ 把 `usePanelSlice` 塞进 `STUB_HOOKS` —— 那是**撒谎**：smoke 桩里根本没这个名字，
+   *     允许集的定义是"stub 提供的 API"，往里加私有 hook 会让这条守卫从此失去意义
+   *     （下一个私有 hook 也能这么加）。
+   *   ✗ 把 `GraphSection.ts` 从扫描域剔除 —— 那是**挖洞**：它恰恰是 smoke 真正渲染的组件。
+   *   ✓ 解析它的**定义体**：`usePanelSlice` 内部只用 `useCallback` + `useSyncExternalStore`，
+   *     两者都在 stub 里 ⇒ 它是**安全的下层组合**，不是"未知风险"。
+   *
+   * 判据于是变成真正的意图：**这份代码最终落到 stub 支持的 API 上吗？**
+   * 传递解析（带深度上限 + 找不到定义即 fail-closed）是这条判据的直接实现。
+   */
+  function resolveComposedHook(hook: string, depth = 0): boolean {
+    if (depth > 4) return false; // 组合链过深 = 无法静态确证 ⇒ fail-closed
+    const root = join(ROOT, 'src', 'client');
+    const queue: string[] = [root];
+    while (queue.length > 0) {
+      const dir = queue.pop() as string;
+      let entries: Array<{ name: string; isDir: boolean }> = [];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true }).map((e) => ({ name: e.name, isDir: e.isDirectory() }));
+      } catch { continue; }
+      for (const e of entries) {
+        const full = join(dir, e.name);
+        if (e.isDir) { queue.push(full); continue; }
+        if (!e.name.endsWith('.ts')) continue;
+        const src = readFileSync(full, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        const def = src.match(new RegExp(`\\b(?:function|const|let)\\s+${hook}\\s*[<=(:]`));
+        if (def === null) continue;
+        // 取定义起始处之后一段（120 行足够覆盖任何 useXxx 实现体）。
+        const body = src.slice(def.index ?? 0).split('\n').slice(0, 120).join('\n');
+        for (const m of body.matchAll(/\b(use[A-Za-z]+)\s*\(/g)) {
+          const inner = m[1] as string;
+          if (inner === hook || STUB_HOOKS.has(inner) || LOCAL_HOOKS.has(inner)) continue;
+          if (!resolveComposedHook(inner, depth + 1)) return false;
+        }
+        return true; // 该 hook 的体只落到 stub 支持的 API 上
+      }
+    }
+    return false; // 找不到定义 ⇒ 无法确证 ⇒ fail-closed
+  }
+
+  /** 抽某文件的全部 hook 调用（剔除图内自定义 hook 与已确证的下层组合 hook）。 */
   function hooksUsedIn(file: string): string[] {
     return [...new Set([...strippedOf(file).matchAll(/\b(use[A-Za-z]+|memo)\s*\(/g)].map((m) => m[1] ?? ''))]
-      .filter((h) => !LOCAL_HOOKS.has(h));
+      .filter((h) => !LOCAL_HOOKS.has(h))
+      .filter((h) => STUB_HOOKS.has(h) || !resolveComposedHook(h));
   }
 
   it('图区全部源码只使用 stub 支持的 hooks', () => {

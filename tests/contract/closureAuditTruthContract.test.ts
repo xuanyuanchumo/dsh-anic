@@ -444,10 +444,15 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
      *                     configTypes.ts 的注解与 configEditClient 的回归钉）
      *   graph.lane.      图区类型 lane 名（cycle-82）
      *   graph.verdict.   图区裁决名（cycle-82）
+     *   graph.           图区 cycle-83 新增键族（`gt('短名')` → `t('graph.' + suffix)`）：
+     *                    tooltip 邻居数 / 小地图说明 / 面包屑五段 / 工具栏分组标签。
+     *                    登记理由与 config. 同源——新键在合并进 locale **之前**不得被
+     *                    报成幽灵消费，合并**之后**不得被报成死键，前缀形态是唯一同时
+     *                    满足两头的形状。逐键清单见 docs/anic/cycle-83-graph-i18n.md。
      * 新增前缀必须同时在这里登记并说明来路，否则本断言红——这是设计意图。
      */
     expect(real, '生产代码前缀集变化：新增前缀须在此登记来路（认领 = 免死键通行证）')
-      .toEqual(['budget.status_', 'config.', 'graph.lane.', 'graph.verdict.']);
+      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.lane.', 'graph.verdict.']);
     expect(endsWithSeparator('budget.status_')).toBe(true);
     expect(endsWithSeparator('a.')).toBe(true);
     expect(endsWithSeparator('a')).toBe(false);

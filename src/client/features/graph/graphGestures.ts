@@ -46,6 +46,14 @@ export interface ViewportGestures {
   onPointerUp: () => void;
   /** 拖拽是否已越过阈值（节点点击用它区分"点"与"拖"）。 */
   hasMoved: () => boolean;
+  /**
+   * 命令式设视口（cycle-83：小地图点击跳转走这条）。
+   *
+   * 为什么必须**过一遍 clampPan** 而不是让调用方自己 setViewport：跳转算出的
+   * tx/ty 是"让某世界点居中"，在图的边缘会超出可拖范围——不钳制就等于给了
+   * 用户一个能把图拖丢的入口（见 graphViewport 头注「平移无界」）。
+   */
+  setViewport: (next: Viewport) => void;
   doFit: () => void;
   doZoomIn: () => void;
   doZoomOut: () => void;
@@ -157,6 +165,6 @@ export function useViewportGestures(layout: GraphLayout, opts: GestureOptions): 
 
   return {
     viewport, dragging, onWheel, onPointerDown, onPointerMove, onPointerUp,
-    hasMoved, doFit, doZoomIn, doZoomOut, onKeyDown,
+    hasMoved, setViewport: apply, doFit, doZoomIn, doZoomOut, onKeyDown,
   };
 }

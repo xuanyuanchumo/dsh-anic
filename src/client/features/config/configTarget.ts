@@ -26,9 +26,13 @@
  * `planPatch`（见 configRoute 的注释），所以"预览说改 1 行"与实际"改了 1 行"不可能分家。
  */
 import type { PanelFetchTarget } from '../../components/usePanelFetch.ts';
+import type { PanelDataStore } from '../../panelState.ts';
+import { bindPanelActions } from '../../components/panelActions.ts';
 import {
-  CONFIG_URL, isConfigJson, isConfigWriteJson,
+  CONFIG_PATHS_URL, CONFIG_ROLLBACK_URL, CONFIG_URL, isConfigJson, isConfigWriteJson,
+  isPathWriteJson, isRollbackJson,
   draftToPatchValue, type ConfigFieldJson, type ConfigJson, type ConfigWriteJson,
+  type PathWriteJson, type RollbackJson,
 } from './configTypes.ts';
 
 /** 一拍的配置 GET target（形状守卫不过 → malformed，分区显示失败行而非假表单）。 */
@@ -104,4 +108,63 @@ export async function submitConfigPatch(
   } catch (e) {
     return { body: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+
+/** 提交路径覆盖 patch（dryRun=true 只预览；`null` 值 = 撤销该条覆盖）。 */
+export async function submitPathPatch(
+  patch: Record<string, string | null>,
+  dryRun: boolean,
+): Promise<{ body: PathWriteJson | null; error: string | null }> {
+  return postJson<PathWriteJson>(CONFIG_PATHS_URL, { patch, dryRun }, isPathWriteJson);
+}
+
+/**
+ * 提交回滚（`backup` 是**备份文件名**，不是路径；dryRun=true 只看 diff）。
+ *
+ * 为什么只传名字：服务端只接受清单内的名字（不接受路径），客户端也不该
+ * 构造路径——一旦客户端能拼路径，"恢复"就多了一条任意文件读取的可能。
+ */
+export async function submitRollback(
+  backup: string,
+  dryRun: boolean,
+): Promise<{ body: RollbackJson | null; error: string | null }> {
+  return postJson<RollbackJson>(CONFIG_ROLLBACK_URL, { backup, dryRun }, isRollbackJson);
+}
+
+/** POST 公共腿：任何失败都归一成 `{body:null, error}` 而**不抛**（理由见上）。 */
+async function postJson<T>(
+  url: string,
+  payload: unknown,
+  guard: (v: unknown) => v is T,
+): Promise<{ body: T | null; error: string | null }> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json: unknown = await res.json().catch(() => null);
+    // 服务端在 4xx/5xx 时也回同形状（ok=false + error）——形状合法即采信。
+    if (guard(json)) return { body: json, error: null };
+    return { body: null, error: `HTTP ${String(res.status)}` };
+  } catch (e) {
+    return { body: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * 写后刷新 GET 事实。
+ *
+ * 为什么自己发一次 GET 而不是等 4s 下一拍：用户点了「保存路径」或「恢复备份」后，
+ * 路径表/值表若停在旧值，他会以为没生效并再点一次（重复写）。一次 GET 是最小代价。
+ * 走 `isConfigJson` 同一守卫（不采信畸形响应），落地走 `setConfig`（唯一事实写路径）。
+ */
+export async function refreshConfigFact(store: PanelDataStore): Promise<void> {
+  try {
+    const res = await fetch(CONFIG_URL, { headers: { Accept: 'application/json' } });
+    const json: unknown = await res.json().catch(() => null);
+    if (!isConfigJson(json)) return;
+    bindPanelActions(store).setConfig(json);
+  } catch { /* 网络失败不额外报错：4s 轮询会自愈，失败行由 usePanelFetch 负责 */ }
 }

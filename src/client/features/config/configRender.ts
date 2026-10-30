@@ -12,18 +12,27 @@
  *
  * 草稿（drafts）由调用方持有：用户改了一半刷新页面/切分区时，草稿的存活策略
  * 属于面板状态机（panelState），不属于一个纯渲染器。这里只**读**草稿算脏标记。
+ * cycle-83 的路径内联编辑态同理：`editingId`/`editValue` 是**输入**，不是状态。
  *
  * ## 反馈纪律（诚实优先）
  *
  * - 没保存过 → 不显示「已保存」；
  * - 预览/保存被拒 → 显示 error 原文（不吞成一句"失败"）；
  * - 回读断言失败并已回滚 → 这话必须说出来（"写了但没生效"是最危险的状态）。
+ *
+ * ## cycle-83 新增的两条信息带
+ *
+ * 冲突条（`renderConflictBar`）在动作栏**下方第一条**——它说的是「你的基线过期」，
+ * 必须紧挨着用户正在改的表单；备份带（`renderBackupPanel`）在路径表**之后**——
+ * 它是「退路」，属于次要动作，放太显眼会诱导用户随手回滚。
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
-import { cfgText, type ConfigJson, type ConfigWriteJson } from './configTypes.ts';
+import { cfgText, type BackupViewJson, type ConfigJson, type ConfigWriteJson, type PathOverridesJson } from './configTypes.ts';
 import { draftsToPatch, dirtyFieldIds, renderConfigForm, type ConfigFormHandlers } from './configForm.ts';
-import { renderConfigPaths, type PathTableHandlers } from './configPaths.ts';
+import { renderConfigPaths, type PathTableHandlers, type PathTableInput } from './configPaths.ts';
+import { renderBackupPanel, renderConflictBar, type BackupHandlers, type ConflictBarHandlers } from './configExtras.ts';
+import type { FieldConflict } from './configConflict.ts';
 
 export interface ConfigEditorInput {
   /** GET 事实（null = 尚未拉取，整区不渲染——不伪造空态）。 */
@@ -38,9 +47,20 @@ export interface ConfigEditorInput {
   savedAt?: string | null;
   /** 错误条（拉取失败等；与 writeResult.error 分开展示，来源不同）。 */
   error?: string | null;
+  // ── cycle-83：冲突条与路径编辑（全部是只读输入）─────────────────────
+  /** 待用户裁决的冲突（无 = 不渲染冲突条）。 */
+  conflicts?: readonly FieldConflict[];
+  /** 路径内联编辑态（null = 没在编辑）。 */
+  pathEdit?: { id: string; value: string; error: string | null; busy: boolean } | null;
+  /** 覆盖表视图（缺省来自 config.pathOverrides）。 */
+  overrides?: PathOverridesJson | null;
+  /** 备份恢复的结果反馈。 */
+  backupResult?: { ok: boolean; message: string; safetyBackupPath?: string | null } | null;
+  /** 恢复进行中的备份名。 */
+  backupBusy?: string | null;
 }
 
-export interface ConfigEditorHandlers extends ConfigFormHandlers, PathTableHandlers {
+export interface ConfigEditorHandlers extends ConfigFormHandlers, PathTableHandlers, ConflictBarHandlers, BackupHandlers {
   /** 预览差异（dryRun）。 */
   onPreview: () => void;
   /** 保存（真写）。 */
@@ -106,6 +126,20 @@ function renderWriteResult(result: ConfigWriteJson): ReactElement {
   );
 }
 
+/** 路径编辑态 → 渲染输入（输入字段名与渲染器约定一一对应）。 */
+function pathInput(cfg: ConfigJson, input: ConfigEditorInput): PathTableInput {
+  const edit = input.pathEdit ?? null;
+  return {
+    entries: cfg.paths.entries,
+    warnings: cfg.paths.warnings,
+    overrides: input.overrides !== undefined ? input.overrides : (cfg.pathOverrides ?? null),
+    editingId: edit === null ? null : edit.id,
+    editValue: edit === null ? '' : edit.value,
+    editError: edit === null ? null : edit.error,
+    editBusy: edit === null ? false : edit.busy,
+  };
+}
+
 /**
  * 组装配置编辑分区。
  *
@@ -121,6 +155,7 @@ export function renderConfigEditor(input: ConfigEditorInput, handlers: ConfigEdi
   const patch = draftsToPatch(formInput);
   const result = input.writeResult ?? null;
   const busy = input.busy === true;
+  const backups: readonly BackupViewJson[] = cfg.backupViews ?? [];
 
   return createElement(
     'div',
@@ -141,6 +176,8 @@ export function renderConfigEditor(input: ConfigEditorInput, handlers: ConfigEdi
       button('preview', cfgText('preview'), handlers.onPreview, { disabled: busy || dirty.length === 0 }),
       button('save', busy ? cfgText('saving') : cfgText('save'), handlers.onSave, { disabled: busy || dirty.length === 0, accent: true }),
     ),
+    // 冲突条紧挨动作栏：它说的是「你的基线过期」，必须在用户触到保存之前被看到。
+    renderConflictBar(input.conflicts ?? [], handlers),
     input.error !== null && input.error !== undefined
       ? createElement('div', { 'data-anic-config-error': 'true', style: { padding: '2px 10px', fontSize: 11, color: token('anic-bad-text') } }, input.error)
       : null,
@@ -150,7 +187,9 @@ export function renderConfigEditor(input: ConfigEditorInput, handlers: ConfigEdi
     result !== null ? renderWriteResult(result) : null,
     createElement('div', { 'data-anic-config-body': 'true', style: { padding: '0 10px' } },
       renderConfigForm(formInput, handlers)),
-    renderConfigPaths(cfg.paths, cfg.probe ?? null, handlers),
+    renderConfigPaths(pathInput(cfg, input), cfg.probe ?? null, handlers),
+    // 退路放在最后：备份带的动作是"回到过去"，不该比"保存当前改动"更显眼。
+    renderBackupPanel({ views: backups, names: cfg.backups, busyName: input.backupBusy ?? null, result: input.backupResult ?? null }, handlers),
     createElement('div', { style: { padding: '4px 10px 0', fontSize: 10, color: token('anic-text-faint') } }, cfgText('hint')),
     createElement('span', { 'data-anic-config-patch-size': String(Object.keys(patch).length), style: { display: 'none' } }, ''),
   );

@@ -125,37 +125,56 @@ describe('逐模板三态：registered / 逐循环矩阵 / consumed（不抽样�
     }
   });
 
-  it('缺失能点名到 `cycle-N/文件名`（用户要求的可行动粒度）', () => {
-    // 真实仓里必有缺失（历史循环在模板体系定型前产出）
-    const withMissing = REAL.items.filter((i) => i.missing.length > 0);
-    expect(withMissing.length, '全仓零缺失 —— 点名断言空转').toBeGreaterThan(0);
-    for (const it of withMissing) {
+  /**
+   * cycle-87 修正：cycle 级点名必须在**夹具**上证明，不能依赖真实仓库里"恰好有缺口"。
+   *
+   * 原实现要求"真实仓至少有一条 cycle 级缺失"。cycle-86 归档 82 轮后活跃只剩 cycle-86
+   * （一个完整的轮），该下限立刻归零 → 假红。而"点名粒度"是**判据性质**，与仓库此刻
+   * 健不健康无关：健康的仓库本来就不该有 cycle 级缺口。
+   *
+   * 现在：夹具 FIX 里 cycle-2 只有任务清单、缺其余 cycle 级模板 ⇒ 必然产生
+   * `cycle-2/<文件>` 形态的点名，用它钉死"可行动粒度"；真实仓库侧只校验
+   * **形状合法性**（不要求非空）。
+   */
+  it('缺失能点名到 `cycle-N/文件名`（夹具证明可行动粒度）', () => {
+    const fix = scanArtifacts(FIX);
+    const cycleMissing = fix.items
+      .filter((i) => i.scope === 'cycle')
+      .flatMap((i) => i.missing.map((m) => ({ id: i.id, m })));
+    expect(cycleMissing.length, '夹具里 cycle-2 缺模板却没点名 —— 判据空转').toBeGreaterThan(0);
+    for (const { id, m } of cycleMissing) {
+      const mm = /^(cycle-\d+)\/(.+)$/.exec(m);
+      expect(mm, id + ' 缺失点名形态不对：' + m).not.toBeNull();
+      expect(fix.cyclesScanned, id + ' 点名了未扫描的循环：' + m).toContain(mm?.[1]);
+      // 点名与矩阵同源（不各说各话）
+      const item = fix.items.find((i) => i.id === id);
+      const cell = item?.cycles.find((c) => c.cycle === mm?.[1]);
+      expect(cell?.present, id + ' 点名缺失但矩阵说存在：' + m).toBe(false);
+    }
+    // 且确实点名到了 cycle-2（夹具里唯一不完整的轮）
+    expect(cycleMissing.some((x) => x.m.startsWith('cycle-2/'))).toBe(true);
+    // 完整的 cycle-1 不该被点名（反向对照：证明不是"每个轮都报")
+    expect(cycleMissing.some((x) => x.m.startsWith('cycle-1/'))).toBe(false);
+  });
+
+  it('真实仓库的缺失项形状合法（不要求非空——健康仓库本就没有 cycle 级缺口）', () => {
+    for (const it of REAL.items.filter((i) => i.missing.length > 0)) {
       // 按需触发类（事故/复盘）零发生是健康的，**永远不该**进缺失清单。
       expect(it.scope, it.id + '（按需触发）被当成缺失').not.toBe('ondemand');
       if (it.scope === 'project') {
-        /*
-         * 项目级只有**一份**，故缺失就是那条路径本身（如真实仓缺
-         * `.github/PULL_REQUEST_TEMPLATE.md`）。它不该带 cycle-N/ 前缀——
-         * 带了就说明判据错把项目级当循环级来点名了。
-         */
         expect(it.missing).toHaveLength(1);
         expect(it.missing[0], it.id + ' 项目级缺失不该带 cycle 前缀').not.toMatch(/^cycle-\d+\//);
         expect(it.projectPresent, it.id + ' 点名缺失却说 projectPresent=true').toBe(false);
         continue;
       }
-      // cycle 级：必须是 `cycle-N/<相对路径>`，且与矩阵同源。
       for (const m of it.missing) {
         const mm = /^(cycle-\d+)\/(.+)$/.exec(m);
         expect(mm, it.id + ' 缺失点名形态不对：' + m).not.toBeNull();
         expect(REAL.cyclesScanned, it.id + ' 点名了未扫描的循环：' + m).toContain(mm?.[1]);
-        // 且该模板在该循环里确实是 present=false（点名与矩阵同源，不各说各话）
         const cell = it.cycles.find((c) => c.cycle === mm?.[1]);
         expect(cell?.present, it.id + ' 点名缺失但矩阵说存在：' + m).toBe(false);
       }
     }
-    // 非空下限：至少有一条是 cycle 级点名（否则"可行动粒度"这条断言只测了项目级）
-    const cycleNamed = REAL.items.filter((i) => i.scope === 'cycle').reduce((n, i) => n + i.missing.length, 0);
-    expect(cycleNamed, '没有任何 cycle 级点名 —— 本轮的核心读数空转').toBeGreaterThan(0);
   });
 
   it('project / ondemand 作用域**不**进缺失清单（否则每个健康循环都背假待办）', () => {

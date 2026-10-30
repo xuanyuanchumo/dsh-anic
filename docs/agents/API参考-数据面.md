@@ -254,6 +254,51 @@ revision?, scheduledAt?, history?, workspace, requestId }`。
 硬 inject 会让整条 fiber pending，cycle-74 P0 教训）。只读投影见 `org-status.reload`
 （`stale` / `revision` / 最近一次重载），它不触发任何重载。
 
+## 7. POST `/anic/api/archive/baseline`
+
+**归档基线重置**（cycle-83 产物治理）：把**全部可完成**的活跃循环批量移入
+`.cycles/archive/`，让主视图以当前项目事实重新开始，而不是让 79 轮历史摊满面板。
+
+**为什么是「移动」而不是「删除」**：账本是只追加哈希链（INV-9）。按 detail 删条目会让
+后续所有 `previousHash` 指向幽灵，下一次 `verifyLedger` 必报 CHAIN_BREAK，整条链从此不可信。
+归档**只移动目录，永不触碰账本**；历史不是被删除，而是被移出主视图（读侧同时认
+`cycles/` 与 `archive/`，归档轮在快照里合成 1 个摘要节点继续可见）。
+
+**请求体**（可选字段）：`{ dryRun?: boolean, includeIncomplete?: boolean, actor?: string }`。
+- `dryRun: true` —— 只回报「将归档哪些轮 + 哪些留下及逐条原因」，**零写入**（不建 archive 目录）；
+- `includeIncomplete` —— 默认 false：移动未完成的轮会让任务清单从活跃区消失，与"让当前事实清晰"相反；
+- `actor` —— 写入审计记录 `archive/baseline-reset.json`（谁按的按钮）。
+
+**准入判据（与 G1 共用同一任务行解析器）**：`total > 0 && pending === 0` 才算可归档。
+`total === 0`（清单存在但零任务行）判 `empty-task-list`——**不可归档但不阻塞基线重置**，
+且如实点名，不是静默 false（旧判据会让这类轮次永久不可归档）。
+
+**响应体**：`{ ok, dryRun, archived[], kept[{name,reason,detail}], alreadyArchived, manifest, ledger{entries,chainHead,unchanged}, warnings[] }`。
+`kept[].reason` ∈ `missing-cycle-dir` / `missing-task-list` / `empty-task-list` / `has-pending`。
+`ledger.unchanged` 恒应为 true——它不是"我们试过没改"，而是**写前/写后两次只读读数的比对证据**。
+
+| 码 | 含义 |
+| --- | --- |
+| 200 | 预览或真写完成（`ok` 由字段表达，不是 HTTP 层错误） |
+| 400 | 参数形态错误（`dryRun`/`includeIncomplete` 非布尔、`actor` 非字符串）——**校验先于副作用** |
+| 404 | 解析不到工作区（与其余路由同口径） |
+
+**可重入**：重复调用是 no-op（`alreadyArchived: true`，`archived: []`），manifest 不产生第二条同名条目。
+
+## 8. GET `/anic/api/archive/inventory`
+
+**归档盘点**（只读）：活跃/归档清单 + 逐轮体积 + 可归档判定。
+
+响应体：`{ active[{name,files,bytes,complete,reason}], archived[{name,files,bytes,archivedAt}],
+sizes{activeBytes,archivedBytes}, archivable, blocked, manifest }`。
+`complete=false` 时 `reason` 与上一条的 `kept[].reason` **同一判据**（同一函数产出，
+不是两处各写一套）。
+
+| 码 | 含义 |
+| --- | --- |
+| 200 | 盘点完成 |
+| 404 | 解析不到工作区 |
+
 ## 相关文档
 
 - 公共约定与端点总索引 → [API参考.md](API参考.md)

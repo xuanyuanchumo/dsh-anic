@@ -101,16 +101,104 @@ export const PANEL_CSS: string = [
   `  border: 1px solid ${v('anic-border')}; border-radius: 3px;`,
   `}`,
 
+  // ── cycle-83 视觉升级（V 战线）────────────────────────────────────
+  //
+  // 卡片节点 / 语义边 / 悬浮预览 / 小地图 / 面包屑的样式。全部锚在
+  // `[data-anic-graph-*]` 之下，颜色只经 v()（`var(--anic-*, <同源 fallback>)`）。
+  //
+  // 为什么 chips 的选中态用「边框 + 面」而不是新增一个"选中色"：本仓 46 个令牌的
+  // 对比度都逐值校准过，新造一个"看着合适"的颜色等于绕开整张表；选中态只需要
+  // "看得出被选中"，用已校准的 focus-ring 边框 + surface-active 面即可。
+  `[data-anic-graph-chip] {`,
+  `  transition: background-color 0.12s ease, border-color 0.12s ease;`,
+  `}`,
+  `[data-anic-graph-chip][data-anic-graph-chip-checked='true'] {`,
+  `  border-color: ${v('anic-focus-ring')};`,
+  `  background: ${v('anic-surface-active')};`,
+  `}`,
+  // 卡片：悬停/焦点时抬起（描边上色 + 轻微位移），这是"可交互"的唯一视觉暗示。
+  // 位移用 transform 而非 top（不触发重排），且 reduced-motion 下会被压掉。
+  `[data-anic-graph-viewport] [data-anic-node]:hover [data-anic-node-card],`,
+  `[data-anic-graph-viewport] [data-anic-node]:focus [data-anic-node-card] {`,
+  `  stroke: ${v('anic-focus-ring')};`,
+  `}`,
+  // 小地图：点击区必须报"可点"，但**只在有映射时**（无 mapping 时它只是缩略图）。
+  `[data-anic-graph-minimap] {`,
+  `  cursor: pointer;`,
+  `}`,
+  `[data-anic-graph-minimap]:hover [data-anic-graph-minimap-viewport] {`,
+  `  stroke-width: 2;`,
+  `}`,
+  // 面包屑：视觉上是"位置说明"，不和可点控件抢注意力。
+  `[data-anic-graph-crumbs] {`,
+  `  user-select: none;`,
+  `}`,
+
+  // ── cycle-84 追溯与跳转（V 战线续）─────────────────────────────────
+  //
+  // 目标：让 169 节点的图**可导航**而不只是"能缩放"。
+  // 三条规则各解决一个可读性问题：
+  //   ① 悬停卡片给一点投影 —— 说明"这张卡片是活的"，同时不改布局（filter 不重排）；
+  //   ② 追溯态节点加粗描边 —— 上游/下游的颜色由 SVG 属性给，这里只补"层级感"；
+  //   ③ 追溯状态条与跳转胶囊是一组"当前模式"提示，必须和普通 chips 视觉可分。
+  `[data-anic-graph-viewport] [data-anic-node]:hover [data-anic-node-card] {`,
+  `  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.28));`,
+  `}`,
+  `[data-anic-graph-viewport] [data-anic-node][data-anic-trace='root'] [data-anic-node-card] {`,
+  `  filter: drop-shadow(0 0 3px ${v('anic-focus-ring')});`,
+  `}`,
+  `[data-anic-graph-viewport] [data-anic-node]:is([data-anic-trace='up'], [data-anic-trace='down'], [data-anic-trace='both']) [data-anic-node-card] {`,
+  `  filter: drop-shadow(0 0 2px rgba(0,0,0,0.18));`,
+  `}`,
+  // 追溯态边：比普通边更实（用户正在看这条链，不该被"点线/虚线"的装饰感削弱）。
+  `[data-anic-graph-viewport] [data-anic-trace-edge='up'],`,
+  `[data-anic-graph-viewport] [data-anic-trace-edge='down'] {`,
+  `  stroke-dasharray: none;`,
+  `}`,
+  // 追溯状态条：一条胶囊，弱底色 + 清晰边框，与 chips 的"可点"观感区分开。
+  `[data-anic-graph-trace-bar] {`,
+  `  background: ${v('anic-surface-active')}; color: ${v('anic-text')};`,
+  `  border-radius: 999px; margin: 0 8px 2px;`,
+  `}`,
+  `[data-anic-graph-trace-bar] [data-anic-graph-trace-up-label] {`,
+  `  color: ${v('anic-pass')}; font-weight: 600;`,
+  `}`,
+  `[data-anic-graph-trace-bar] [data-anic-graph-trace-down-label] {`,
+  `  color: ${v('anic-warn-text')}; font-weight: 600;`,
+  `}`,
+  // 跳转胶囊：可点但**不该抢过 chip 的注意力**（它是一次性动作，不是持续状态）。
+  `[data-anic-graph-jump] {`,
+  `  transition: background-color 0.12s ease, border-color 0.12s ease;`,
+  `}`,
+  `[data-anic-graph-jump]:hover {`,
+  `  background: ${v('anic-surface-hover')}; border-color: ${v('anic-focus-ring')};`,
+  `}`,
+  // 命中计数：0 与 >0 用不同字重（颜色不动，避免在两种表面上做未校准的对比）。
+  `[data-anic-graph-match-count='0'] {`,
+  `  text-decoration: line-through;`,
+  `}`,
+
   // 减少动效：图区的过渡与淡出一律关掉（全局逃逸，与既有 reduced-motion 块同族）。
   `@media (prefers-reduced-motion: reduce) {`,
   `  [data-anic-graph-viewport], [data-anic-graph-viewport] [data-anic-node] { transition: none; }`,
+  `  [data-anic-graph-chip], [data-anic-graph-tooltip] { transition: none; animation: none; }`,
+  `  [data-anic-graph-jump] { transition: none; }`,
   `}`,
 
   // 强制颜色模式：被筛掉的节点靠 opacity 表达，而 forced-colors 会忽略 opacity 差异——
   // 改用系统色描边区分，否则在这个模式下"筛选"完全失效（用户以为筛选坏了）。
+  // cycle-83 追加：卡片体与边在 forced-colors 下必须显式给系统色，否则整块变成
+  // "只有文字的黑白块"，读者分不清哪些是节点、哪些是连接。
+  // cycle-84 追加：drop-shadow 在 forced-colors 下会被系统丢弃，追溯态必须靠描边
+  // 本身表达（SVG 属性已给色，这里只补"加粗"这一层）。
   `@media (forced-colors: active) {`,
   `  [data-anic-graph-viewport] [data-anic-visibility='filtered'] { opacity: 1; }`,
   `  [data-anic-graph-viewport] [data-anic-visibility='filtered'] circle { stroke: GrayText; }`,
+  `  [data-anic-graph-viewport] [data-anic-node-card] { stroke: CanvasText; filter: none; }`,
+  `  [data-anic-graph-viewport] [data-anic-edge] { stroke: LinkText; }`,
+  `  [data-anic-graph-tooltip] { border: 1px solid CanvasText; }`,
+  `  [data-anic-graph-minimap-bg], [data-anic-graph-minimap-viewport] { stroke: CanvasText; }`,
+  `  [data-anic-graph-trace-bar] { border: 1px solid CanvasText; background: Canvas; }`,
   `}`,
 
   // 屏幕阅读器专用（等价数据表）：视觉上折叠为 1px，AT 照常朗读。

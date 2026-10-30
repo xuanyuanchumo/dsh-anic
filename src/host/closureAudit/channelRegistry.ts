@@ -98,6 +98,13 @@ export const CHANNEL_DECLARATIONS: readonly ChannelDeclaration[] = [
   { route: '/anic/flows/auto-fix/run', owner: '流程状态机面（运维/MCP 客户端）', docRef: 'docs/agents/API参考-评审进化与治理.md#/anic/flows/auto-fix/run', reason: '运维跑自动修复循环；工具面走 anic_flows_auto_fix' },
   /* ── 运行时面：热更新重载（cycle-80；docs/agents/API参考-数据面.md §6）── */
   { route: '/anic/api/reload', owner: '运行时面（人类运维/外部脚本）', docRef: 'docs/agents/API参考-数据面.md#/anic/api/reload', reason: '外部运维在部署新 dist 后触发插件重载；本仓消费方是 anic_reload_self 工具（in-process），HTTP 面自身无本仓代码调用点' },
+  /* ── 产物治理面：归档基线重置（cycle-83；docs/agents/API参考-数据面.md §7/§8）──
+   * 为什么这两条是通道独占：归档是**有副作用的运维动作**（移动目录），它的消费者是
+   * 面板的"重置基线"按钮与运维 curl —— 本仓代码不该自调自己（那会让"谁在什么时候
+   * 重置了基线"变成插件内部行为，失去运维留痕的意义）。docRef 指向 §7/§8，
+   * 该节写明了"为什么移动而不是删除"与准入判据。 */
+  { route: '/anic/api/archive/baseline', owner: '产物治理面（人类运维/面板按钮）', docRef: 'docs/agents/API参考-数据面.md#/anic/api/archive/baseline', reason: '归档基线重置是带副作用的一次性运维动作（移动目录，账本不动）；由面板按钮或运维 curl 触发，本仓代码不自调（自调会让基线重置失去运维留痕）' },
+  { route: '/anic/api/archive/inventory', owner: '产物治理面（人类运维/面板按钮）', docRef: 'docs/agents/API参考-数据面.md#/anic/api/archive/inventory', reason: '归档盘点只读查询；消费者是面板与运维，面板数据面走 workflow-snapshot 而不是本端点自调' },
 ];
 
 /** 路由 → 声明索引（一次建表；声明表本身保持只读顺序）。 */

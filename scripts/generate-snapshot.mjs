@@ -66,6 +66,12 @@ export interface WorkflowSnapshot {
     cycles: number;
     ledgerEntries: number;
     incidents: number;
+    /** cycle-84：主图里的活跃轮数（= windowed，不含归档轮）。 */
+    activeCycles: number;
+    /** cycle-84：归档轮数（历史仍在，只是移出主视图）。 */
+    archivedCycles: number;
+    /** cycle-84：被窗口折叠掉的节点数（0 = 没折叠任何东西）。 */
+    windowedOut: number;
   };
 }
 

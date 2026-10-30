@@ -38,14 +38,40 @@
  * 显式 `clean: false`——否则同一次 coverage 运行里本契约必然读到"文件不存在"而假红（实测 3 红）。
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG_TS = join(ROOT, 'vitest.config.ts');
 const GATE_CONFIG = join(ROOT, '.cycles', 'config.yml');
-const SUMMARY = join(ROOT, '.cycles', 'cycles', 'cycle-80', 'coverage', 'coverage-summary.json');
+/**
+ * coverage 证据文件的**解析器**（cycle-86：不再硬编码轮号）。
+ *
+ * 原实现写死 `cycles/cycle-80/coverage/coverage-summary.json`。cycle-86 执行基线重置后，
+ * cycle-80 被搬进 `.cycles/archive/`，本契约立刻变成"证据缺失"假红——而证据其实还在，
+ * 只是换了位置。硬编码轮号让"归档"这个**被鼓励的运维动作**反过来弄红测试，是判据设计错误。
+ *
+ * 现在的判据是**语义**的：在活跃区与归档区里找**最新一轮带 coverage 摘要的工件**；
+ * 一个都没有才失败（"没有测量"依然是红的，不放宽）。
+ */
+function findCoverageSummary(): string | null {
+  const bases = [join(ROOT, '.cycles', 'cycles'), join(ROOT, '.cycles', 'archive')];
+  const candidates: Array<{ num: number; path: string }> = [];
+  for (const base of bases) {
+    if (!existsSync(base)) continue;
+    for (const name of readdirSync(base)) {
+      const m = /^cycle-(\d+)$/.exec(name);
+      if (!m) continue;
+      const p = join(base, name, 'coverage', 'coverage-summary.json');
+      if (existsSync(p)) candidates.push({ num: Number(m[1]), path: p });
+    }
+  }
+  if (candidates.length === 0) return null;
+  // 取**最新**一轮（编号最大）；同号并存时活跃区优先（bases 顺序已保证）。
+  candidates.sort((a, b) => b.num - a.num);
+  return candidates[0]?.path ?? null;
+}
 
 /** 声明阈值的承诺值：config.yml 与这两个数字必须一致（两侧任一被改都判红）。 */
 const PROMISED = { lines: 80, branches: 65 };
@@ -66,10 +92,12 @@ function declaredThresholds(): { lines: number | null; branches: number | null }
 
 /** 读证据。缺失时抛出**可执行**的失败信息（先测量，再判定）。 */
 function readSummary(): Summary {
-  if (!existsSync(SUMMARY)) {
-    throw new Error(`coverage 证据缺失：${SUMMARY} 不存在。先运行 \`node scripts/coverage.mjs\`（约 40s）生成证据——没有证据 ≠ 通过。`);
+  const path = findCoverageSummary();
+  if (path === null) {
+    throw new Error('coverage 证据缺失：活跃区与归档区都没有 coverage/coverage-summary.json。'
+      + '先运行 `node scripts/coverage.mjs`（约 40s）生成证据——没有证据 ≠ 通过。');
   }
-  return JSON.parse(readFileSync(SUMMARY, 'utf8')) as Summary;
+  return JSON.parse(readFileSync(path, 'utf8')) as Summary;
 }
 
 /** 纯判定函数：返回证据问题清单（空数组 = 通过）。抽成纯函数以便反向自检。 */
@@ -107,7 +135,13 @@ describe('cycle-80 WS-2 coverage 证据链', () => {
     expect(cfg).toContain("provider: 'v8'");
     expect(cfg).toContain("'text-summary'");
     expect(cfg).toContain("'json-summary'");
-    expect(cfg).toContain("reportsDirectory: '.cycles/cycles/cycle-80/coverage'");
+    /*
+     * cycle-86：不再钉轮号。原断言写死 `cycle-80`——报告目录按循环滚动（本仓纪律），
+     * 于是每次滚轮都要同时改配置与这条断言（"两处必须同轮改"的耦合本身就是缺陷源：
+     * 忘了改就是假红，改错就是假绿）。现在的判据是**形状**：必须落在某个
+     * `.cycles/cycles/cycle-N/coverage` 下（滚动合法，写错位置不合法）。
+     */
+    expect(cfg).toMatch(/reportsDirectory: '\.cycles\/cycles\/cycle-\d+\/coverage'/);
     // 红套件也必须产摘要（vitest 默认 false，实测会整份摘要消失）
     expect(cfg).toContain('reportOnFailure: true');
     // clean 默认 true 会先删上一轮摘要 → 同一次 coverage 运行里的本契约假红（实测 3 红）
@@ -120,7 +154,8 @@ describe('cycle-80 WS-2 coverage 证据链', () => {
   });
 
   it('② 工件存在：缺失即明确失败（不 SKIP——没有证据 ≠ 通过）', () => {
-    expect(existsSync(SUMMARY), `coverage-summary.json 缺失：${SUMMARY}`).toBe(true);
+    const evidence = findCoverageSummary();
+    expect(evidence, '活跃区与归档区都没有 coverage-summary.json（先跑 node scripts/coverage.mjs）').not.toBeNull();
     expect(() => readSummary()).not.toThrow();
   });
 

@@ -140,9 +140,31 @@ check('registered === true', t.registered === true);
 
 const tree = registrations[0].render();
 const circles = countType(tree, 'circle').n;
-const lines = countType(tree, 'line').n;
+/**
+ * 边计数改为「**锚点计数**」而非「`<line>` 标签计数」（cycle-83）。
+ *
+ * 旧断言 `countType(tree,'line').n === edges` 只在"所有边都是直线"时成立。
+ * cycle-83 的视觉升级要给边分语义（时序实线 / 证据虚线 / 事件点线 / 跨 lane 贝塞尔），
+ * 直线会变成 `<path d="M.. C..">` ⇒ 按 `line` 标签数会立刻少算，而**渲染是完全正确的**。
+ * 那是判据与实现形态耦合的典型假红（本仓 cycle-82 已在 `panelDataLegContract` 上修过同族问题）。
+ *
+ * 新判据只看**属性**：每个边元素必须带 `data-anic-edge`。它比数标签更强——
+ * 不但不关心你画的是 line 还是 path，还能抓出"渲染了边但忘了打锚点"这种真缺陷。
+ */
+const edgeAnchors = (() => {
+  let n = 0;
+  (function walk(node, depth = 0) {
+    if (node === null || node === undefined || typeof node !== 'object' || depth > 20) return;
+    if (Array.isArray(node)) { for (const item of node) walk(item, depth + 1); return; }
+    if (typeof node.type === 'function') return walk(node.type(node.props ?? {}), depth + 1);
+    if (node.props && node.props['data-anic-edge'] !== undefined) n += 1;
+    const children = node.children ?? [];
+    for (const c of Array.isArray(children) ? children : [children]) walk(c, depth + 1);
+  })(tree);
+  return n;
+})();
 check(`SVG 圆点 ${snapshot.counts.nodes}（76-cycle 量级）`, circles === snapshot.counts.nodes, `got ${circles}`);
-check(`SVG 边线 ${snapshot.counts.edges}`, lines === snapshot.counts.edges, `got ${lines}`);
+check(`SVG 边（锚点数）${snapshot.counts.edges}`, edgeAnchors === snapshot.counts.edges, `got ${edgeAnchors}`);
 
 const expectedFailed = snapshot.nodes.filter((n) => n.result === 'FAIL').length;
 const redRings = countType(tree, 'circle', { n: 0 });

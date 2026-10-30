@@ -1,165 +1,65 @@
 /**
- * 配置与路径的 HTTP 面（cycle-82）：GET /anic/api/config + POST /anic/api/config。
+ * 配置与路径的 HTTP 面（cycle-82 起；cycle-83 增两个写面）。
  *
- * ## 为什么 GET 也返回 schema
+ * ## 端点一览（全部挂在同一个 register 里，接线点只有一个）
  *
- * 客户端只做纯渲染（不引 hooks、不自带字段表）。字段表若在客户端手抄一份，
- * 加了 host 校验忘了改客户端，或反过来，就会出现「表单允许的值被后端拒绝」。
- * 所以 schema 随 values 一起下发——**同一张表**既驱动渲染又驱动校验。
+ * - `GET  /anic/api/config`           事实 + schema + 路径表 + 备份摘要
+ * - `POST /anic/api/config`           `{patch, dryRun}` 改 config.yml
+ * - `POST /anic/api/config/paths`     `{patch, dryRun}` 改 `.cycles/paths.json`（cycle-83）
+ * - `POST /anic/api/config/rollback`  `{backup, dryRun}` 恢复到某份 .bak（cycle-83）
  *
- * ## rawHash 的用途
+ * ## 为什么路径改走**独立端点**而不是塞进 GET 的 probePath
  *
- * 响应带原文 sha256 前 16 位。客户端保存时可带上它做「基于哪个版本改的」
- * 证据；本轮不做乐观锁（并发写配置是罕见动作，且回读断言已保证最终一致），
- * 但哈希进响应让「你以为改的和实际改的不是同一份」这件事**可被发现**。
+ * `?probePath=` 是「校验这一条路径能不能用」（只读一次问答）；改覆盖表是**写**，
+ * 语义、鉴权意图与提示都不同。而 `POST /anic/api/config` 的 patch 键是**字段 id**
+ * （`project.name` 这种），路径覆盖的键是**路径 id**（`evals` 这种）——两套命名空间
+ * 塞进一个 body 会让「这个键到底改了配置还是改了路径」变成猜谜。
  *
- * ## 写侧语义
+ * ## 为什么注册保持在同一函数（Lead 接线点不变）
  *
- * dryRun=true → 只算不写，返回 diff；否则备份 → 原子写 → 回读断言 → 不符回滚。
- * 任何非法字段值一律 400 且**零写入**（半套配置比没改更危险）。
+ * `src/host/routes/index.ts` 由 Lead 维护（本任务禁改）。三条端点共用同一个
+ * `getWorkspaceRoot` 与同一份 send，拆成三个 register 只会让 index.ts 多三行
+ * 而收益为零——它们本来就是同一个域（「工作区配置与路径」）的三个动作。
  *
- * ## 自定义路径为什么挂在同一个端点上
+ * ## 响应体构造在 configRouteBody / configRouteEdits 两个文件里
  *
- * `GET /anic/api/config?probePath=<相对路径>` 在响应里多带一个 `probe` 字段。
- * 为「校验一条路径」再开第二个路由，等于让零成本动作多一个接线点、多一处
- * 「Lead 忘了接」的风险；而它本来就是同一份路径表的同一类事实。
+ * 本文件只做**路由骨架**（方法分派、错误包装、requestId）。响应体是纯函数、
+ * 可单独测（contract 直接 import 它断言形状），拆开后两端都不越过 250 行。
  */
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
-import { loadWorkspaceConfig } from '../config.ts';
-import { configFieldViews, CONFIG_FIELDS } from '../configEdit/configSchema.ts';
-import { readFieldValue } from '../configEdit/configRead.ts';
-import { planPatch } from '../configEdit/yamlPatch.ts';
-import { diffStats, lineDiff } from '../configEdit/yamlDiff.ts';
-import { applyConfigPatch, configFileStat, listBackups } from '../configEdit/configWriter.ts';
-import { collectPaths, resolveCustomPath } from '../configEdit/paths.ts';
+import { registerConfigRoutePaths, CONFIG_PATHS_ROUTE } from './configRoutePaths.ts';
+import { registerConfigRouteRollback, CONFIG_ROLLBACK_ROUTE } from './configRouteRollback.ts';
+import { buildGetBody, buildPostBody } from './configRouteBody.ts';
 import { readBody, type RouteReq } from './routeContext.ts';
 
 const log = createScoped('anic:route:config');
 
 export const CONFIG_ROUTE = '/anic/api/config';
 
+/** cycle-83 的两个新写面常量（**单一来源**在两个子文件里，这里只再导出）。 */
+export { CONFIG_PATHS_ROUTE, CONFIG_ROLLBACK_ROUTE };
+
+export { buildGetBody, buildPostBody, readConfigValues, rawHash } from './configRouteBody.ts';
+
 interface SendFn { (res: unknown, status: number, body: unknown, requestId?: string): void }
-
-/** 读当前值表：字段表逐项回读（缺键 = null，如实标注而不是填默认值）。 */
-export function readConfigValues(content: string): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  for (const def of CONFIG_FIELDS) values[def.id] = readFieldValue(content, def);
-  return values;
+/** 子路由文件复用的宿主 webServer 最小表面（只导出**类型**，实现仍在各文件）。 */
+export interface WsLike {
+  register: (r: { kind: string; path: string; handler: (req: unknown, res: unknown) => void }) => (() => void) | void;
 }
 
-function rawHash(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
-}
-
-/** GET 响应体（客户端 isConfigJson 的形状契约）。 */
-function buildGetBody(root: string, probeRaw: string | null) {
-  const cyclesDir = join(root, '.cycles');
-  const configPath = join(cyclesDir, 'config.yml');
-  const probe = probeRaw === null ? null : resolveCustomPath(root, probeRaw);
-  const base = {
-    workspace: root,
-    schema: configFieldViews(),
-    paths: collectPaths(root),
-    probe,
-  };
-  if (probeRaw !== null && probe !== null && !probe.ok) {
-    // 自定义路径被拒：只回原因，不回任何文件内容（边界即边界）。
-    return { ...base, values: {}, warnings: [probe.reason], rawHash: null, configFile: configFileStat(configPath), backups: [] };
-  }
-  const stat = configFileStat(configPath);
-  const warnings: string[] = [];
-  if (!stat.exists) {
-    warnings.push('.cycles/config.yml 不存在（先跑 init-workflow / 自举）');
-    return { ...base, values: {}, warnings, rawHash: null, configFile: stat, backups: [] };
-  }
-  const content = readFileSync(configPath, 'utf-8');
-  // 唯一 loader 的告警（legacy 文件并存 / 未知键）一并透出——写侧与读侧看到同一份事实。
-  try {
-    const cfg = loadWorkspaceConfig(cyclesDir);
-    warnings.push(...cfg.warnings);
-    if (cfg.source === 'legacy') warnings.push('当前只有 legacy 的 cycle-config.yml；写侧会拒绝（canonical 缺失）');
-  } catch (e) {
-    warnings.push(`loader threw: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  return {
-    ...base,
-    values: readConfigValues(content),
-    warnings,
-    rawHash: rawHash(content),
-    configFile: stat,
-    backups: listBackups(cyclesDir),
-  };
+export interface ConfigRouteDeps {
+  send: SendFn;
+  getWorkspaceRoot: (req?: unknown) => string | null;
 }
 
 /**
- * POST 响应体。
+ * 注册配置路由族。
  *
- * dryRun 的 diff 与真写走**同一个** planPatch：预览不是另一条实现，
- * 而是同一条实现的输出——否则「预览说只改一行」与「实际改了五行」会分家。
+ * 三条端点共享同一个 workspace 解析与 send；每条各自 try/catch，因为
+ * 「读配置失败」与「回滚失败」的错误码必须能分开定位（一条 500 说清哪个动作挂了）。
  */
-function buildPostBody(root: string, body: Record<string, unknown>) {
-  const cyclesDir = join(root, '.cycles');
-  const configPath = join(cyclesDir, 'config.yml');
-  const patch = body.patch;
-  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
-    return { status: 400, payload: { error: 'ANIC_CONFIG_BAD_PATCH', message: 'body.patch must be an object of {fieldId: value}' } };
-  }
-  const dryRun = body.dryRun === true;
-  if (!existsSync(configPath)) {
-    return { status: 404, payload: { error: 'ANIC_CONFIG_MISSING', message: 'no .cycles/config.yml in this workspace' } };
-  }
-  const before = readFileSync(configPath, 'utf-8');
-
-  if (dryRun) {
-    const plan = planPatch(before, patch as Record<string, unknown>);
-    return {
-      status: plan.ok ? 200 : 400,
-      payload: {
-        ok: plan.ok,
-        dryRun: true,
-        applied: false,
-        error: plan.error,
-        changedFields: plan.changedFields,
-        insertedFields: plan.insertedFields,
-        warnings: plan.warnings,
-        diff: lineDiff(plan.before, plan.after).filter((d) => d.kind !== 'same'),
-        stats: diffStats(plan.before, plan.after),
-        beforeHash: rawHash(plan.before),
-      },
-    };
-  }
-
-  const outcome = applyConfigPatch(cyclesDir, patch as Record<string, unknown>);
-  const afterContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '';
-  const changed = outcome.changedFields;
-  return {
-    status: outcome.ok ? 200 : outcome.applied ? 500 : 400,
-    payload: {
-      ok: outcome.ok,
-      dryRun: false,
-      applied: outcome.applied,
-      error: outcome.error,
-      changedFields: changed,
-      insertedFields: outcome.insertedFields,
-      warnings: outcome.warnings,
-      backupPath: outcome.backupPath,
-      observed: outcome.observed,
-      stats: diffStats(before, afterContent),
-      beforeHash: rawHash(before),
-      afterHash: outcome.ok ? rawHash(afterContent) : rawHash(before),
-    },
-  };
-}
-
-/** 注册配置路由（GET /anic/api/config、POST /anic/api/config、POST /anic/api/config/path）。 */
-export function registerConfigRoute(
-  ctx: unknown,
-  deps: { send: SendFn; getWorkspaceRoot: (req?: unknown) => string | null },
-): Array<(() => void) | null> {
-  const ws = (ctx as { webServer?: { register: (r: { kind: string; path: string; handler: (req: unknown, res: unknown) => void }) => (() => void) | void } }).webServer;
+export function registerConfigRoute(ctx: unknown, deps: ConfigRouteDeps): Array<(() => void) | null> {
+  const ws = (ctx as { webServer?: WsLike }).webServer;
   if (!ws || typeof ws.register !== 'function') return [];
   const disposers: Array<(() => void) | null> = [];
 
@@ -178,8 +78,7 @@ export function registerConfigRoute(
         try {
           const url = (req as { url?: string }).url ?? '';
           const query = new URLSearchParams(url.split('?')[1] ?? '');
-          const probeRaw = query.get('probePath');
-          deps.send(res, 200, buildGetBody(root, probeRaw), requestId);
+          deps.send(res, 200, buildGetBody(root, query.get('probePath')), requestId);
         } catch (e) {
           log.error(`config GET failed: ${e instanceof Error ? e.message : String(e)}`, requestId);
           deps.send(res, 500, { error: { code: 'ANIC_CONFIG_READ_FAILED', message: e instanceof Error ? e.message : String(e) } }, requestId);
@@ -204,5 +103,8 @@ export function registerConfigRoute(
     },
   });
   if (typeof dispose === 'function') disposers.push(dispose);
+
+  disposers.push(...registerConfigRoutePaths(ctx, deps));
+  disposers.push(...registerConfigRouteRollback(ctx, deps));
   return disposers;
 }

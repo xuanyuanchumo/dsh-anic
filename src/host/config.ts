@@ -36,6 +36,15 @@ export interface WorkspaceConfig {
      * 重新打开通配符（配置错误必须是安全的）。
      */
     allowedOrigins: string[];
+    /**
+     * 快照投影窗口的**原始**配置值（cycle-83，`anic.snapshotWindow`）。
+     *
+     * 为什么给原始串而不是解析后的数字：合法性判据只该有**一个**实现
+     * （`shared/snapshotProjection/windowConfig.resolveSnapshotWindow`）。配置层若
+     * 顺手 parseInt，就会出现"配置路径回缺省、注入路径报错"的分叉——双真相源。
+     * `null` = 未配置 ⇒ 由 windowConfig 落到唯一缺省值（DEFAULT_SNAPSHOT_WINDOW）。
+     */
+    snapshotWindowRaw: string | null;
   };
 }
 
@@ -66,10 +75,11 @@ export function getAutonomyLevel(content: string, fallback: 'L1' | 'L2' | 'L3' |
   return v ? (v.toUpperCase() as 'L1' | 'L2' | 'L3' | 'L4') : fallback;
 }
 
-/** anic 段解析：接受布尔 `flow.*` 键与 `allowedOrigins`；其余键 warning（刻意不拦截） */
-function parseAnicSection(content: string, warnings: string[]): { flows: Record<string, boolean>; allowedOrigins: string[] } {
+/** anic 段解析：接受布尔 `flow.*` 键、`allowedOrigins`、`snapshotWindow`；其余键 warning（刻意不拦截） */
+function parseAnicSection(content: string, warnings: string[]): { flows: Record<string, boolean>; allowedOrigins: string[]; snapshotWindowRaw: string | null } {
   const overrides: Record<string, boolean> = {};
   const origins: string[] = [];
+  let snapshotWindowRaw: string | null = null;
   const lines = content.split(/\r?\n/);
   let inSection = false;
   for (const line of lines) {
@@ -84,6 +94,9 @@ function parseAnicSection(content: string, warnings: string[]): { flows: Record<
       else {
         // P0-8：allowedOrigins 是逗号分隔列表（可带引号），不是布尔
         const o = line.match(/^\s+allowedOrigins:\s*(.*)$/);
+        // cycle-83：快照投影窗口大小（任何越界由 windowConfig 闸门回缺省 + 告警）。
+        // 这里只取**原始串**——判据不在配置层重复实现（同一语义两个实现必然漂移）。
+        const sw = line.match(/^\s+snapshotWindow:\s*(.*)$/);
         if (o && o[1] !== undefined) {
           const raw = o[1].split(' #')[0] ?? '';
           for (const part of raw.split(',')) {
@@ -92,13 +105,15 @@ function parseAnicSection(content: string, warnings: string[]): { flows: Record<
             v = v.replace(/\/+$/, '');
             if (v.length > 0) origins.push(v);
           }
+        } else if (sw && sw[1] !== undefined) {
+          snapshotWindowRaw = sw[1].split(' #')[0]?.trim() ?? '';
         } else if (/^\s+[A-Za-z]/.test(line) && line.trim().length > 0) {
           warnings.push(`config anic section: unrecognized key '${line.trim().split(':')[0]}' (warn-only, ignored)`);
         }
       }
     }
   }
-  return { flows: overrides, allowedOrigins: origins };
+  return { flows: overrides, allowedOrigins: origins, snapshotWindowRaw };
 }
 
 /**
@@ -116,7 +131,7 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
     return {
       source: 'missing',
       warnings: [`workspace config not found (expected ${CANONICAL_CONFIG}); run skill init-workflow first`],
-      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {}, allowedOrigins: [], toolDisclosure: 'full' },
+      values: { buildCmd: null, testCmd: null, lintCmd: null, autonomyLevel: 'L2', flowOverrides: {}, allowedOrigins: [], toolDisclosure: 'full', snapshotWindowRaw: null },
     };
   }
 
@@ -147,6 +162,8 @@ export function loadWorkspaceConfig(cyclesDir: string): WorkspaceConfig {
       flowOverrides: anicSection.flows,
       allowedOrigins: anicSection.allowedOrigins,
       toolDisclosure: getToolDisclosure(content),
+      // cycle-83：原始串原样交给 windowConfig 判（不在此 parseInt —— 见字段注释）
+      snapshotWindowRaw: anicSection.snapshotWindowRaw,
     },
   };
 }
