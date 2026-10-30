@@ -444,6 +444,12 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
      *                     configTypes.ts 的注解与 configEditClient 的回归钉）
      *   graph.lane.      图区类型 lane 名（cycle-82）
      *   graph.verdict.   图区裁决名（cycle-82）
+     *   graph.edge.      图区**边类型名**（cycle-91 边语义图例：`graphEdgeLegend.ts`
+     *                    的 `t('graph.edge.' + type)`）。登记理由与 graph.lane. 同源——
+     *                    边类型的键名是**数据驱动**的（`EDGE_STYLES` 的键），
+     *                    静态扫描器看不见具体键名，只能靠前缀族认领。
+     *                    边类型键与 lane 键是**同类**：都来自闭合的类型表，
+     *                    都必须在 locale 里逐条存在（否则是死键）。
      *   graph.           图区 cycle-83 新增键族（`gt('短名')` → `t('graph.' + suffix)`）：
      *                    tooltip 邻居数 / 小地图说明 / 面包屑五段 / 工具栏分组标签。
      *                    登记理由与 config. 同源——新键在合并进 locale **之前**不得被
@@ -452,7 +458,7 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
      * 新增前缀必须同时在这里登记并说明来路，否则本断言红——这是设计意图。
      */
     expect(real, '生产代码前缀集变化：新增前缀须在此登记来路（认领 = 免死键通行证）')
-      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.lane.', 'graph.verdict.']);
+      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.edge.', 'graph.lane.', 'graph.verdict.']);
     expect(endsWithSeparator('budget.status_')).toBe(true);
     expect(endsWithSeparator('a.')).toBe(true);
     expect(endsWithSeparator('a')).toBe(false);

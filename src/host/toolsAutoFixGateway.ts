@@ -42,6 +42,7 @@ export function registerAutoFixTools(_tools: ToolsSlot, deps: AutoFixGatewayDeps
         maxRetries: { type: 'number', description: 'Max fix attempts per run (default: 3, max: 10)' },
         testCmd: { type: 'string', description: 'Test command override (default: test_cmd from .cycles/config.yml)' },
         mode: { type: 'string', description: 'Execution mode: native (default) or script' },
+        reset: { type: 'boolean', description: 'Reset the flow projection to IDLE before running (makes the IDLE state reachable; cycle-91). Default: false' },
       },
     },
     presentCall: (args: Record<string, unknown>) =>
@@ -71,6 +72,7 @@ export function registerAutoFixTools(_tools: ToolsSlot, deps: AutoFixGatewayDeps
         testCmd,
         mode: args.mode === 'script' ? 'script' : 'native',
         timeoutMs: 600000,
+        reset: args.reset === true,
       });
       return {
         verdict: result.verdict,

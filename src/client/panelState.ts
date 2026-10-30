@@ -20,6 +20,7 @@ import type { FlowStatusJson } from './features/flows/renderFlows.ts';
 import type { FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
 // cycle-90：生命周期指标（KM 生存分析 / EWMA 控制图 / 分位数+Gini）。
 import type { LifecycleMetricsJson } from './features/flows/lifecycleTypes.ts';
+import type { ResolvedFlowsJson } from './components/resolvedFlowsTypes.ts';
 import type { CycleListJson, CycleStateJson } from './features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from './features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from './features/hitl/renderHitl.ts';
@@ -73,6 +74,8 @@ export interface PanelState {
    * 而不是渲染一张全 0 的假读数表（那会把「取不到」读成「通过率 0%」）。
    */
   lifecycleMetrics: LifecycleMetricsJson | null;
+  /** cycle-91：开关解析态（服务端才知道的 workspace/deployment 层）。 */
+  resolvedFlows: ResolvedFlowsJson | null;
   cycleList: CycleListJson | null;
   cycleState: CycleStateJson | null;
   ledgerList: LedgerListJson | null;
@@ -152,6 +155,7 @@ export function createInitialPanelState(): PanelState {
     flowsStatus: null,
     flowMatrix: null,
     lifecycleMetrics: null,
+    resolvedFlows: null,
     cycleList: null,
     cycleState: null,
     ledgerList: null,

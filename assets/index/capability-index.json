@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "6c4f402",
+  "commit": "2841812",
   "tools": [
     [
       "anic_evaluate",
@@ -60,7 +60,7 @@
     ],
     [
       "anic_reload_self",
-      "热重载本插件"
+      "热重载本插件：先留痕"
     ],
     [
       "anic_status",

@@ -19,8 +19,13 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。
 
 - 23 个 `anic_*` LLM 工具（含 2 个渐进式披露加载器 anic_tool_detail / anic_tools_search）（评估 / 门禁 / 自举 / 流程状态机 / 技能网关 / 完整性修复 / 自主级升级 / 热重载 `anic_reload_self`）
-- 74 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit` + cycle-80 热重载 `POST /anic/api/reload` + cycle-82 配置与路径 `GET/POST /anic/api/config` + cycle-83 路径覆盖 `POST /anic/api/config/paths` 与备份回滚 `POST /anic/api/config/rollback` + cycle-83 产物治理 `/anic/api/archive/baseline` + cycle-89 跨项目自举 `POST /anic/self/bootstrap-other`、技术债分诊 `POST /anic/api/tech-debt/triage` 、流程归属矩阵 `GET /anic/api/flows/matrix` 与生命周期指标 `GET /anic/api/flows/lifecycle`）
+- 75 个 HTTP 路由注册（六域分区：data / cycle / review / evolution / governance / self；含 flows/native/truth-audit/dual/skill 域扩展 + cycle-72 闭环体检 `/anic/api/closure-audit` + cycle-80 热重载 `POST /anic/api/reload` + cycle-82 配置与路径 `GET/POST /anic/api/config` + cycle-83 路径覆盖 `POST /anic/api/config/paths` 与备份回滚 `POST /anic/api/config/rollback` + cycle-83 产物治理 `/anic/api/archive/baseline` + cycle-89 跨项目自举 `POST /anic/self/bootstrap-other`、技术债分诊 `POST /anic/api/tech-debt/triage` 、流程归属矩阵 `GET /anic/api/flows/matrix`、生命周期指标 `GET /anic/api/flows/lifecycle` 与 cycle-91 开关解析态 `GET /anic/api/flows/resolved`）
 - 白盒面板：工作流图 + 实时调用流 + 自主级仪表带 + 技能健康 + 门禁账本 + HITL 队列
+- **cycle-91 新增**：工作流图**可达性**（`next:` 顺序边 + Tarjan SCC 断环 ⇒ 宏观主线真实可推）
+  + **节点健康度**（`testReport` 的通过/失败/错误进图：分段条 + 数字摘要）
+  + **边语义图例**（6 种边类型的线型可查）+ **开关解析态**（客户端可见工作区/部署层的真实生效值）
+- **cycle-91 治本**：flow-tracker **append-only 历史**（统计样本不再被滚动淘汰截断）
+  + 流程 `reset` **真实触发器**（`IDLE` 从此可达）+ 三个空心开关接上运行时消费面
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
 

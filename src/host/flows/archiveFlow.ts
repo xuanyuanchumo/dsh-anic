@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
+import { applyReset, loadForReset } from './flowReset.ts';
 import { runArchiveAction, type ArchiveAction, type ArchiveOutcome } from './archiveEngine.ts';
 import { resolveSkillScriptsDir, invokeSkillScript } from '../skillInvoker.ts';
 // 超时 cap 单一事实源（cycle-79 O-03）：原先本文件独立写死 120000，与技能入口
@@ -123,12 +124,18 @@ function runArchiveScript(
  */
 export function runArchiveFlow(
   workspaceRoot: string,
-  opts: { cycle?: number; clean?: boolean; keep?: number; list?: boolean; mode?: ArchiveFlowMode; timeoutMs?: number } = {},
+  opts: { cycle?: number; clean?: boolean; keep?: number; list?: boolean; mode?: ArchiveFlowMode; timeoutMs?: number; reset?: boolean } = {},
 ): ArchiveFlowRunResult {
   const mode: ArchiveFlowMode = opts.mode ?? 'native';
   // cap 统一到技能调用上限（cycle-79 O-03）；显式传参优先语义不变，默认 60s 不变
   const timeoutMs = Math.min(opts.timeoutMs ?? 60000, MAX_SKILL_INVOKE_TIMEOUT_MS);
   const cyclesDir = join(workspaceRoot, '.cycles');
+
+  // cycle-91：先重置（若请求），再跑本轮 —— 顺序不可颠倒。
+  if (opts.reset === true) {
+    const loaded = loadForReset(ARCHIVE_FLOW, cyclesDir);
+    applyReset(ARCHIVE_FLOW, cyclesDir, loaded);
+  }
 
   const action: ArchiveAction = opts.list === true
     ? { kind: 'list' }

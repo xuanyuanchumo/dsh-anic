@@ -55,14 +55,16 @@ export interface LedgerEntryLike {
 export interface LifecycleMetricsView {
   /** 数据窗口诚实信息。 */
   window: {
-    /** 累计写入条数 / 当前保留条数 / 已淘汰条数。 */
+    /** 累计写入条数 / 当前可用样本数 / 样本缺失条数。 */
     everWritten: number;
     retained: number;
     evicted: number;
     truncated: boolean;
     windowSpanMs: number | null;
-    /** 截断告警（未截断 ⇒ null）。 */
+    /** 截断告警（样本完整 ⇒ null）。 */
     truncationWarning: string | null;
+    /** 样本完整性是否已被证明（cycle-91：历史层可用 ⇒ 一条不缺）。 */
+    sampleComplete: boolean;
   };
   /** 归属覆盖（孤儿比例 —— 决定「按门分组统计」的可信度）。 */
   attribution: {
@@ -118,6 +120,7 @@ export function buildLifecycleMetrics(
       truncated: truncation.truncated,
       windowSpanMs: truncation.windowSpanMs,
       truncationWarning: truncationWarning(truncation),
+      sampleComplete: truncation.sampleComplete,
     },
     attribution: {
       attributed,

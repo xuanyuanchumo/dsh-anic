@@ -447,7 +447,15 @@
     "exportSvgHint": "把当前视图与筛选状态导出为 SVG 文件",
     "fullscreen": "全屏",
     "fullscreenExit": "退出全屏",
-    "fullscreenUnavailable": "当前环境不支持全屏，或浏览器拒绝了请求"
+    "fullscreenUnavailable": "当前环境不支持全屏，或浏览器拒绝了请求",
+    "edge": {
+      "cycle-seq": "循环顺序",
+      "evidences": "证据支撑",
+      "event-seq": "事件顺序",
+      "human-gate": "人工门禁",
+      "micro-entry": "微观进入",
+      "micro-exit": "微观退出"
+    }
   },
   "config": {
     "title": "配置与路径",

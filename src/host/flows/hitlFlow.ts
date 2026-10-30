@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
+import { applyReset, loadForReset } from './flowReset.ts';
 import { runHitlThreePhaseNative, type HitlGateId, type HitlThreePhaseResult, type HitlVerdict } from '../governance/hitlThreePhase.ts';
 import { resolveSkillScriptsDir, invokeSkillScript } from '../skillInvoker.ts';
 // 超时 cap 单一事实源（cycle-79 O-03）：原先独立写死 120000，与技能入口 240000 不一致。
@@ -147,13 +148,19 @@ function runHitlScript(
  */
 export function runHitlFlow(
   workspaceRoot: string,
-  opts: { gate?: HitlGateArg; mode?: HitlFlowMode; timeoutMs?: number } = {},
+  opts: { gate?: HitlGateArg; mode?: HitlFlowMode; timeoutMs?: number; reset?: boolean } = {},
 ): HitlFlowRunResult {
   const mode: HitlFlowMode = opts.mode ?? 'native';
   const gate: HitlGateArg = opts.gate ?? 'all';
   // cap 统一到技能调用上限（cycle-79 O-03）；显式传参优先语义不变，默认 60s 不变
   const timeoutMs = Math.min(opts.timeoutMs ?? 60000, MAX_SKILL_INVOKE_TIMEOUT_MS);
   const cyclesDir = join(workspaceRoot, '.cycles');
+
+  // cycle-91：先重置（若请求），再跑本轮 —— 顺序不可颠倒。
+  if (opts.reset === true) {
+    const loaded = loadForReset(HITL_FLOW, cyclesDir);
+    applyReset(HITL_FLOW, cyclesDir, loaded);
+  }
 
   let three: HitlThreePhaseResult;
   let stdout: string | undefined;

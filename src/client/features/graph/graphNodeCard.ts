@@ -31,6 +31,7 @@ import {
   LABEL_FILL, LABEL_PX, LABEL_X, META_DY, META_FILL, META_PX, VERDICT_SHAPE, colorOf, fitLabel,
 } from './graphNodeStyle.ts';
 import { t } from '../../i18n.ts';
+import { healthOf, healthSegments, healthSummaryText } from './graphHealth.ts';
 
 /**
  * 次标签：类型名 + 裁决。
@@ -74,6 +75,11 @@ export function renderNode(input: NodeRenderInput): ReactElement {
   const shape = key === null ? undefined : VERDICT_SHAPE[key];
   const label = `${n.label} [${n.type}]${verdict ? ` · ${verdict}` : ''}`;
   const focused = focusId === n.id;
+  // cycle-91：健康度（`testReport` 进图）。无 testReport ⇒ 不画任何健康度元素
+  //（'无' 与 '0 失败' 是两件事，画出来会撒谎）。
+  const health = healthOf(n);
+  const healthSegs = healthSegments(health);
+  const healthText = healthSummaryText(health);
   // 追溯态描边：上游冷色 = "它是原因"，下游暖色 = "它是结果"（与图例同源）。
   const traceStroke = trace === 'root'
     ? token('anic-focus-ring')
@@ -182,6 +188,29 @@ export function renderNode(input: NodeRenderInput): ReactElement {
           fill: token('anic-on-accent'), 'data-anic-verdict-glyph': shape.glyph,
         }, shape.glyph),
 
+    // 健康度分段条（cycle-91）：贴在卡片**底缘内侧**，高 1.6px。
+    //
+    // 为什么用 <rect> 分段而不是「比例环」：环需要第二个 <circle>，而
+    // 「每节点恰好一个 circle」是 smoke 钉死的不变量 ⇒ 环会破坏它。
+    // rect 分段保留了「比例可读」且零不变量风险。
+    ...(healthSegs.length > 0
+      ? healthSegs.map((seg, i) => {
+        const segFill = seg.kind === 'passed'
+          ? token('anic-pass')
+          : seg.kind === 'failures'
+            ? token('anic-bad-text')
+            : token('anic-warn-text');
+        // 段宽按比例切分；起点按前面段累加（世界坐标，卡片左缘 = 0）。
+        const segX = BAR_INSET + healthSegs.slice(0, i).reduce((a, s) => a + s.ratio * (n.w - BAR_INSET * 2), 0);
+        const segW = seg.ratio * (n.w - BAR_INSET * 2);
+        return createElement('rect', {
+          key: `health-${String(i)}`,
+          'data-anic-node-health': seg.kind,
+          x: segX, y: n.h / 2 - BAR_INSET - 1.6, width: Math.max(0.5, segW), height: 1.6,
+          fill: segFill,
+        });
+      })
+      : []),
     // 主标签：按卡片宽度截断（见 graphNodeStyle 的 fitLabel）。
     createElement('text', {
       key: 'label',
@@ -190,11 +219,15 @@ export function renderNode(input: NodeRenderInput): ReactElement {
       fontWeight: focused ? 'bold' : undefined,
     }, fitLabel(n.label, n.w)),
 
-    // 次标签（类型 · 裁决）：贴卡片底缘，与主标签留出净空。
+    // 次标签（类型 · 裁决 · 测试摘要）：贴卡片底缘，与主标签留出净空。
+    //
+    // cycle-91：测试摘要是**文字通道**（）—— WCAG 1.4.1 要求
+    // 「颜色不能是唯一通道」：色觉障碍用户看不出红段与琥珀段的区别，
+    // 数字必须以文字形式出现。
     createElement('text', {
       key: 'meta',
       'data-anic-node-meta': 'true',
       x: LABEL_X, y: META_DY, fontSize: META_PX, fill: META_FILL,
-    }, fitLabel(metaLabelOf(n, verdict), n.w)),
+    }, fitLabel(metaLabelOf(n, verdict) + (healthText !== null ? ' · ' + healthText : ''), n.w)),
   );
 }

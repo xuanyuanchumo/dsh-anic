@@ -36,6 +36,8 @@ export interface LifecycleWindowJson {
   truncated?: boolean;
   windowSpanMs?: number | null;
   truncationWarning?: string | null;
+  /** 样本完整性是否已被证明（cycle-91：历史层可用 ⇒ 一条不缺）。 */
+  sampleComplete?: boolean;
 }
 
 /** 归属覆盖。 */

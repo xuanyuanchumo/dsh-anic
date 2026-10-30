@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { readBody, type RouteReq } from './routeContext.ts';
 import { runArchiveFlow } from '../flows/archiveFlow.ts';
 import { checkBudget, type BudgetThresholds } from '../governance/budget.ts';
+import { workspaceFlowEnabled } from '../runtime/workspaceFlow.ts';
 import { sweepCycles, type SweepOptions } from '../governance/sweep.ts';
 import { pruneCheck } from '../governance/prune.ts';
 
@@ -80,7 +81,26 @@ export function registerGovernanceRoute(ctx: ServerContext, deps: GovernanceRout
     if (a) thresholds.alertBytes = parseInt(a, 10);
 
     const report = checkBudget(cyclesDir, thresholds);
-    send(res, 200, report);
+    // cycle-91：`flow.budgetEnforce` 开关接上（此前**零消费点** ⇒ 纯声明）。
+    //
+    // 语义（与 `flows.ts` 的 degradation 文案一致）：
+    //   开启 ⇒ status 如实报 `alert`（= 达到熔断线）；
+    //   关闭 ⇒ **降级为只告警不熔断**（alert → warn，并如实说明降级原因）。
+    //
+    // 为什么降级要**说明**而不是静默改值：静默降级会让读者以为「没超预算」
+    // —— 那正是「用假数据掩盖真实状态」。
+    const enforce = workspaceFlowEnabled(root, 'flow.budgetEnforce');
+    if (!enforce && report.status === 'alert') {
+      send(res, 200, {
+        ...report,
+        status: 'warn',
+        rawStatus: 'alert',
+        enforcement: 'disabled',
+        note: '预算熔断已关闭（flow.budgetEnforce=false）——超阈值仅告警不熔断',
+      });
+      return;
+    }
+    send(res, 200, { ...report, enforcement: enforce ? 'enabled' : 'disabled' });
   });
 
   // POST /anic/governance/sweep — 清扫空目录与过期 .tmp

@@ -39,14 +39,13 @@ import { useSelfInit } from './features/selfinit/useSelfInit.ts';
 import { usePanelInstanceSeq, idOf } from './components/sectionIds.ts';
 import { resolveFlows, parseRawPrefs } from '../shared/flows.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
-import { THEME_ATTRIBUTE, token } from '../shared/tokens.ts';
+import { THEME_ATTRIBUTE, token } from '../shared/tokens.ts'; // 主题属性 + 令牌
 import type { WorkflowNode } from './workflowGraphData.ts';
 import { t } from './i18n.ts';
 
 /**
  * 面板组件：挂载即并行拉 live（snapshot/step-trace/self-check/org-status；各自独立降级）。
- * 「刷新」手动重拉；「⚙」展开开关抽屉。in-flight 守卫防抖；无 fetch（smoke 沙盒）
- * → 保持嵌入快照。分区按 user 层开关门控（INV-30：关闭形态在 UI 如实呈现）。
+ * 「刷新」手动重拉；「⚙」展开开关抽屉。in-flight 守卫防抖；无 fetch（smoke 沙盒）→ 保持嵌入快照。分区按 user 层开关门控（INV-30：关闭形态在 UI 如实呈现）。
  */
 export function WorkflowGraphPanel(): ReactElement {
   // cycle-42（Top2）：store useRef 惰性初始化（createInitialPanelState 只在首渲
@@ -199,7 +198,8 @@ export function WorkflowGraphPanel(): ReactElement {
         ? createElement('span', { role: 'status', 'aria-live': 'polite', 'data-anic-self-init-note': selfInitPhase, style: { fontSize: 11, color: selfInitPhase === 'failed' ? token('anic-fail') : token('anic-pass') } }, selfInitNote)
         : null,
     ),
-    prefsOpen ? renderPrefsDrawer({}, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
+    // cycle-91：服务端解析态喂抽屉（workspace/deployment 层的真实生效值）。
+    prefsOpen ? renderPrefsDrawer({ resolved: store.getState().resolvedFlows }, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
     // 图区：订阅 graph+trace 两切片（verdicts 由 trace 派生）。
     createElement(GraphSection, { store, onNodeClick }),
     // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），

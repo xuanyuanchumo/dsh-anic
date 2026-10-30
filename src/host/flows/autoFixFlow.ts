@@ -22,6 +22,7 @@
 import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
+import { applyReset, loadForReset } from './flowReset.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
 import { runAutoFixNative, type AutoFixLoopResult } from '../evolution/autoFixEngine.ts';
 import type { FailurePattern, FixAttempt } from '../evolution/autoFixAnalyze.ts';
@@ -136,12 +137,18 @@ function runAutoFixScript(
  */
 export function runAutoFixFlow(
   workspaceRoot: string,
-  opts: { mode?: AutoFixFlowMode; maxRetries?: number; testCmd?: string; timeoutMs?: number } = {},
+  opts: { mode?: AutoFixFlowMode; maxRetries?: number; testCmd?: string; timeoutMs?: number; reset?: boolean } = {},
 ): AutoFixFlowRunResult {
   const mode: AutoFixFlowMode = opts.mode ?? 'native';
   // 脚本内每条测试命令 120s × 每轮两跑 × 缺省 3 轮 —— spawn 超时须覆盖全循环
   const timeoutMs = Math.min(opts.timeoutMs ?? 600000, 900000);
   const cyclesDir = join(workspaceRoot, '.cycles');
+
+  // cycle-91：先重置（若请求），再跑本轮 —— 顺序不可颠倒。
+  if (opts.reset === true) {
+    const pre = loadForReset(AUTO_FIX_FLOW, cyclesDir);
+    applyReset(AUTO_FIX_FLOW, cyclesDir, pre);
+  }
 
   const loaded = loadFlowProjection<AutoFixFlowState>(cyclesDir, AUTO_FIX_FLOW.id);
   let state = loaded ?? initRuntimeState(AUTO_FIX_FLOW);

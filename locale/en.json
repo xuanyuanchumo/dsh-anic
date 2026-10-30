@@ -447,7 +447,15 @@
     "exportSvgHint": "Export the current view and filter state as an SVG file",
     "fullscreen": "Fullscreen",
     "fullscreenExit": "Exit fullscreen",
-    "fullscreenUnavailable": "Fullscreen is unavailable here, or the browser declined the request"
+    "fullscreenUnavailable": "Fullscreen is unavailable here, or the browser declined the request",
+    "edge": {
+      "cycle-seq": "Cycle sequence",
+      "evidences": "Evidence",
+      "event-seq": "Event sequence",
+      "human-gate": "Human gate",
+      "micro-entry": "Micro entry",
+      "micro-exit": "Micro exit"
+    }
   },
   "config": {
     "title": "Configuration & Paths",

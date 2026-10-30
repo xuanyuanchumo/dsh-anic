@@ -1,23 +1,38 @@
 /**
- * 工作流状态机（F1，M2-a）。
+ * 工作流状态机（F1，M2-a）—— 类型声明与**推进语义**。
  *
- * 读 workflow-graph.yaml（或快照的 graph 结构），跟踪节点状态，
- * advance(nodeId, record) / check(strict) / getCurrentState()。
+ * ## 分层（cycle-91 拆分 · 守 T3 ≤250 行）
  *
- * 门禁是唯一暂停点：没有 approved record 不能越过 gate 节点（INV-1）。
- * 状态：pending → running → done / blocked。
+ * | 文件 | 职责 |
+ * |---|---|
+ * | 本文件 | 类型声明 + `advance` / `checkStrict`（**推进语义**） |
+ * | `stateMachineParse.ts` | YAML 解析 + 图索引构建（**语法层**） |
+ * | `stateMachineFields.ts` | 节点声明字段解析（`next:`/`on_pass:`/`on_fail:`） |
+ * | `stateMachineGraph.ts` | 依赖图构建（边类型分流 / 环入口 / 断环） |
+ * | `tarjanScc.ts` | 强连通分量算法（教科书算法，纯函数） |
  *
- * P0-DAG-PARSE（cycle-39）：真实 workflow-graph.yaml（本仓 / 技能模板
- * workflow-graph.example.yaml / 测试场地三处同形状）的边是**流式形态**
- * `- { from: plan, to: human-intent, type: "..." }`，节点 type 是**小写**
- * `gate`/`human-gate`——旧解析器只认纯文本边（`- from: X to: Y`）与大写
- * `Gate`，真实图上解析出 0 边 0 Gate 节点：advance 的前驱检查恒过、
- * gate 批准检查恒不触发，cycle 状态机全链空转（只有合成测试夹具
- * 「工作」）。契约钉死：tests/contract/stateMachineGraphShape.test.ts。
+ * ## 为什么这样切
+ *
+ * 「YAML 怎么变成图」与「图怎么推进」是**两个问题**：前者是语法，后者是
+ * 语义。cycle-91 的 `next:` 修复同时改了这两层（加解析 + 改前驱判定），
+ * 混在一个文件里时，**哪一处改动导致了哪个行为变化**很难看清。
+ *
+ * ## 迁移合法性矩阵（doc06 §3.x + doc18 §3 #8，cycle-39 落地 3/5 → cycle-40 全量 5/5）
+ *
+ * 1. record.gate === node.gate（门匹配——Gate 节点推进必须携带匹配的门名）；
+ * 2. 哈希链校验（cycleRunner.advanceCycle 侧——账本断链时拒绝推进，fail-closed；
+ *    stateMachine 是纯图/状态层不碰磁盘账本，故 #2 落在编排层）；
+ * 3. node.status !== 'done'（不重复推进已 done 节点）；
+ * 4. 前驱边存在且源节点 done（触发边已批准——即下方前驱检查）；
+ * 5. 记录类型白名单（validateRecordShape——未知字段/非法类型拒绝；
+ *    实现拆至 recordShape.ts，T3 纪律）。
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { validateRecordShape, type AdvanceRecord } from './recordShape.ts';
+import { buildGraphIndex } from './stateMachineParse.ts';
 
+// 保持既有 import 路径零变更：解析层与索引层从本文件重导出。
+export { loadWorkflowGraph, parseWorkflowGraph, loadState, initState, buildGraphIndex } from './stateMachineParse.ts';
+export type { WorkflowGraphIndex } from './stateMachineParse.ts';
 export type NodeStatus = 'pending' | 'running' | 'done' | 'blocked';
 
 export interface WorkflowNode {
@@ -28,6 +43,22 @@ export interface WorkflowNode {
   gate?: string;
   done_status?: string;
   triggers?: string[];
+  /**
+   * **顺序后继**（cycle-91 解析 `next:` 字段）。
+   *
+   * ⚠️ **它不是依赖边**（详见 `stateMachineFields.ts` 头注）：
+   * `maintain → plan` 与 `micro-retro → micro-eval` 都是**回环**
+   * （注释明写「形成宏观/微观循环」），若当依赖边 ⇒ 图成环 ⇒
+   * 「所有前驱都 done」永远无法满足 ⇒ 宏观循环一次都推不动。
+   *
+   * ⇒ 只用于**图谱顺序线索**与**可达性分析**；前驱判定走 `on_pass`/
+   * `on_fail` + `edges:`。
+   */
+  next?: string;
+  /** 通过后继（`on_pass:`，仅门禁节点有意义）。 */
+  onPass?: string;
+  /** 失败后继（`on_fail:`，熔断回退路径）。 */
+  onFail?: string;
 }
 
 export interface WorkflowEdge {
@@ -54,124 +85,6 @@ export interface StateMachineResult {
   state: Record<string, NodeState>;
   reason?: string;
 }
-
-/** 从 .cycles/workflow-graph.yaml 加载图（简化解析：提取 nodes/edges）。 */
-export function loadWorkflowGraph(cyclesDir: string): WorkflowGraph | null {
-  const p = join(cyclesDir, 'workflow-graph.yaml');
-  if (!existsSync(p)) return null;
-  const text = readFileSync(p, 'utf-8');
-  return parseWorkflowGraph(text);
-}
-
-/** 从 workflow-graph.yaml 文本解析（行级，零依赖；双边形态 + type 大小写归一）。 */
-export function parseWorkflowGraph(text: string): WorkflowGraph {
-  const nodes: WorkflowNode[] = [];
-  const edges: WorkflowEdge[] = [];
-  let currentNode: WorkflowNode | null = null;
-
-  for (const line of text.split('\n')) {
-    const nodeMatch = line.match(/^\s*-?\s*id:\s*(\S+)/);
-    if (nodeMatch?.[1]) {
-      currentNode = { id: nodeMatch[1], type: 'play' };
-      nodes.push(currentNode);
-      continue;
-    }
-    if (currentNode) {
-      const typeMatch = line.match(/^\s*type:\s*(\S+)/);
-      if (typeMatch?.[1]) {
-        // P0-DAG-PARSE：大小写归一（真实 YAML 是小写 gate/human-gate；
-        // 旧代码只认大写 Gate → 真实图 0 个门禁节点）。未知类型保守落 play。
-        const raw = typeMatch[1].toLowerCase();
-        const known: readonly string[] = ['gate', 'human-gate', 'phase', 'micro-step', 'trigger', 'play'];
-        currentNode.type = (known.includes(raw) ? raw : 'play') as WorkflowNode['type'];
-        continue;
-      }
-      const gateMatch = line.match(/^\s*gate:\s*(\S+)/);
-      if (gateMatch?.[1]) {
-        currentNode.gate = gateMatch[1];
-        continue;
-      }
-      const triggersMatch = line.match(/^\s*triggers:\s*\[(.+)\]/);
-      if (triggersMatch?.[1]) {
-        currentNode.triggers = triggersMatch[1].split(',').map((s) => s.trim().replace(/['"]/g, ''));
-        continue;
-      }
-    }
-    // 边形态一（真实正典，P0-DAG-PARSE 修复）：流式
-    // `- { from: X, to: Y, type: "gate-chain", condition: "pass" }`
-    // （type 之后的字段——condition 等——按需跳过，不要求是最后一个键；
-    //  节点 id 含连字符，惰性 \S+? 会截断——用显式字符类 + 边界逗号）
-    const flowEdge = line.match(/^\s*-\s*\{\s*from:\s*([\w-]+)\s*,\s*to:\s*([\w-]+)(?:\s*,\s*type:\s*"?([^",}]+)"?)?/);
-    if (flowEdge?.[1] && flowEdge?.[2]) {
-      edges.push({ from: flowEdge[1], to: flowEdge[2], type: flowEdge[3] });
-      continue;
-    }
-    // 边形态二（旧合成形态，向后兼容）：`- from: X to: Y`
-    const edgeMatch = line.match(/^\s*-?\s*from:\s*(\S+)\s+to:\s*(\S+)/);
-    if (edgeMatch?.[1] && edgeMatch?.[2]) {
-      edges.push({ from: edgeMatch[1], to: edgeMatch[2] });
-    }
-  }
-  return { nodes, edges };
-}
-
-/** 从 workflow-state.json 加载当前状态。 */
-export function loadState(cyclesDir: string): Record<string, NodeState> {
-  const p = join(cyclesDir, 'workflow-state.json');
-  if (!existsSync(p)) return {};
-  try {
-    const raw = JSON.parse(readFileSync(p, 'utf-8'));
-    return raw?.nodeStatus ?? raw ?? {};
-  } catch {
-    return {};
-  }
-}
-
-/** 初始化状态：所有节点 pending。 */
-export function initState(graph: WorkflowGraph): Record<string, NodeState> {
-  const state: Record<string, NodeState> = {};
-  const now = new Date().toISOString();
-  for (const node of graph.nodes) {
-    state[node.id] = { nodeId: node.id, status: 'pending', updatedAt: now };
-  }
-  return state;
-}
-
-/** 预计算图索引：节点 Map + 前驱邻接表，O(1) 查找（advance 热路径优化）。 */
-export interface WorkflowGraphIndex {
-  nodeMap: Map<string, WorkflowNode>;
-  predecessors: Map<string, string[]>;
-}
-
-export function buildGraphIndex(graph: WorkflowGraph): WorkflowGraphIndex {
-  const nodeMap = new Map<string, WorkflowNode>();
-  for (const n of graph.nodes) nodeMap.set(n.id, n);
-  const predecessors = new Map<string, string[]>();
-  for (const e of graph.edges) {
-    const arr = predecessors.get(e.to);
-    if (arr) arr.push(e.from);
-    else predecessors.set(e.to, [e.from]);
-  }
-  return { nodeMap, predecessors };
-}
-
-/**
- * 推进节点状态。
- * - Gate 节点需要 gateApproved=true 才能推进到 done。
- * - 前驱全部 done 才能推进（拓扑序）。
- *
- * 迁移合法性矩阵（doc06 §3.x + doc18 §3 #8，cycle-39 落地 3/5 → cycle-40 全量 5/5）：
- * 1. record.gate === node.gate（门匹配——Gate 节点推进必须携带匹配的门名）；
- * 2. 哈希链校验（cycleRunner.advanceCycle 侧——账本断链时拒绝推进，fail-closed；
- *    stateMachine 是纯图/状态层不碰磁盘账本，故 #2 落在编排层）；
- * 3. node.status !== 'done'（不重复推进已 done 节点）；
- * 4. 前驱边存在且源节点 done（触发边已批准——即下方前驱检查）；
- * 5. 记录类型白名单（validateRecordShape——未知字段/非法类型拒绝；
- *    实现拆至 recordShape.ts，T3 纪律）。
- */
-import { validateRecordShape, type AdvanceRecord } from './recordShape.ts';
-
-export type { AdvanceRecord } from './recordShape.ts';
 
 export function advance(
   graph: WorkflowGraph,

@@ -22,6 +22,7 @@ import { runMacroPhaseFlow, type MacroFlowMode } from './flows/macroPhaseFlow.ts
 import { runArchiveFlow } from './flows/archiveFlow.ts';
 import { PHASE_IDS } from './flows/macroPhaseEngine.ts';
 import { validateWorkspace } from './skillInvoker.ts';
+import { workspaceFlowEnabled } from './runtime/workspaceFlow.ts';
 
 export interface FlowsGatewayDeps {
   getRoot: () => string | null;
@@ -50,6 +51,7 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         mode: { type: 'string', description: 'Execution mode: script (default), native, or diff' },
         quality: { type: 'boolean', description: 'Also run quality-gate dimensions (default: true)' },
         record: { type: 'boolean', description: 'Record verdicts to the gate ledger (script mode passes --record; native mode appends with dedup). Default: false' },
+        reset: { type: 'boolean', description: 'Reset the flow projection to IDLE before running (makes the IDLE state reachable; cycle-91). Default: false' },
       },
     },
     presentCall: (args: Record<string, unknown>) =>
@@ -72,11 +74,16 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
       const mode = typeof args.mode === 'string' && ['script', 'native', 'diff'].includes(args.mode)
         ? args.mode as GateFlowMode
         : 'script';
+      // cycle-91：`flow.gateRecord` 开关接上（此前**零消费点** ⇒ 纯声明）。
+      // 关闭 ⇒ 不自动入账本（诚实降级，UI 应显式标注「未入账本」）。
+      const gateRecordOn = workspaceFlowEnabled(ws, 'flow.gateRecord');
+      const record = args.record === true && gateRecordOn;
       const result = runGateFlow(ws, {
         gate,
         mode,
         quality: args.quality !== false,
-        record: args.record === true,
+        record,
+        reset: args.reset === true,
         timeoutMs: 120000,
       });
       if (result.error) return { error: result.error };
@@ -172,6 +179,7 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         keep: { type: 'number', description: 'Number of recent archives to keep when clean=true (default: 5)' },
         list: { type: 'boolean', description: 'Return the cycle inventory (read-only). Default when no cycle/clean given' },
         mode: { type: 'string', description: 'Execution mode: native (default) or script' },
+        reset: { type: 'boolean', description: 'Reset the flow projection to IDLE before running (makes the IDLE state reachable; cycle-91). Default: false' },
       },
     },
     presentCall: (args: Record<string, unknown>) =>
@@ -200,6 +208,7 @@ export function registerFlowsTools(tools: ToolsSlot, deps: FlowsGatewayDeps): Ar
         list: args.cycle === undefined && args.clean !== true,
         mode: args.mode === 'script' ? 'script' : 'native',
         timeoutMs: 60000,
+        reset: args.reset === true,
       });
       return {
         ok: result.ok,

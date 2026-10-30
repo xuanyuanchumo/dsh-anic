@@ -67,7 +67,7 @@ export function requireSamples(n: number, minimum: number, what: string): Verdic
 }
 
 /**
- * 数据窗口的**截断信息**（cycle-90）。
+ * 数据窗口的**截断信息**（cycle-90；**cycle-91 判据改「样本域」**）。
  *
  * ## 为什么要检测它
  *
@@ -75,37 +75,78 @@ export function requireSamples(n: number, minimum: number, what: string): Verdic
  * 一旦发生淘汰，保留窗口就**偏向近期** ⇒「近期表现优于历史」可能是
  * **假象**而不是真实改善。
  *
- * 实测当前 `flows.length === counter === 105` ⇒ **尚未淘汰过一条**，
- * 但上限仍在，且每 95 次调用就会触发第一次淘汰 —— 所以**必须**实现检测，
- * 不能等它发生。
+ * ⚠️ **cycle-91 起这个风险已被治本**（append-only 历史，见
+ * `flowTrackerStore.ts`）：被淘汰的记录**仍在历史里**，统计样本不缺。
+ * 本模块的判据因此改为**样本域**（见下）。
+ *
+ * ## 判据：窗口域 → 样本域（cycle-91 实测驱动的变更）
+ *
+ * **旧判据**：`everWritten = max(counter, flows.length)`、
+ * `evicted = everWritten - flows.length`，其中 `flows` 是**热窗口**。
+ * ⇒ `evicted` 表达的是「**展示窗口**丢了多少条」。
+ *
+ * **但统计偏差问的是另一个问题**：「**统计样本**有没有缺？」
+ * append-only 历史落地后，两者**会分叉**：热窗口丢 50 条，历史保全 ⇒
+ * 统计样本**一条不缺** ⇒ **指标口径没偏**。
+ *
+ * 若仍用旧判据，徽标会在「指标完全可信」时报警——**假警告**。
+ * 假警告 ⇒ 告警疲劳 ⇒ 用户从此无视所有徽标——本仓纪律反对这个。
+ *
+ * **新判据**：
+ * ```
+ * everWritten = max(counter, sampleCount)      // 曾写过多少
+ * retained    = sampleCount                    // 现在能拿到多少样本
+ * evicted     = max(0, everWritten - retained) // 样本缺了多少
+ * truncated   = evicted > 0
+ * ```
  *
  * ## 处置纪律
  *
- * `evicted > 0` 时，**所有跨窗口读数**（分位数、控制图、生存曲线）必须挂
- * 「窗口已截断」徽标 —— **不允许静默展示**。
+ * 样本缺失（`evicted > 0`）时，**所有跨窗口读数**（分位数、控制图、
+ * 生存曲线）必须挂「样本有缺口」徽标 —— **不允许静默展示**。
  */
 export interface TruncationInfo {
   /** 历史上一共写入过多少条（含已被淘汰的）。 */
   everWritten: number;
-  /** 当前保留了多少条。 */
+  /** 当前**统计样本**有多少条（cycle-91：全量样本，不只是热窗口）。 */
   retained: number;
-  /** 被淘汰了多少条。 */
+  /** 统计样本**缺失**了多少条（0 = 完整）。 */
   evicted: number;
-  /** 是否发生过淘汰。 */
+  /** 统计样本是否有缺失（`evicted > 0`）。 */
   truncated: boolean;
-  /** 保留窗口的时间跨度（毫秒）；不足 2 条时为 null（跨不了窗口）。 */
+  /** 样本窗口的时间跨度（毫秒）；不足 2 条时为 null（跨不了窗口）。 */
   windowSpanMs: number | null;
+  /**
+   * **样本完整性是否已被确认**（cycle-91 新增）。
+   *
+   * `truncated` 是**事实**（样本确实少了 N 条）；`sampleComplete` 是**证明**
+   * （读侧确认过「历史层可用 ⇒ 样本一条不缺」）。
+   *
+   * 两者何时分叉：热窗口滚掉了 50 条，但历史层可用 ⇒ 实际样本**一条不缺**
+   * ⇒ `truncated=false` 且 `sampleComplete=true`。
+   */
+  sampleComplete: boolean;
+  /** 统计样本缺失条数（0 = 完整）。 */
+  sampleMissing: number;
 }
 
 /**
- * 计算截断信息。
+ * 计算截断信息（cycle-91：判据从「窗口域」改为「**样本域**」）。
  *
- * @param state flow-tracker 状态（`counter` 是单调累计值，`flows.length` 是保留数）
- * @param nowIso 可选的「现在」（ISO 串）；省略则不计算窗口尾部时间
+ * @param state       flow-tracker 状态（`counter` = 单调累计写入数）
+ * @param sampleCount **实际可用样本数**（cycle-91：全量历史 ∪ 热窗口，
+ *   且已按工作区过滤）。缺省时用 `state.flows.length`（旧行为，兼容既有调用方）。
+ * @param nowIso      可选的「现在」（ISO 串）；省略则不计算窗口尾部时间
+ * @param sampleComplete 样本完整性是否**已被确认**（读侧证明过历史层可用）
  */
-export function truncationInfo(state: FlowTrackerState, nowIso?: string): TruncationInfo {
-  const everWritten = Math.max(state.counter, state.flows.length);
-  const retained = state.flows.length;
+export function truncationInfo(
+  state: FlowTrackerState,
+  sampleCount?: number,
+  nowIso?: string,
+  sampleComplete = false,
+): TruncationInfo {
+  const retained = sampleCount ?? state.flows.length;
+  const everWritten = Math.max(state.counter, retained);
   const evicted = Math.max(0, everWritten - retained);
   let windowSpanMs: number | null = null;
   const first = state.flows[0];
@@ -121,15 +162,39 @@ export function truncationInfo(state: FlowTrackerState, nowIso?: string): Trunca
       windowSpanMs = retained < 2 ? null : end - start;
     }
   }
-  return { everWritten, retained, evicted, truncated: evicted > 0, windowSpanMs };
+  return {
+    everWritten,
+    retained,
+    evicted,
+    truncated: evicted > 0,
+    windowSpanMs,
+    sampleComplete,
+    sampleMissing: evicted,
+  };
 }
 
 /**
  * 跨窗口读数的**截断告警**（供面板显示）。
  *
- * @returns 未截断 → null；已截断 → 一句可直接显示的话
+ * ## 两种徽标（cycle-91：按「样本是否完整」分流）
+ *
+ * | 状态 | 文案 | 含义 |
+ * |---|---|---|
+ * | 样本**不**完整 | 「⚠ 统计样本有缺口（缺 N 条）」 | 指标口径**真的**偏了 |
+ * | 样本完整、仅展示窗口被裁 | 「展示窗口为最近 N 条（历史已保全，指标口径不受影响）」 | 口径没偏，只是视图有限 |
+ *
+ * **为什么不能合并成一条**：旧文案「数据窗口已截断 ⇒ 勿据此断言历史更差」
+ * 在样本完整时是**假的**（历史保全 ⇒ 指标没偏）。挂一个假警告 ⇒
+ * 告警疲劳 ⇒ 用户从此无视所有徽标。
+ *
+ * @returns 无需告警 → null；否则一句可直接显示的话
  */
 export function truncationWarning(info: TruncationInfo): string | null {
+  if (info.sampleComplete) {
+    // 样本完整：只在展示窗口确实被裁时给一句**非警告**的说明。
+    if (!info.truncated) return null;
+    return `展示窗口为最近 ${String(info.retained)} 条（历史已保全，指标口径不受影响）`;
+  }
   if (!info.truncated) return null;
   return `⚠ 数据窗口已截断（丢弃 ${String(info.evicted)} 条最旧记录）—— 近期指标偏向近期，勿据此断言历史更差`;
 }

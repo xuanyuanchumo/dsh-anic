@@ -39,6 +39,7 @@ export function registerHitlTools(tools: ToolsSlot, deps: HitlGatewayDeps): Arra
         workspace: { type: 'string', description: 'Target project directory (defaults to current workspace)' },
         gate: { type: 'string', description: 'Gate to audit: H1, H2, H3, H4 or all (default: all)' },
         mode: { type: 'string', description: 'Execution mode: native (default) or script' },
+        reset: { type: 'boolean', description: 'Reset the flow projection to IDLE before running (makes the IDLE state reachable; cycle-91). Default: false' },
       },
     },
     presentCall: (args: Record<string, unknown>) =>
@@ -66,6 +67,7 @@ export function registerHitlTools(tools: ToolsSlot, deps: HitlGatewayDeps): Arra
         gate,
         mode: args.mode === 'script' ? 'script' : 'native',
         timeoutMs: 60000,
+        reset: args.reset === true,
       });
       return {
         verdict: result.verdict,

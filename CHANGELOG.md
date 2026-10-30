@@ -1,5 +1,101 @@
 # dsh-anic CHANGELOG
 
+## v0.49.0 — 2026-10-31（cycle-91：可达性治本 · 开关接真 · 图谱语义化）
+
+> 本轮起点**不是**全绿：基线 226 文件 / 3064 用例，**1 红**（棘轮守卫前提失效）。
+> 三路只读 agent（宿主实现研究 / 三态完整性审计 / 图谱前沿研究）并行供给事实，
+> 本轮修 **9 个实测缺陷**，每个都有「实测反例 → 根因 → 修复 → 钉死它的测试」。
+> 终点：**232 文件 / 3125 用例全绿**、eval **16/16**、G0-G3 **全 PASS**（含 Q1-Q8）、
+> HITL H1-H4 全过、L4 未降级、热重载真机成功、多项目隔离实证通过。
+
+### ① 工作流图可达性（最严重：`next:` 完全未解析 ⇒ 整条 gate-chain 锁死）
+
+**实测反例**：`parseWorkflowGraph` 只认 `id:`/`type:`/`gate:`/`triggers:`，
+YAML 里 **13 处 `next:`** 被忽略 ⇒ 依赖入度 = 0 的节点 **9 个** ⇒ `gate-g0` 的
+唯一前驱 `micro-retro` 永不 `done` ⇒ **整条 gate-chain（g0→g1→g2→g3）锁死** ⇒
+`POST /anic/cycle/advance` 在节点机层面**结构性不可达**。
+
+**为什么既有契约全绿**：`stateMachineGraphShape.test.ts` 只断言「解析出 N 个节点 /
+边是流式形态 / type 小写」—— **从不断言「节点可达」** ⇒ 这是**既有契约的覆盖盲区**。
+
+**关键设计**：`next:` 是**顺序**（含显式回环 `maintain→plan`、`micro-retro→micro-eval`），
+**不能**原样当依赖边 ⇒ 否则成环 ⇒「所有前驱都 done」永远无法满足 ⇒ 宏观循环一次都
+推不动。修法 = **Tarjan SCC** 找环 + **声明序最早**的节点为环入口 + 断开指向入口的边。
+
+**终点实测**：依赖入度 0 的节点 **9 → 1**（`plan`）；**17 步推进链全通**
+（`plan → design → build → micro-eval → … → gate-g3 → test → deploy → maintain`）。
+
+### ② flow-tracker append-only 治本（消除统计偏差）
+
+原实现把 200 条上限的**滚动淘汰**当容量管理，而淘汰造成**结构性偏差**：时间选择偏差
+（淘汰只在触顶时刻发生）+ 幸存者偏差（只留最近 200 条）+ 静默截断。
+
+改为**双层存储**：热窗口（200 条「最近视图」，原子写）+ `flow-history.jsonl`
+（**append-only**，终态记录每行一条，永不重写）。读侧取**全量**（历史 ∪ 窗口）并
+**按 `startedAt` 升序重排**（合并的天然顺序是「窗口的全部 + 历史的其余」⇒ 时间序被打乱 ⇒
+**静默的统计失真**）。
+
+**附带修**：截断徽标在**集成层断裂**（路由硬传 `counter: flows.length` ⇒ `evicted` 恒 0
+⇒ 徽标永不出现；单元测试**绕过路由层**手工传 counter ⇒ 零覆盖）。判据改「**样本域**」后，
+样本完整 ⇒ **不报警**（消除假警告），历史缺失 ⇒ 诚实报缺口。
+
+### ③ 11 条 `reset` 死边（`IDLE` 不可达）
+
+5 个流程描述子共 11 条 `{终态→IDLE, trigger:'reset'}` 边，而**全部** `applyTransition`
+调用点**无一**传 `reset` ⇒ 那些边**永不发生**，但 API 对外**宣称**它们存在 ⇒
+**死边比假边更坏**；且 `IDLE` 不可达 ⇒ `neverRun` 计数与投影语义失真。
+
+修法选「**加真实触发器**」而非「删边」（删边会让 `IDLE` 彻底不可达，语义问题没解决）：
+4 个流程的 `run*Flow` 支持 `opts.reset`，4 个工具暴露 `reset` 参数，
+`reset` 事件**前置**进事件序列。**边界**：`reset` **只重置流程投影**，**不动账本**
+（账本是只追加的审计链）。
+
+### ④ 开关接真（3 个空心开关 + 界面与真相相反）
+
+- `flow.gateRecord` / `flow.budgetEnforce`：**零运行时读取点**（纯声明）；
+  `flow.agentsOrchestration`：只有 `?? {true,true}` **恒真**兜底 ⇒ 面板永远显示「启用」。
+  ⇒ 新增 `workspaceFlow.ts`（读盘**不缓存**）+ 三处接线；`budgetEnforce` 关闭时
+  **alert→warn 且保留 `rawStatus` + 说明**（不静默改值）。
+- 客户端此前**只见 user 层**（抽屉传空对象）⇒ 工作区关掉 `flow.selfInit` 时抽屉显示「☑」
+  ⇒ 用户点击后宿主 **403** ⇒ **界面与真相相反**。⇒ 新增
+  `GET /anic/api/flows/resolved`（返回服务端才知道的层 + `userWritable`），
+  抽屉**优先采信服务端**（它读磁盘，是真相源）。
+
+### ⑤ 图谱语义化（`testReport` 进图 + 边语义可解码）
+
+- `WorkflowNode.testReport`（`passed/failures/errors`）是**图上最值钱的信号**，但此前
+  **零像素**（只在节点详情抽屉）⇒ 判断「哪个门禁的测试在红」需逐个点开节点。
+  ⇒ 新增 `graphHealth.ts` 判据层；卡片底缘分段条（**用 `<rect>` 分段**，不引入
+  `<circle>`——smoke 钉死「circle 数 == 节点数」）+ meta 行**数字文字**
+  （WCAG 1.4.1：颜色不能是唯一通道）。**诚实边界**：无 `testReport` ⇒
+  `failureRate = null`（**不是 0**）；分母为 0 ⇒ **不可判定**。
+- 6 种边类型的线型各异但**无从查** ⇒ 新增边图例（线型**同源** `EDGE_STYLES`）+
+  `graph.edge.*` 双语 locale + 前缀认领登记。
+
+### ⑥ 棘轮守卫三层判定（豁免表空转 4 个循环）
+
+`FORWARD_TOLERANCE=8` 是**固定**的 ⇒ 窗口右界 `cur+8` 随本仓右移 ⇒ 基线成员
+95/96/97/99（**绝对值**）**自 cur=88 起全部落窗** ⇒ 豁免失效**且不报警**（失效方向是
+「放行变宽」，最易被忽视）。⇒ 改**三层判定**（历史 / 领先 / 须显式豁免，边界互不耦合）；
+反向自检改用**合成探针** `cur+8+1`（按构造必然越界，与 cur 漂移无关）。
+
+### ⑦ 模块化拆分（T3 ≤250 行）
+
+`flowTracker` 362→241、`stateMachineFields` 383→118、`stateMachine` 286→249 ⇒
+新增 8 个职责单一文件（types / store / history / query / fields / graph / tarjan / parse）。
+
+### 已知边界
+
+- `flow.budgetEnforce` **无真正熔断路径**（当前 = 降级为只告警）；
+- `flow.agentsOrchestration` **无运行时行为**（该功能面本身尚不存在）；
+- `flow.gateRecord` 关闭时**未标注**「未入账本」（行为已接上，UI 标注缺）；
+- `flow-history.jsonl` **无上界**（**有意的**：换来统计口径不随调用次数漂移）；
+- 健康度 `bad` 阈值 **1% 是拍的**（无研究依据，待真实分布校准）；
+- 研究新发现但**本轮未修**：渐进式披露**自锁**（`anic_tool_detail` 从不注册工具 +
+  indexed 模式 deny 21/23 ⇒ 那 21 个工具**永久不可用**）、`tools/change` 事件缺失、
+  `restrict()` disposer 泄漏、`anic_multi_agent_gate` 死键、`/anic/api/archive/*`
+  无客户端消费面。
+
 ## v0.48.0 — 2026-10-27（cycle-82：可交互图谱 + 配置可视化编辑 + 可观测性收口）
 
 > 用户诉求四条：①「要可交互的图谱，功能很贫乏」②「配置/路径支持自定义可视化编辑」

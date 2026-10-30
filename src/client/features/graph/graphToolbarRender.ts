@@ -20,6 +20,7 @@ import type { Viewport } from './graphViewport.ts';
 import { typeColorOf } from './graphNodeRender.ts';
 import { GROUP_LABEL, renderGroupSeparator, renderToolbarGroup } from './graphToolbarGroups.ts';
 import { renderLegend } from './graphToolbarLegend.ts';
+import { renderEdgeLegend } from './graphEdgeLegend.ts';
 import { renderSearchChildren } from './graphToolbarSearch.ts';
 import { renderAuxGroup, renderZoomGroup } from './graphToolbarActions.ts';
 import { renderViewGroup, type ViewGroupInput } from './graphToolbarView.ts';

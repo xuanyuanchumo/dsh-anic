@@ -10,12 +10,21 @@ import { createElement, type ReactElement } from 'react';
 import { FLOWS, PREFS_KEY, isUserWritable, parseRawPrefs, resolveFlows, type FlowLayer } from '../../../shared/flows.ts';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
+import { resolvedFlowState, resolvedUserWritable, type ResolvedFlowsJson } from '../../components/resolvedFlowsTypes.ts';
 
 export interface FlowOverrideInput {
   /** 工作区层（host/config.ts 的 anic 段解析结果，键 = 'flow.xxx'） */
   workspace?: Record<string, unknown>;
   /** 部署层（bundle config 注入，M2-a 槽位；M1 常为空） */
   deployment?: Record<string, unknown>;
+  /**
+   * **服务端解析态**（cycle-91）：宿主端 `GET /anic/api/flows/resolved` 的结果。
+   *
+   * 为什么需要它：此前抽屉只读**用户层**（workspace/deployment 传空对象）⇒
+   * 工作区把 `flow.selfInit` 关掉时，抽屉仍显示「☑」⇒ 用户点了却拿到 403 ⇒
+   * **界面与真相相反**。有了它，抽屉显示**真实生效态**与**真实来源层**。
+   */
+  resolved?: ResolvedFlowsJson | null;
 }
 
 function readUserPrefsRaw(): Record<string, unknown> {
@@ -76,9 +85,26 @@ export function prefsPanelIdOf(instanceSeq: number): string {
 export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Record<string, boolean>) => void, panelId: string): ReactElement {
   const user = readUserPrefsRaw();
   const resolved = resolveFlows({ user, workspace: input.workspace, deployment: input.deployment });
+  // cycle-91：**服务端解析态优先**（它才是真实生效态）。
+  //
+  // 为什么优先而不是取交集：服务端 `resolveFlows` 读的是工作区真实配置，
+  // 客户端本地合并只用了 user 层 ⇒ 两者对「workspace 关掉了 selfInit」
+  // 这件事的结论必然不同。**服务端是真相源**（它读磁盘），客户端 localStorage
+  // 只是「用户偏好」这一层。
+  //
+  // 端点不可用（resolved 为 null）⇒ 落回客户端本地合并（诚实降级，不假装知道）。
+  const serverState = (id: string): { enabled: boolean; source: FlowLayer | null } | null => {
+    const st = resolvedFlowState(input.resolved ?? null, id);
+    if (st === null) return null;
+    const src = st.source;
+    return {
+      enabled: st.enabled !== false,
+      source: src === 'user' || src === 'workspace' || src === 'deployment' ? src : null,
+    };
+  };
 
   const rows = FLOWS.map((f) => {
-    const state = resolved.flows[f.id] ?? { enabled: true, source: null as FlowLayer | null };
+    const state = serverState(f.id) ?? resolved.flows[f.id] ?? { enabled: true, source: null as FlowLayer | null };
     const sourceLabel = sourceLabelOf(state.source);
     // cycle-90：该开关是否支持**用户层**写入（`layers` 不含 'user' ⇒ 不可写）。
     //
@@ -88,7 +114,7 @@ export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Re
     //
     // 现在：不可写 ⇒ checkbox **禁用** + title 换成专门文案（`panel.selfInitOffTitle`）。
     // 该文案说明「为什么不能点」（只支持工作区/部署层），而不只是「禁用」。
-    const writable = isUserWritable(f.id);
+    const writable = resolvedUserWritable(input.resolved ?? null, f.id, isUserWritable(f.id));
     const title = writable ? f.degradation : t('panel.selfInitOffTitle');
     return createElement(
       'label',

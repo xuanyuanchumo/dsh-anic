@@ -77,7 +77,15 @@ export interface RouteContext {
   send: SendFn;
   /** req 可选：带 X-ANIC-Workspace 头时优先采信（桌面多会话纠偏，见 snapshotRoute P2 注）。 */
   getWorkspaceRoot: (req?: unknown) => string | null;
-  loadFlows: () => { selfInit: boolean };
+  /**
+   * 工作区层开关的生效态（cycle-91 扩展：原来只回 `selfInit`）。
+   *
+   * 扩展原因：`flow.agentsOrchestration` 此前**零消费**——`orgStatus.ts` 的
+   * `options.flows ?? {selfInit:true, agentsOrchestration:true}` 兜底恒真 ⇒
+   * 面板永远显示「智能体编排：启用」，即使工作区把它关了。
+   * ⇒ 这里把工作区层的真实值交给路由 ⇒ 面板显示真实态。
+   */
+  loadFlows: () => { selfInit: boolean; agentsOrchestration: boolean };
 }
 
 /** 构造带请求头注入的发送函数。 */
@@ -94,14 +102,17 @@ export function buildRouteContext(ctx: unknown): RouteContext {
   const getWorkspaceRoot = (req?: unknown): string | null => {
     try { return resolveWorkspaceRoots(c, req); } catch { return null; }
   };
-  const loadFlows = (): { selfInit: boolean } => {
+  const loadFlows = (): { selfInit: boolean; agentsOrchestration: boolean } => {
     try {
       const root = getWorkspaceRoot();
-      if (!root) return { selfInit: true };
+      if (!root) return { selfInit: true, agentsOrchestration: true };
       const cfg = loadWorkspaceConfig(join(root, '.cycles'));
       const resolved = resolveFlows({ workspace: cfg.values.flowOverrides });
-      return { selfInit: resolved.flows['flow.selfInit']?.enabled ?? true };
-    } catch { return { selfInit: true }; }
+      return {
+        selfInit: resolved.flows['flow.selfInit']?.enabled ?? true,
+        agentsOrchestration: resolved.flows['flow.agentsOrchestration']?.enabled ?? true,
+      };
+    } catch { return { selfInit: true, agentsOrchestration: true }; }
   };
   // P0-8：把工作区层 `anic.allowedOrigins` 写进 CORS 允许集（注册期一次）。
   // 工作区尚未就绪时不写 —— 缺省回环策略仍然生效（fail-safe）。

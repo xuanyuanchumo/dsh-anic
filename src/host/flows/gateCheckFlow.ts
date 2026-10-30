@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
+import { applyReset, loadForReset } from './flowReset.ts';
 import type { GateCheckResult } from './gateTypes.ts';
 import { runNativeSide, runScriptSide, recordNative, type EngineSide } from './gateCheckRunners.ts';
 // 超时 cap 单一事实源（cycle-79 O-03）：原先独立写死 120000，与技能入口 240000 不一致。
@@ -89,16 +90,32 @@ export interface GateFlowRunResult {
 /**
  * 运行 gate-check 流程（状态机 + 引擎 + 投影）。
  * 执行错误（技能脚本目录缺失等）不推进状态机，error 字段响亮返回。
+ *
+ * ## `reset` 参数（cycle-91）
+ *
+ * 此前描述子里的两条 `{from: PASSED|FAILED, to: 'IDLE', trigger: 'reset'}`
+ * 边**永远不发生**（无任何调用点传 `'reset'`）⇒ 死边 + `IDLE` 不可达。
+ * 现由本函数的 `opts.reset` 提供**真实触发器**：先把投影重置回 `IDLE`，
+ * 再正常跑一轮。详见 `flowReset.ts` 头注。
  */
 export function runGateFlow(
   workspaceRoot: string,
-  opts: { gate?: string; quality?: boolean; record?: boolean; mode?: GateFlowMode; timeoutMs?: number } = {},
+  opts: { gate?: string; quality?: boolean; record?: boolean; mode?: GateFlowMode; timeoutMs?: number; reset?: boolean } = {},
 ): GateFlowRunResult {
   const mode: GateFlowMode = opts.mode ?? 'script';
   const gate = opts.gate ?? 'all';
   // cap 统一到技能调用上限（cycle-79 O-03）；显式传参优先语义不变，默认 120s 不变
   const timeoutMs = Math.min(opts.timeoutMs ?? 120000, MAX_SKILL_INVOKE_TIMEOUT_MS);
   const cyclesDir = join(workspaceRoot, '.cycles');
+
+  // cycle-91：先重置（若请求），再跑本轮 —— 顺序不可颠倒
+  // （先跑后重置会把刚跑出的结果丢掉）。
+  const resetEvents: FlowEvent<GateCheckState>[] = [];
+  if (opts.reset === true) {
+    const loaded = loadForReset(GATE_CHECK_FLOW, cyclesDir);
+    const ev = applyReset(GATE_CHECK_FLOW, cyclesDir, loaded);
+    if (ev) resetEvents.push(ev);
+  }
 
   const base = {
     mode, flowId: 'gate-check' as const, gates: {}, quality: {}, events: [] as FlowEvent<GateCheckState>[],
@@ -143,7 +160,7 @@ export function runGateFlow(
   if (!side) {
     return { ...base, state: 'IDLE', allPass: false, exitCode: 1, error: `mode "${mode}" produced no engine result` };
   }
-  return finishRun(cyclesDir, mode, side, { drift, stdout, recorded });
+  return finishRun(cyclesDir, mode, side, { drift, stdout, recorded }, resetEvents);
 }
 
 /** 状态机推进 + 投影持久化（run → 引擎裁决 → all-pass/any-fail）。 */
@@ -152,10 +169,13 @@ function finishRun(
   mode: GateFlowMode,
   side: EngineSide,
   extra: { drift: GateFlowRunResult['drift']; stdout?: string; recorded?: string[] },
+  resetEvents: FlowEvent<GateCheckState>[] = [],
 ): GateFlowRunResult {
   const loaded = loadFlowProjection<GateCheckState>(cyclesDir, GATE_CHECK_FLOW.id);
   let state = loaded ?? initRuntimeState(GATE_CHECK_FLOW);
-  const events: FlowEvent<GateCheckState>[] = [];
+  // cycle-91：reset 事件**前置**到本轮事件序列首位（reset → run → verdict）。
+  // 语义：读者看事件序列时，能看到「这一轮是从重置开始的」。
+  const events: FlowEvent<GateCheckState>[] = [...resetEvents];
 
   const runRes = applyTransition(GATE_CHECK_FLOW, GATE_CHECK_GUARDS, state.current, 'run');
   if (runRes.ok && runRes.event && runRes.next) {

@@ -354,6 +354,8 @@ describe('宿主入口 apply', () => {
     '/anic/self/bootstrap-other',
     // cycle-90：生命周期指标（KM 生存分析 / EWMA 控制图 / 分位数+Gini）
     '/anic/api/flows/lifecycle',
+    // cycle-91：开关解析态（workspace/deployment 层的真实生效值）
+    '/anic/api/flows/resolved',
     // M8 跨项目技能调用
     '/anic/skill/list', '/anic/skill/invoke', '/anic/evaluate', '/anic/iterate',
     // M11 技能内联 + 原生脚本；cycle-19 eco P0 新增 repair（doctor 语义并入 status）
