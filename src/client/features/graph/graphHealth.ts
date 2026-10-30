@@ -138,6 +138,25 @@ export function supportCountOf(
 }
 
 /**
+ * **边流量编码**的宽度：基础宽度 × 支撑度分档系数。
+ *
+ * @param baseWidth 该边类型的默认宽度（来自 `EDGE_STYLES`）
+ * @param support  支撑数；undefined = 不启用
+ *
+ * ## 为什么是「系数」而不是「绝对宽度」
+ *
+ * 不同边类型的默认宽度不同（0.7 / 0.8 / 0.9）⇒ 用**绝对宽度**会让细边
+ * （evidences 0.7）比粗边（cycle-seq 0.9）还粗 ⇒ **跨类型比较会失真**。
+ * ⇒ 用**系数**（1.0 / 1.4 / 1.9）⇒ 保持类型间的相对关系不变。
+ */
+export function supportWidth(baseWidth: number, support: number | undefined): number {
+  if (support === undefined || support <= 0) return baseWidth;
+  if (support === 1) return baseWidth;
+  if (support <= 3) return baseWidth * 1.4;
+  return baseWidth * 1.9;
+}
+
+/**
  * 支撑度的**描边宽度档**（边流量编码）。
  *
  * | 支撑数 | 宽度 | 含义 |

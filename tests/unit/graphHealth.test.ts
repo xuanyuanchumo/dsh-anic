@@ -22,6 +22,7 @@ import {
   healthSegments,
   healthSummaryText,
   supportCountOf,
+  supportWidth,
   supportWidthOf,
 } from '../../src/client/features/graph/graphHealth.ts';
 import type { WorkflowNode } from '../../src/client/workflowGraphData.ts';
@@ -93,7 +94,7 @@ describe('cycle-91：健康度分段与摘要', () => {
   });
 });
 
-describe('cycle-91：边流量编码（支撑度）', () => {
+describe('cycle-91：边流量编码（支撑度 → 线宽）', () => {
   const edges = [
     { from: 'e1', to: 'gate-g0', type: 'evidences' },
     { from: 'e2', to: 'gate-g0', type: 'evidences' },
@@ -101,6 +102,20 @@ describe('cycle-91：边流量编码（支撑度）', () => {
     { from: 'e4', to: 'gate-g0', type: 'cycle-seq' },
     { from: 'e5', to: 'gate-g1', type: 'evidences' },
   ];
+
+  it('**系数式缩放**（保持类型间的相对关系不变）', () => {
+    // 不同边类型默认宽度不同（evidences 0.7 / cycle-seq 0.9）⇒ 用**系数**而非绝对宽度，
+    // 否则细边会比粗边还粗 ⇒ 跨类型比较失真。
+    expect(supportWidth(0.7, undefined)).toBe(0.7);
+    expect(supportWidth(0.7, 0)).toBe(0.7);
+    expect(supportWidth(0.7, 1)).toBe(0.7);
+    expect(supportWidth(0.7, 2)).toBeCloseTo(0.7 * 1.4, 10);
+    expect(supportWidth(0.7, 8)).toBeCloseTo(0.7 * 1.9, 10);
+    // 相对关系：0.9 的边在任一档都比 0.7 的边粗。
+    for (const s of [1, 2, 8]) {
+      expect(supportWidth(0.9, s)).toBeGreaterThan(supportWidth(0.7, s));
+    }
+  });
 
   it('按边类型统计支撑数', () => {
     expect(supportCountOf(edges, 'gate-g0', 'evidences')).toBe(3);

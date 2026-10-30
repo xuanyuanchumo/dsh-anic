@@ -34,6 +34,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { supportWidth } from './graphHealth.ts';
 
 /** 边类型 → 线型。缺省（未登记类型）走 `DEFAULT_EDGE`。 */
 export interface EdgeStyle {
@@ -119,6 +120,16 @@ export interface EdgeRenderInput {
    * undefined = 未启用追溯（渲染与改造前逐字节等价）。
    */
   trace?: 'up' | 'down' | undefined;
+  /**
+   * **边流量**（cycle-91）：这条边**指向的节点**被多少条同类边支撑。
+   *
+   * 为什么需要：研究实测发现 `wf:gate-g0` 被 8 条 `evidences` 边支撑，
+   * 与只被 1 条支撑的门禁**画得一模一样**（同样粗的淡虚线）⇒ 读者看不出
+   * 「这是枢纽」。⇒ 线宽按支撑数分档。
+   *
+   * undefined = 不启用（宽度取 `EDGE_STYLES` 的默认）。
+   */
+  support?: number | undefined;
 }
 
 export function renderEdge(input: EdgeRenderInput): ReactElement {
@@ -141,10 +152,13 @@ export function renderEdge(input: EdgeRenderInput): ReactElement {
     // 能单独给点线/虚线换成系统色（见 panelCss 的 forced-colors 块）。
     'data-anic-edge-dash': style.dash ?? 'solid',
     'data-anic-edge-curve': path.kind,
+    // 边流量进 DOM：视觉粗细是 AT 读不到的通道（同 data-anic-trace 纪律）。
+    'data-anic-edge-support': input.support === undefined ? 'none' : String(input.support),
     d: path.d,
     fill: 'none',
     stroke: token(traceStroke ?? style.stroke),
-    strokeWidth: trace === null ? style.width : style.width + 0.6,
+    // 边流量编码（cycle-91）：支撑越多 ⇒ 线越粗（单调不减）。
+    strokeWidth: trace === null ? supportWidth(style.width, input.support) : style.width + 0.6,
     strokeDasharray: style.dash,
     markerEnd: style.arrow ? 'url(#anic-spike-arrow)' : undefined,
     opacity: trace === null ? opacity : (opacity === undefined ? 1 : Math.max(opacity, 0.85)),

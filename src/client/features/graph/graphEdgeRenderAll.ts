@@ -55,6 +55,13 @@ export function edgeTraceOf(trace: TraceResult | undefined, e: WorkflowEdge): Ed
 export function renderEdges(input: EdgeRenderInput): ReactElement[] {
   const { edges, positionOf, filterView, trace } = input;
   const out: ReactElement[] = [];
+  // 边流量编码（cycle-91）：预计算每个**目标节点**被多少条同类边支撑（O(E) 单遍）。
+  // 只对「证据类」边有意义（cycle-seq 是时序，支撑数无意义）⇒ 其余类型不启用。
+  const supportCounts = new Map<string, number>();
+  for (const e of edges) {
+    if (e.type !== 'evidences') continue;
+    supportCounts.set(e.to, (supportCounts.get(e.to) ?? 0) + 1);
+  }
   for (const e of edges) {
     // 边端点必须用**布局后**的坐标：`data.nodes` 存的是快照坐标，
     // 直接取 `a.x` 会画出改造前的长条 —— 这是本模块最容易踩的一处。
@@ -68,6 +75,8 @@ export function renderEdges(input: EdgeRenderInput): ReactElement[] {
       type: e.type,
       fromPos: pa,
       toPos: pb,
+      // 支撑数（仅 evidences 边）⇒ 枢纽门禁的线更粗。
+      support: e.type === 'evidences' ? (supportCounts.get(e.to) ?? 0) : undefined,
       // 边跟着端点一起淡：取两端中**较亮**的那个。
       opacity: filterView === undefined
         ? undefined
