@@ -19,6 +19,8 @@ import type { FilterState, TypeCount } from './graphFilter.ts';
 import type { Viewport } from './graphViewport.ts';
 import { typeColorOf } from './graphNodeRender.ts';
 import { GROUP_LABEL, renderGroupSeparator, renderToolbarGroup } from './graphToolbarGroups.ts';
+import { toolbarContainerAttrs } from './graphToolbarDensity.ts';
+import { renderToolbarTail } from './graphToolbarTail.ts';
 import { renderLegendRow, type RoleLegendStats } from './graphToolbarLegendRow.ts';
 import { renderSearchChildren } from './graphToolbarSearch.ts';
 import { renderAuxGroup, renderZoomGroup } from './graphToolbarActions.ts';
@@ -120,12 +122,16 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     },
   });
 
+  // 紧凑度读数与容器属性同源（算法与常量依据见 `graphToolbarDensity.ts` 头注）。
+  // 契约只读 `data-anic-toolbar-*` 锚点，不自己重算一遍（两套数字必然漂移）。
   return createElement(
     'div',
     {
-      'data-anic-graph-toolbar': 'true',
-      role: 'toolbar',
-      'aria-label': t('graph.toolbarLabel'),
+      ...toolbarContainerAttrs(t('graph.toolbarLabel'), {
+        hasView: props.view !== undefined,
+        hasPath: props.path !== undefined,
+        hasRoleLegend: props.roles !== undefined,
+      }),
       style: {
         display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center',
         padding: '6px 8px', fontSize: 11,
@@ -221,27 +227,14 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     }),
     renderGroupSeparator('after-verdict'),
 
-    // ── 组 4/5：缩放与辅助（动作语义，拆到 graphToolbarActions）──
-    renderZoomGroup(viewport, {
+    // 组 4..7 + 图例行：动作语义与条件组，拆到 graphToolbarTail.ts（守 T3 ≤250 行）。
+    // 拆的是**职责**：「工具栏分成哪几组」留本文件；「后半段怎么装配」独立成文件。
+    ...renderToolbarTail({
+      viewport, adjacencyOn, filterActive, typeCounts, roles: props.roles,
+      view: props.view, path: props.path,
       onZoomIn: props.onZoomIn, onZoomOut: props.onZoomOut, onFit: props.onFit,
+      onAdjacencyToggle: props.onAdjacencyToggle, onClear: props.onClear,
     }),
-    renderGroupSeparator('after-zoom'),
-    renderAuxGroup({
-      adjacencyOn, filterActive, onAdjacencyToggle: props.onAdjacencyToggle, onClear: props.onClear,
-    }),
-
-    // ── 组 6：视图（布局模式 / 仅看异常 / 缩放到选中 / 导出 / 全屏）──
-    // 缺省**不渲染**（见 RenderProps.view 的注释：零参调用 = 改造前工具栏）。
-    props.view === undefined ? null : renderGroupSeparator('before-view'),
-    props.view === undefined ? null : renderViewGroup(props.view),
-
-    // ── 组 7：路径（cycle-95 WS-C）——"这两点怎么连"的模式开关（缺省不渲染）──
-    props.path === undefined ? null : renderGroupSeparator('before-path'),
-    props.path === undefined ? null : renderPathGroup(props.path),
-
-    // 图例行：类型色点 → 边线型 → 角色形状（由粗到细解码；理由见该文件头注）。
-    // 角色图例缺省不渲染：它要真实角色计数，纯渲染的零参调用没有这份数据。
-    renderLegendRow(typeCounts, props.roles),
   );
 }
 

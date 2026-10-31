@@ -64,7 +64,7 @@ export const CHANNEL_DECLARATIONS: readonly ChannelDeclaration[] = [
   { route: '/anic/self/dual-evaluate', owner: '双自举面（人类运维/外部调度器）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/self/dual-evaluate', reason: '外部双轨评估入口；工具面走 in-process 调用' },
   { route: '/anic/self/dual-advance', owner: '双自举面（人类运维/外部调度器）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/self/dual-advance', reason: '外部双轨推进入口；工具面走 in-process 调用' },
   { route: '/anic/self/dual-status', owner: '双自举面（人类运维/外部调度器）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/self/dual-status', reason: '外部查询双轨状态；面板不消费该端点' },
-  { route: '/anic/self/bootstrap-other', owner: '跨项目自举面（人类运维/外部调度器）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/self/bootstrap-other', reason: '跨工作区自举（举他）由外部调度器发起；插件内部不自我调用该端点' },
+  { route: '/anic/self/bootstrap-other', owner: '跨项目自举面（人类运维/外部调度器 + 工具面）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/self/bootstrap-other', reason: '跨工作区自举（举他）的 HTTP 面由外部调度器发起，插件内部不自我调用该端点；cycle-96 起同语义另有工具面消费路径 anic_bootstrap_other —— 它 in-process 调 runtime/crossBootstrapExecute.ts 的 runCrossBootstrap（与本路由共用同一执行体），因此「本仓内无 HTTP 消费点」仍是事实，但「能力无消费方」已不成立' },
   { route: '/anic/api/tech-debt/triage', owner: '技术债治理面（运维/面板动作）', docRef: 'docs/agents/API参考-评审进化与治理.md#/anic/api/tech-debt/triage', reason: '债务分诊是写动作（关闭已不复现的提案），由运维或面板按钮显式触发，不由读取面自动执行' },
   /* ── 技能面：运维 CLI / MCP 客户端（技能脚本是外部进程，不写回插件源码）── */
   { route: '/anic/skill/list', owner: '技能面（运维/MCP 客户端）', docRef: 'docs/agents/API参考-自举与技能.md#/anic/skill/list', reason: 'MCP/运维列技能；技能脚本以子进程形态存在，不在本仓源码引用' },

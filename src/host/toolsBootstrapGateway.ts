@@ -3,6 +3,12 @@
  *
  * 从 toolsSkillGateway.ts 拆出（254 行 > 250 守卫；一域一文件纪律）：
  * anic_install + anic_skill（技能网关）留在原文件，本文件承载 M10-b/c 自举编排工具。
+ *
+ * ## cycle-96：本文件同时聚合「举他」工具
+ *
+ * `anic_bootstrap_other` 的实现放在 `toolsCrossBootstrapGateway.ts`（本文件再加一个
+ * 工具就会越过 250 行机械守卫）。聚合放在这里而不是 `tools.ts`：注册序与
+ * 「自举域」语义保持一处，`tools.ts` 无需新增 import（它对本域仍是单一入口）。
  */
 
 import type { ToolRegistration, ToolsSlot } from './toolsSlot.ts';
@@ -16,8 +22,9 @@ import {
   bootstrapCyclePresentCall,
   bootstrapAnalyzePresentCall,
 } from './presentation.ts';
+import { buildCrossBootstrapTool } from './toolsCrossBootstrapGateway.ts';
 
-/** 注册自举域工具（anic_bootstrap_cycle / anic_bootstrap_analyze）。 */
+/** 注册自举域工具（anic_bootstrap_cycle / anic_bootstrap_analyze / anic_bootstrap_other）。 */
 export function registerBootstrapGatewayTools(
   tools: ToolsSlot,
   deps: { getRoot: () => string | null; register: (tool: ToolRegistration) => (() => void) | null | undefined },
@@ -121,6 +128,9 @@ export function registerBootstrapGatewayTools(
       };
     }),
   }) ?? null);
+
+  // Tool: anic_bootstrap_other — cycle-96「举他」工具化（实现见 toolsCrossBootstrapGateway.ts）。
+  disposers.push(buildCrossBootstrapTool(tools, deps));
 
   return disposers;
 }

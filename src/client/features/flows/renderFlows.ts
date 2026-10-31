@@ -15,6 +15,9 @@
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
+// cycle-96 WS-A：相位漂移读数条（stored / inferred / drift 三值上屏）。
+import type { MacroPhaseStatusJson } from './macroPhaseTypes.ts';
+import { renderMacroPhaseDrift } from './renderMacroPhaseDrift.ts';
 
 /** GET /anic/flows/status 响应（与 flowsRoute descriptorView + 投影对齐）。 */
 export interface FlowEntryJson {
@@ -41,6 +44,11 @@ export interface FlowStatusJson {
   running: number;
   terminal: number;
   neverRun: number;
+  /**
+   * cycle-96 WS-A：宏观相位读数（stored / inferred / drift 三值）。
+   * 旧宿主没有这个字段 ⇒ undefined ⇒ 读数条整行不渲染（不伪造读数）。
+   */
+  macroPhase?: MacroPhaseStatusJson | null;
 }
 
 /** 状态语义色：运行中=琥珀、成功终态=绿、失败终态=红、其余=淡。 */
@@ -71,6 +79,10 @@ export function renderFlows(data: FlowStatusJson | null): ReactElement | null {
       createElement('span', { style: { color: token('anic-text-faint') } },
         t('flows.summary', { running: String(data.running), terminal: String(data.terminal), neverRun: String(data.neverRun) })),
     ),
+    // cycle-96 WS-A：相位读数条挂在标题行**下方**、明细之上 —— 它回答的是
+    // 「这些流程所处的宏观相位，是谁说了算」，属于全景摘要而非某条流程的明细。
+    // macroPhase 缺失（旧宿主）→ 该函数返回 null ⇒ 这行不渲染（不伪造读数）。
+    renderMacroPhaseDrift(data.macroPhase),
     ...data.flows.map((f) => {
       const label = t(f.labelKey);
       const last = f.projection?.history?.[f.projection.history.length - 1] ?? null;

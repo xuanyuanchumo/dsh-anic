@@ -211,6 +211,9 @@ describe('逐个工具：execute → roundtrip 深比较（不抽样）', () => 
     anic_skill_repair: [{ workspace: WS }, {}],
     anic_bootstrap_cycle: [{ workspace: WS, maxRounds: 1 }],
     anic_bootstrap_analyze: [{ workspace: WS, maxRounds: 1 }],
+    // cycle-96 举他：目标用夹具工作区（= 会话工作区时会被 resolveCrossTarget 判「那是自举自己」
+    // 而走 error 分支——这里用**不存在的目标**，保证只走守卫分支、不真跑脚本、不写仓库）。
+    anic_bootstrap_other: [{ targetWorkspace: join(tmpdir(), 'anic-lossless-target-missing') }, {}],
     anic_flows_advance: [{ workspace: WS }],
     anic_flows_archive: [{ workspace: WS, list: true }],
     anic_flows_auto_fix: [{ workspace: WS, maxRetries: 0 }],

@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "f3188f5",
+  "commit": "93fdea3",
   "tools": [
     [
       "anic_evaluate",
@@ -93,6 +93,10 @@
     [
       "anic_bootstrap_analyze",
       "自举编排 + 模块引擎深度分析"
+    ],
+    [
+      "anic_bootstrap_other",
+      "举他"
     ]
   ],
   "scripts": [

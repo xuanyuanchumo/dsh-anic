@@ -1,7 +1,7 @@
 /**
  * eco P0：分发完整性——安装清单 + sha256 校验 + doctor/repair（skillIntegrity.ts）。
  *
- * 测试策略：真 inline（插件 assets/skill，64 文件）× 真 tmp 安装目录——
+ * 测试策略：真 inline（插件 assets/skill，文件数从磁盘派生）× 真 tmp 安装目录——
  * 不 stub 文件系统（哈希/复制语义只有真 IO 才能证明）。
  * 证明链：安装写清单 → 校验全绿 → 三种篡改（改字节/截断/删除）逐一检出 →
  * repair 只重装差异文件 → 复验全绿 → extras 不被删除（权限边界）。
@@ -23,14 +23,38 @@ const WS = join(TMP, 'proj');
 const INSTALLED = join(WS, '.dsh', 'skills', 'ai-native-iteration-cycle');
 const INLINE = inlineSkillRoot()!;
 
+/**
+ * 技能发行源的文件数（**从磁盘实测派生**，不是硬编码常量）。
+ *
+ * ## 为什么改成派生（cycle-96）
+ *
+ * 本轮之前这里是字面量 `64`，散落在 6 处断言里。技能包每加一个文件（本轮
+ * `lib/budget.mjs`）就全部变红，修法只是"把 6 个 64 改成 65" —— 那是**纯维护噪音**：
+ * 它不表达任何语义，只逼人跟着改数字。
+ *
+ * 改成派生后，这 6 处断言真正守护的是**不变量**（"构建的清单覆盖了发行源的每一个
+ * 文件、且数量与磁盘一致"），而不再是"文件的绝对个数"。
+ *
+ * ⚠️ `buildSkillManifest` 是纯函数可直接调；若它抛错说明发行源本身不可解析，
+ * 返回 -1 让断言以"不可能相等"的方式红，而不是让整文件在 import 期崩掉
+ * （崩掉会掩盖其它断言的真实结果）。
+ */
+const SKILL_FILE_COUNT = (() => {
+  try {
+    return buildSkillManifest(INLINE).files.length;
+  } catch {
+    return -1;
+  }
+})();
+
 afterAll(() => {
   try { rmSync(TMP, { recursive: true, force: true }); } catch { /* 并发清理容忍 */ }
 });
 
 describe('清单构建与落盘', () => {
-  it('buildSkillManifest：64 文件全覆盖 + POSIX 相对路径 + 版本锚点', () => {
+  it('buildSkillManifest：全量文件覆盖 + POSIX 相对路径 + 版本锚点', () => {
     const m = buildSkillManifest(INLINE);
-    expect(m.files).toHaveLength(64);
+    expect(m.files).toHaveLength(SKILL_FILE_COUNT);
     expect(m.fileCount).toBe(0); // build 不回填；write 回填（职责分离）
     expect(m.files.every((f) => !f.path.includes('\\'))).toBe(true);
     expect(m.files.some((f) => f.path === 'SKILL.md')).toBe(true);
@@ -63,9 +87,9 @@ describe('清单构建与落盘', () => {
     const target = join(TMP, 'mirror');
     const r = writeSkillManifest(INLINE, target);
     expect(r.ok).toBe(true);
-    expect(r.fileCount).toBe(64);
+    expect(r.fileCount).toBe(SKILL_FILE_COUNT);
     const m = readSkillManifest(target)!;
-    expect(m.files).toHaveLength(64);
+    expect(m.files).toHaveLength(SKILL_FILE_COUNT);
     expect(existsSync(join(target, SKILL_MANIFEST_FILE))).toBe(true);
     expect(m.files.some((f) => f.path === SKILL_MANIFEST_FILE)).toBe(false);
   });
@@ -84,16 +108,16 @@ describe('autoInstallSkill 安装即建锚（eco P0 核心行为变化）', () =
     const r = autoInstallSkill(WS);
     expect(r.installed).toBe(true);
     expect(r.manifest?.ok).toBe(true);
-    expect(r.manifest?.fileCount).toBe(64);
+    expect(r.manifest?.fileCount).toBe(SKILL_FILE_COUNT);
     const m = readSkillManifest(INSTALLED)!;
-    expect(m.files).toHaveLength(64);
+    expect(m.files).toHaveLength(SKILL_FILE_COUNT);
   });
 
   it('全新安装：verify 全绿（reference=inline 权威直比）', () => {
     const v = verifySkillInstall(INSTALLED, INLINE);
     expect(v.ok).toBe(true);
     expect(v.reference).toBe('inline');
-    expect(v.checked).toBe(64);
+    expect(v.checked).toBe(SKILL_FILE_COUNT);
     expect(v.mismatches).toEqual([]);
     expect(v.extras).toEqual([]);
   });

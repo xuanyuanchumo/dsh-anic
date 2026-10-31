@@ -82,12 +82,12 @@ describe('README 数字契约（活真相源不漂移）', () => {
     expect(Number(declared)).toBe(countRegisteredRoutes());
   });
 
-  it('README「22 DSH 工具」小节标题存在且 anic_skill_repair 在清单中（cycle-77：19→22）', () => {
-    expect(README).toMatch(/### 23 DSH 工具/);
+  it('README「24 DSH 工具」小节标题存在且 anic_skill_repair 在清单中（cycle-96：23→24）', () => {
+    expect(README).toMatch(/### 24 DSH 工具/);
     expect(README).toContain('`anic_skill_repair`');
   });
 
   it('反向自检：工具计数器能数到 22（扫描器哑掉时本断言红）', () => {
-    expect(countRegisteredTools()).toBe(23);
+    expect(countRegisteredTools()).toBe(24);
   });
 });

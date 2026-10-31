@@ -469,10 +469,14 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
      *                    登记理由与 graph. 同源：「徽标六段文案」是**数据驱动**的短名族，
      *                    静态扫描器看不见具体键名，只能靠前缀族认领；且这 6 个键在 locale
      *                    与消费点**同轮新增**（不是先加键后接线的旧形态）。
+     *   diag.controlBandStatus.  控制带三态判定名（cycle-96：`renderControlBandRow.ts` 的
+     *                    `t(`diag.controlBandStatus.${status}`)`，status ∈ normal/warn/alarm）。
+     *                    来路与 graph.verdict. 同源：判定名是**数据驱动**的闭合三值，
+     *                    静态扫描器看不见具体键名，只能靠前缀族认领。且 3 个键已与消费点同轮落地。
      * 新增前缀必须同时在这里登记并说明来路，否则本断言红——这是设计意图。
      */
     expect(real, '生产代码前缀集变化：新增前缀须在此登记来路（认领 = 免死键通行证）')
-      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.edge.', 'graph.lane.', 'graph.nodeRole.', 'graph.verdict.', 'workspace.']);
+      .toEqual(['budget.status_', 'config.', 'diag.controlBandStatus.', 'graph.', 'graph.edge.', 'graph.lane.', 'graph.nodeRole.', 'graph.verdict.', 'workspace.']);
     expect(endsWithSeparator('budget.status_')).toBe(true);
     expect(endsWithSeparator('a.')).toBe(true);
     expect(endsWithSeparator('a')).toBe(false);

@@ -40,6 +40,7 @@ export const TOOL_SUMMARIES: Record<string, string> = {
   anic_bootstrap: '插件自举：评估自身并产出改进提案',
   anic_bootstrap_analyze: '自举编排 + 模块引擎深度分析',
   anic_bootstrap_cycle: '自举链：评估→门禁→修复循环',
+  anic_bootstrap_other: '举他',
   anic_evaluate: '跑 E1-E8/Q1-Q8 评估并写评估报告',
   anic_flows_advance: '推进流程状态机到下一状态',
   anic_flows_archive: '归档已完成的循环工作区',

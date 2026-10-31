@@ -181,11 +181,10 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   `dynamicKeyPrefixes` 以 `graph.` 前缀整体认领该族键 ⇒ 族内新增键即使无人消费，
      *   ①（零死键双向相等）**依然为绿**。这是已知的遮蔽效应（`graphText.ts` 头注
      *   自己写明）。因此 ① 绿**不能**作为"这批键已接线"的证据，验收必须逐键点名消费点。
-     *   抬到 573 —— cycle-95 实测值（WS-D 的 `workspace.*` 6 键 + WS-C 的 3 个
-     *   `graph.path*` 键）。**零余量**：下轮再加键这条立即红，逼人事先判断
-     *   「这键真的需要吗、有没有既有键可用」——余量本身是放水的入口。
+     *   抬到 586 —— cycle-96 收口实测值（`diag.controlBand*` 6 键 + `flows.macroPhase*` 7 键 = 本轮净增 13，573→586）。
+     *   **零余量**：下轮再加键这条立即红，逼人事先判断「这键真的需要吗」——余量是放水的入口。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(573);
+    expect(zhKeys.length).toBeLessThanOrEqual(586);
   });
 });

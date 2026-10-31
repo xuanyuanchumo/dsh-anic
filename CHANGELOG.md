@@ -1,5 +1,120 @@
 # dsh-anic CHANGELOG
 
+## v0.54.0 — 2026-11-01（cycle-96：查询只读化 · 举他工具化 · 预算单一事实源 · 控制带闭环 · 三条守卫缺陷）
+
+> 起点：commit `93fdea3`（v0.53.0 cycle-95），254 文件 / 3399 用例全绿。
+> 本轮由 4 个并行工作流展开（WS-D/WS-E 因成员上限由 Lead 自执行），收口由 Lead 整合与返工。
+> 终点：**261 文件 / 3497 用例全绿**、四层 **ALL GREEN**、typecheck **0 错误**、
+> 接线审计 **P0=0 / P1 9→8**、工具 **23→24**、路由 **76 持平（零新增）**。
+
+### ① 查询命令改写磁盘状态（观测污染被观测对象）
+
+起点实测：把 `currentPhase` 强制置为 `plan`，跑一次 `workflow-state status`，**磁盘变成了 `test`**。
+
+最有说服力的证据不在脚本里，而在宿主侧 —— `macroPhaseFlow.ts:214` 与 `flowsRoute.ts:8`
+的注释**都明写**「不落盘、不执行 inferPhase 回写」。⇒ 同一概念两个口径：
+宿主只读、脚本自行改写。
+
+**修复**：`cmdStatus`/`cmdCheck` 只读化；`inferPhase` 仅用于展示；
+回写只发生在显式 `advance`。两个口径不一致时**并列显示**并标 `drift`：
+
+```
+Current Phase: Plan（规划） (stored: plan / inferred: test)
+  drift: 相位推断不一致（工件推断出 test，状态文件仍是 plan；查询不写盘——
+         要以前者为准请显式 advance --node test）
+```
+
+实测：执行前后状态文件 md5 不变；**两次注入 mutant**（脚本侧 + 路由侧）均变红。
+路由侧第一版因未 `await` handler 而**逃逸了自行注入的缺陷** —— 已修为
+`await Promise.resolve(handler(...))`，重注后该条红。这类「守卫看起来绿、实际哑了」
+的形态值得单独立一条纪律。
+
+### ② 「举他」（跨项目自举）从"只有人能 curl"到"模型能调"
+
+起点：`grep bootstrap_other src/host/tools*.ts` **零命中**、`grep bootstrap-other src/client`
+**零命中**，而 `channelRegistry` 声明「插件内部不自我调用该端点」——能力在层内，入口在层外。
+
+新增 `anic_bootstrap_other`（工具 23→**24**）：in-process 共用 `runCrossBootstrap`，
+**零新增 HTTP 路由**（守卫 ⑧ 的 76 持平）。源零写入用**两个真实计算的指纹**证明
+（`fingerprintCycles('.cycles/**')`，源不可解析时降级 `null` 而非伪造 `true`）。
+
+### ③ 超时预算与真实工作量错配（并挖出一个 Windows 死角）
+
+健康报告实测 `auto-fix-loop timeoutRate 0.75 / avgDuration 187932ms`，而脚本写
+`timeout: 120000` ⇒ **预算 120s 跑一件 188s 的活**。
+
+`lib/budget.mjs` 成为单一事实源，每个数字带依据：
+- **test 120s** = 基线 33.1s × **3**。为什么不是 ×1.5：基线里已记录的负载上界 69.2s
+  本身就是 33.1s 的 **2.09×**，×1.5 只覆盖到 49.7s，**比已有真实上界还低** ——
+  那不是安全余量，是换了个更小的魔法数。（实测当前 73.9s，正好落在两者之间）
+- **script 30s 特意不下调**：band-detector 实测 0.18s，收到 5s 会把本来能过的检查
+  变成 SKIP。「用统一性换新的假证据，比不统一更坏」。
+
+**Windows 死角**：原判据 `e.killed === true && e.signal === 'SIGTERM'` 在真机恒假
+（实际形态 `{code:'ETIMEDOUT', killed: undefined}`，`killed` 属性根本不存在）——
+这就是「超时被折叠成 FAIL」的另一半根因。
+
+超时还被**独立分类**：不再与"修复失败"合并（重试同一超时只会再超时），且**超时即停**
+——不白烧预算、不把同一条超时记成 N 次修复失败污染熔断计数。
+
+### ④ 控制带链路：有消费、无生产
+
+客户端 `renderControlBand` 早写好、`bandStats` 也算得出 μ/σ，但 `BandResult`
+**从不暴露统计量** ⇒ 渲染器等数据、数据等出口，三段各自完备、中间断开。
+
+补 `BandResult.controlBand`（μ/σ/σ2/σ3/value/status/**sampleSize**），
+并下沉 `controlBandOf` 为纯函数、`bandStats` 解 import 环。
+**判定与客户端同式**（对称 `|value−μ| > nσ`）：契约专门断言**负向 2.5σ 必须 warn**
+—— 只写上界的实现会让"分数突然变低"这个最该报警的方向静默。
+`sampleSize < 2` 时**不画带**，只显示「样本不足」：1 个点 σ=0 ⇒ 永远 normal，
+那是把"还没有历史"读成"过程非常稳定"的**假绿**。
+
+### ⑤ 图谱可交互性（WS-D，Lead 自执行）
+
+| 项 | 起点 | 交付 |
+|---|---|---|
+| 导出 SVG 角色通道 | 屏幕图有、导出图无（cycle-95 登记项）⇒ 导出的图给别人看，"枢纽门禁与一次性门禁"又长得一样 | `serializeGraphSvg` 与屏幕**同源**调 `buildNodeRoles`；契约断言**逐角色计数相同**（跨源对账，非存在性断言） |
+| 路径失败分类 | `findPath` 区分 `unreachable` 与"超上限"，`PathStatus` 却合并成 `noPath` ⇒ 两种不同补救动作同一句话 | 拆开 + `classifyPathResult` 唯一分类点；契约含"抬上限对照必须 found" |
+| 工具栏占行 | 7 组折成 3–4 行推低图区，**无任何断言在看** | `graphToolbarDensity` 结构读数 + `TOOLBAR_ROW_BUDGET=2`，进 DOM 锚点；契约含"再加两组必超预算" |
+
+### ⑥ 三条**守卫自身缺陷**（本轮最值钱的产出）
+
+同一个形态：守卫的判据/扫描域与它要守的东西**脱钩**。
+
+1. **守卫逼实现让步**：`scriptBudgetContract` 的宽正则命中任何文本里的 `timeout:`，
+   抓到日志里的 `${testTimeoutMs` 报红 ⇒ "修法"是把日志改成 `Test budget:` + 注释包装成
+   "有意的严格"。**双重坏留痕**：实现让步于守卫，且把让步写成了纪律 ——
+   下一个人只会学会改文案绕过守卫。已收窄到只认属性位、恢复文案，并**负控证伪**
+   （退回宽正则后**真实脚本上那条也红**，报错正是 `${testTimeoutMs`）。
+   > 留下的自检问句：**"我的判据是在区分「我要禁的东西」与「合法的东西」，
+   > 还是在禁止所有长得像的东西？"**
+
+2. **命名占用被误判成断链**：`connectivity.ts` 把 `tools*.ts` 里每个
+   `export function register*` 判成"必须由 `tools.ts` 直接调用"。新工具第一版叫
+   `registerCrossBootstrapTool` 且由自举网关聚合 ⇒ 守卫把"已聚合"判成"断链"。
+   修法不是往 `tools.ts` 加一行（会让自举域两个入口），而是改名
+   `buildCrossBootstrapTool`（只构造定义、不做注册编排）。
+
+3. **硬编码计数把语义守卫变成维护噪音**：`skillIntegrity` 的 `64` 散在 6 处、
+   `npxInit` / `skillLifecycleRoute` 各一处。技能包每加一个文件就全红，"修法"只是改数字。
+   已改为**从磁盘派生**，断言回归它真正该守的不变量。
+
+### ⑦ 前提失效的诚实处置（不靠放宽）
+
+`cycleLabelContract` 的场地号前提本轮**真失效**：本仓 `cur=96`、窗口右界 104，
+基线 `[104,105]` 中的 104 恰好压线。实测场地仓库已是 **cycle-123**（不是 104）
+⇒ 正确动作是**按当时真实场地号重定基线**（123/124），而**不是**把
+`FORWARD_TOLERANCE` 放大到容下 104 —— 后者会让"104 是不是越界号"永远模糊。
+
+### ⑧ 本轮**没有**做到
+
+- 举他的 `evaluate`/`gate-check` 两条路径**未在测试中真跑**（会写目标 `.cycles/`，R-31 只读纪律）。**SKIP ≠ PASS**。
+- 源零写入**只证明 `.cycles/**` 范围**（`cyclesOnly:true` 可断言），不是"整仓库没被写"。
+- `deploy`/`maintain` 的 drift 实为"推断到顶"（`inferPhase` 只有 4 档可达），单列 `ceiling` 态；推断规则未改（须宿主+技能同步）。
+- **技能脚本不受 ≤250 行约束**（守卫扫描域是 `src/**`，`org-status.mjs` 782 行长期绿）。
+- 真机热重载未执行；O-94-07 两套解析器仍只登记未统一。
+- `flowsRoute.ts` 正好 **250 行顶格**，下轮新增必须先拆。
+
 ## v0.53.0 — 2026-10-31（cycle-95：以当前事实自举 · 图谱三角 · 分键视图态 · 隔离可视化 · 债 28→10）
 
 > 起点：commit `6bcbbd5`（v0.52.0 cycle-94），245 文件 / 3234 用例全绿。

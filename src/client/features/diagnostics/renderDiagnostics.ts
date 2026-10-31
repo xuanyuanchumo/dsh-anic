@@ -5,6 +5,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
+import { renderControlBandRow, type ControlBandJson } from './renderControlBandRow.ts';
 import { t } from '../../i18n.ts';
 import { DataRow, toneColor } from '../../components/dataRow.ts';
 
@@ -19,6 +20,14 @@ export interface SelfCheckJson {
   checks: ProbeJson[];
   allOk: boolean;
   requestId: string;
+  /**
+   * 控制带读数（cycle-96 · 来自 `GET /anic/band-detect` 的 `controlBand`）。
+   *
+   * 为什么挂在自检分区：控制带回答的是「当前观测值相对历史 μ/σ 偏了多少」——
+   * 那是**诊断**语义（跟探针同一类"系统此刻是否健康"），不是预算/账本类治理数据。
+   * 缺省 undefined ⇒ 不渲染（零参调用行为不变，与分区既有纪律一致）。
+   */
+  controlBand?: ControlBandJson | undefined;
 }
 
 export function renderDiagnostics(check: SelfCheckJson): ReactElement {
@@ -37,12 +46,18 @@ export function renderDiagnostics(check: SelfCheckJson): ReactElement {
       ],
     }),
   );
+  // 控制带行（cycle-96）：探针之后、requestId 之前 —— 先看"逐个检查"，再看"整体漂移"。
+  // 缺省不渲染（零参调用仍是改造前的分区形态）。
+  const controlBandRow = check.controlBand === undefined
+    ? null
+    : renderControlBandRow(check.controlBand);
   return createElement(
     'div',
     { 'data-anic-diagnostics': 'section', style: { padding: '8px 10px', borderTop: `1px solid ${token('anic-border')}` } },
     createElement('div', { style: { fontSize: 12, fontWeight: 600, color: token('anic-text'), marginBottom: 4 } },
       `${t('diag.title')} · ${check.allOk ? t('panel.allOk') : t('panel.someFailed')}`),
     ...rows,
+    controlBandRow,
     createElement('div', { style: { fontSize: 10, color: token('anic-text-faint'), marginTop: 4 } }, t('diag.requestId', { requestId: check.requestId })),
   );
 }

@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 // workflow-state.mjs — 工作流图运行时：支持 status/advance/check 命令推进图节点
 // 用法:
-//   状态: node workflow-state.mjs <project-dir> status
+//   状态: node workflow-state.mjs <project-dir> status [--json]
 //   推进: node workflow-state.mjs <project-dir> advance [--node <node-id>]
 //   检查: node workflow-state.mjs <project-dir> check
+//
+// 读写边界（cycle-96 WS-A 的根修）：**只有 advance 写 `.cycles/workflow-state.json`**。
+// status 曾把 `inferPhase(artifacts)` 静默写回 `currentPhase`——于是「查一次状态」
+// 就改掉了被观察的状态（观测改变被观察对象）。宿主侧早就守这条纪律
+// （flows/macroPhaseStatusView.ts「不落盘、不 inferPhase 回写」），本脚本对齐它：
+// status 只**显示** stored 与 inferred 两个读数，并标 drift；谁说了算必须是可读事实。
 
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -101,24 +107,66 @@ function getGateResults(projectDir) {
   return { passed, failed };
 }
 
-function cmdStatus(projectDir) {
-  let state = loadState(projectDir);
-  if (!state) {
-    state = initState(projectDir);
-    saveState(projectDir, state);
-  }
+/**
+ * 相位名（合法 id → 表中全角名；非法 id → 原样回显，不抛）。
+ *
+ * 为什么不用 `PHASES[idx].name` 直取：`workflow-state.json` 是**人工与脚本混合写入**
+ * 的文件（本仓 phaseHistory 里就有 `{note, at}` 这种无 phase 字段的条目），
+ * 一个手改出来的 `currentPhase: "limbo"` 不该让查询命令崩掉——查不到就如实回显原值。
+ */
+function phaseNameOf(id) {
+  return PHASES.find(p => p.id === id)?.name ?? String(id);
+}
+
+/**
+ * `status` 的**只读**视图（cycle-96 WS-A 根修）。
+ *
+ * 被修缺陷：旧实现把 `inferPhase(artifacts)` 的结果**静默写回** `state.currentPhase`
+ * 并 `saveState`。于是「查一次状态」就改掉了被观察的状态——观测改变被观察对象。
+ * 本仓宿主侧早有共识（`flows/macroPhaseStatusView.ts`：「不落盘、不 inferPhase 回写」），
+ * 脚本侧此前没跟上；本轮对齐宿主，而不是让宿主放松。
+ *
+ * 现在的口径：`stored`（磁盘上的事实）与 `inferred`（工件推断的读数）**两个都显示**，
+ * 不一致就标 `drift` —— 谁说了算必须是可读事实，不能靠静默改写其中一个。
+ * 回写只发生在 `advance`（那条命令本身就是写动作）。
+ */
+function cmdStatus(projectDir, asJson) {
+  // 状态文件缺失时**同样不落盘**：内存里按 initState 形状展示并标注
+  // projectionSeeded=false。旧实现在这里 `saveState`，等于「第一次查询就创世出
+  // 一个状态文件」——后续 advance 的「文件从未存在」语义被查询行为篡改。
+  const loaded = loadState(projectDir);
+  const state = loaded ?? initState(projectDir);
+  const projectionSeeded = loaded !== null;
 
   const artifacts = getCycleArtifacts(projectDir, state.currentCycle);
+  const storedPhase = state.currentPhase;
   const inferredPhase = inferPhase(artifacts);
-  if (inferredPhase !== state.currentPhase) {
-    state.currentPhase = inferredPhase;
-    state.updatedAt = new Date().toISOString();
-    saveState(projectDir, state);
-  }
+  const drift = storedPhase !== inferredPhase;
 
   const gateResults = getGateResults(projectDir);
-  const currentPhaseIdx = PHASES.findIndex(p => p.id === state.currentPhase);
-  const currentPhase = PHASES[currentPhaseIdx];
+  const currentPhaseIdx = PHASES.findIndex(p => p.id === storedPhase);
+
+  if (asJson) {
+    // 机器可读形态（`--json`）：{stored, inferred, drift} 三字段是判据核心，
+    // 其余字段与人类可读输出同源（同一次读取，不二次采信）。
+    console.log(JSON.stringify({
+      command: 'status',
+      projectDir,
+      currentPhase: storedPhase,
+      phaseName: phaseNameOf(storedPhase),
+      stored: storedPhase,
+      inferred: inferredPhase,
+      drift,
+      currentCycle: state.currentCycle,
+      projectionSeeded,
+      phaseHistoryLength: state.phaseHistory.length,
+      artifacts,
+      gates: gateResults,
+    }, null, 2));
+    return;
+  }
+
+  const currentPhaseName = phaseNameOf(storedPhase);
 
   console.log(`=== AI-Native Iteration Cycle Workflow State ===`);
   console.log(`Project: ${projectDir}`);
@@ -129,9 +177,23 @@ function cmdStatus(projectDir) {
   } else {
     console.log(`No cycles initialized. Run init-workflow + init-cycle to start.`);
   }
+  // 状态文件是否存在要如实说：缺失时上面的读数来自内存缺省（plan），
+  // 不是磁盘事实。不写这一行，读者会把「默认值」当成「已验证的状态」。
+  if (!projectionSeeded) {
+    console.log(`  state file: absent（本次仅为报告，未写盘；advance 才会创建）`);
+  }
 
   console.log(``);
-  console.log(`Current Phase: ${currentPhase.name} (${state.currentPhase})`);
+  // 双读数（cycle-96 WS-A）：stored 是磁盘事实，inferred 是工件推断。两者都是
+  // 「读数」而不是「结论」——所以一致时也照印（`(stored: test / inferred: test)`），
+  // 读者才知道推断确实跑过，而不是「省掉了没显示」。
+  console.log(`Current Phase: ${currentPhaseName} (stored: ${storedPhase} / inferred: ${inferredPhase})`);
+  if (drift) {
+    // drift 行必须给出**可操作出路**：谁说了算在 advance 那只写动作里决定，
+    // 查询命令只负责把分叉摆到台面上（不替任何一方静默校正）。
+    console.log(`  drift: 相位推断不一致（工作件推断出 ${inferredPhase}，状态文件仍是 ${storedPhase}；`
+      + `查询不写盘——要以前者为准请显式 advance --node ${inferredPhase}）`);
+  }
   console.log(`  Artifacts:`);
   for (const [key, exists] of Object.entries(artifacts)) {
     console.log(`    ${exists ? '[x]' : '[ ]'} ${key}`);
@@ -223,20 +285,30 @@ function cmdAdvance(projectDir, targetNode) {
 }
 
 function cmdCheck(projectDir) {
-  let state = loadState(projectDir);
-  if (!state) {
-    state = initState(projectDir);
-    saveState(projectDir, state);
-  }
+  // 同 status 纪律（cycle-96 WS-A）：check 也是**查询**命令。
+  // 旧实现缺状态文件时 `saveState` —— 一次「检查」就把状态文件创世出来，
+  // 后续 advance 的「从未存在过」语义被观测行为篡改。现在只在内存里缺省。
+  const loaded = loadState(projectDir);
+  const state = loaded ?? initState(projectDir);
+  const projectionSeeded = loaded !== null;
 
   const artifacts = getCycleArtifacts(projectDir, state.currentCycle);
   const inferredPhase = inferPhase(artifacts);
   const gateResults = getGateResults(projectDir);
-  const currentPhase = PHASES.find(p => p.id === state.currentPhase);
+  const storedPhase = state.currentPhase;
+  const currentPhase = PHASES.find(p => p.id === storedPhase);
 
   const checks = [];
 
-  for (const g of currentPhase.gates) {
+  // 非法相位（手改出来的 id）不该让检查崩掉：如实报 WARN 并给出有效名单。
+  if (!currentPhase) {
+    checks.push({
+      gate: 'PHASE_VALID',
+      status: 'WARN',
+      message: `State says unknown phase "${storedPhase}"; valid phases: ${PHASES.map(p => p.id).join(', ')}`,
+    });
+  }
+  for (const g of currentPhase?.gates ?? []) {
     if (gateResults.passed.includes(g)) {
       checks.push({ gate: g, status: 'PASS', message: 'Gate passed' });
     } else if (gateResults.failed.includes(g)) {
@@ -246,17 +318,20 @@ function cmdCheck(projectDir) {
     }
   }
 
-  if (inferredPhase !== state.currentPhase) {
+  if (inferredPhase !== storedPhase) {
     checks.push({
       gate: 'PHASE_SYNC',
       status: 'WARN',
-      message: `State says ${state.currentPhase} but artifacts suggest ${inferredPhase}`,
+      message: `State says ${storedPhase} but artifacts suggest ${inferredPhase}`,
     });
   }
 
   console.log(`Workflow Check Report`);
-  console.log(`  Current phase: ${currentPhase.name}`);
-  console.log(`  Inferred phase: ${PHASES.find(p => p.id === inferredPhase).name}`);
+  console.log(`  Current phase: ${phaseNameOf(storedPhase)}`);
+  console.log(`  Inferred phase: ${phaseNameOf(inferredPhase)}`);
+  if (!projectionSeeded) {
+    console.log(`  state file: absent（本次仅为报告，未写盘；advance 才会创建）`);
+  }
   console.log(``);
 
   let allPass = true;
@@ -276,17 +351,28 @@ function cmdCheck(projectDir) {
 
 const args = parseCliArgs(process.argv, {
   script: 'workflow-state',
-  usage: 'Usage: node workflow-state.mjs <project-dir> status|advance|check [--node <node-id>]',
-  flags: { node: { type: 'string' } },
+  usage: 'Usage: node workflow-state.mjs <project-dir> status|advance|check [--node <node-id>] [--json]',
+  // `--json` 只对 status 有意义（机器可读的 stored/inferred/drift 三字段）。
+  // 为什么不做成全局旗标语义：advance/check 的输出是给人看的流水，强行 JSON 化
+  // 会破坏既有消费方（hook-settings 与 MCP 封装都按文本流解析）。
+  flags: { node: { type: 'string' }, json: { type: 'boolean' } },
   positionals: { min: 2, max: 2, name: '<project-dir> <command>' },
 });
 
 const projectDir = resolve(args._[0]);
 const command = args._[1];
 
+// `--json` 与 status 之外命令的组合是**用法错误**，不是静默忽略：
+// 静默接受会让调用方以为自己拿到了机器可读结果，实际拿到的是人读流。
+if (args.json && command !== 'status') {
+  console.error(`[workflow-state] --json 只适用于 status 命令（收到: ${command}）`);
+  console.error('Usage: node workflow-state.mjs <project-dir> status [--json]');
+  process.exit(1);
+}
+
 switch (command) {
   case 'status':
-    cmdStatus(projectDir);
+    cmdStatus(projectDir, args.json);
     break;
   case 'advance':
     cmdAdvance(projectDir, args.node);

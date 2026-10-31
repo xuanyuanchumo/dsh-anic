@@ -37,6 +37,7 @@ import type { WorkflowEdge } from '../../workflowGraphData.ts';
 import { canonicalVerdict } from './gateColors.ts';
 import { OPACITY, type FilterView } from './graphFilter.ts';
 import type { GraphLayout } from './graphLayout.ts';
+import { buildNodeRoles } from './graphNodeRole.ts';
 import { fitLabel } from './graphNodeStyle.ts';
 import { visibleRectOf, type Viewport } from './graphViewport.ts';
 import {
@@ -129,6 +130,22 @@ export function exportRectOf(
 }
 
 /**
+ * 角色形状标记的路径（导出专用，静态 SVG 无 React 元素树）。
+ *
+ * 三种标记（entry/hub/leaf/orphan 共用两形，靠描边宽度档进一步区分）：
+ *   - 左缘小三角（向外指）= 入口 / 枢纽（"上游汇聚点"）；
+ *   - 左缘小方块 = 末端 / 孤立（"链条在此终止或根本不参与"）。
+ * 尺寸固定 4px：7px 圆点尺度下的经验值，太小在缩放后消失、太大盖住色条。
+ */
+function roleMarkPath(x: number, y: number, h: number): string {
+  const cy = y;
+  const bx = x + 3.6;
+  const up = cy - 2;
+  const down = cy + 2;
+  return `M ${num(bx)} ${num(up)} L ${num(bx + 3.2)} ${num(cy)} L ${num(bx)} ${num(down)} Z`;
+}
+
+/**
  * 序列化当前图为独立 SVG 文本（纯函数）。
  *
  * 产出的 SVG 是**自包含**的：颜色写死成具体色值（不引用宿主 CSS 变量），
@@ -180,17 +197,43 @@ export function serializeGraphSvg(input: GraphExportInput): string {
     );
   }
 
-  // 节点：卡片 + 类型色条 + 标签（与屏幕同款几何，文字截断同款预算）。
+  // 节点：卡片 + 类型色条 + 角色标记 + 标签（与屏幕同款几何，文字截断同款预算）。
+  //
+  // ## 为什么导出也要画角色标记（cycle-96 闭的账）
+  //
+  // cycle-95 交付了节点角色（entry/hub/leaf/orphan，形状通道），但**只画在屏幕上**——
+  // 导出 SVG 走的是本文件独立的序列化路径（不经 `renderNode`），所以导出的图里
+  // 角色通道**完全缺失**。后果：用户导出一张图给同事看，对方看到的是一张
+  // 「枢纽门禁与一次性门禁长得一模一样」的图 —— 而屏幕上那张是能分出来的。
+  // 「所见即所得」是导出的唯一正确语义（见文件头），所以这是**缺陷**而非可选项。
+  //
+  // 角色数据源与屏幕**同源**：`buildNodeRoles(edges, nodeIds)` —— 不在这里重算
+  // 一套判据（两套真相是本仓最贵的债，见 `graphNodeRole.ts` 头注）。
+  // 标记形态用 `<path>` + 描边宽度档，与屏幕的 `ROLE_STROKE_WIDTH` 同口径。
+  const roles = buildNodeRoles(edges, layout.nodes.map((n) => n.id));
+  const roleOfNode = (id: string): string =>
+    roles.get(id) ?? '';
+
   for (const n of layout.nodes) {
     const op = opacityOf(n.id);
     const key = canonicalVerdict(n.result);
     const fill = key === null
       ? (EXPORT_TYPE_FILL[n.type as keyof typeof EXPORT_TYPE_FILL] ?? EXPORT_TYPE_FILL_UNKNOWN)
       : EXPORT_VERDICT_FILL[key];
+    // 角色的**唯一被占用的既有属性通道**是卡片描边宽度（与屏幕 ROLE_STROKE_WIDTH
+    // 同口径：entry 最粗 → orphan 最细）。形状标记另走 `<path>`，不抢裁决的 dash。
+    const role = roleOfNode(n.id);
+    const roleStroke: Record<string, number> = { entry: 1.9, hub: 1.4, leaf: 1.0, orphan: 0.7 };
+    const cardStroke = role === '' ? 0.8 : (roleStroke[role] ?? 0.8);
     parts.push(
-      `<g opacity="${num(op)}">` +
-      `<rect x="${num(n.x)}" y="${num(n.y - n.h / 2)}" width="${num(n.w)}" height="${num(n.h)}" rx="6" ry="6" fill="${EXPORT_COLORS.card}" stroke="${EXPORT_COLORS.cardStroke}" stroke-width="0.8"/>` +
+      `<g opacity="${num(op)}"${role === '' ? '' : ` data-anic-node-role="${xmlEscape(role)}"`}>` +
+      `<rect x="${num(n.x)}" y="${num(n.y - n.h / 2)}" width="${num(n.w)}" height="${num(n.h)}" rx="6" ry="6" fill="${EXPORT_COLORS.card}" stroke="${EXPORT_COLORS.cardStroke}" stroke-width="${num(cardStroke)}"/>` +
       `<rect x="${num(n.x)}" y="${num(n.y - n.h / 2 + 6)}" width="3" height="${num(n.h - 12)}" rx="1.5" ry="1.5" fill="${fill}"/>` +
+      // 角色形状标记：一个 4px 的三角/方块楔形，贴在卡片左缘——
+      // 与屏幕的 `<path>` 标记同语义（形状是 AT 与色盲用户都能读的通道）。
+      (role === ''
+        ? ''
+        : `<path data-anic-node-role-mark="true" d="${roleMarkPath(n.x, n.y, n.h)}" fill="${EXPORT_COLORS.label}" opacity="0.55"/>`) +
       `<text x="${num(n.x + 21)}" y="${num(n.y - 2.6)}" font-size="10.5" fill="${EXPORT_COLORS.label}">${xmlEscape(fitLabel(n.label, n.w))}</text>` +
       (key === null ? '' : `<text x="${num(n.x + 21)}" y="${num(n.y + 10.4)}" font-size="8.6" fill="${EXPORT_COLORS.meta}">${xmlEscape(n.type)}</text>`) +
       `</g>`,

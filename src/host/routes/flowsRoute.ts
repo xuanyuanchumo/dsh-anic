@@ -5,15 +5,14 @@
  *  - GET  /anic/flows/status                一站式：全部流程 + 各自当前投影（面板消费）
  *  - GET  /anic/flows/state?flow=<id>       当前投影（无投影 = 从未运行过，不伪造）
  *  - POST /anic/flows/gate-check/run        运行 gate-check 流程（mode=script/native/diff）
- *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘、不 inferPhase 回写）
+ *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘；增补 inferred/drift）
  *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
  *  - POST /anic/flows/archive/run           归档流程（--cycle/--clean/--list 语义；mode=native/script）
  *  - POST /anic/flows/hitl/run              HITL 三段修复流程（gate=all|H1-H4；mode=native/script；R3 阶段 4）
  *  - POST /anic/flows/auto-fix/run          自动修复循环流程（maxRetries/testCmd；mode=native/script；R3 阶段 5）
  *
  * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
- * 「已有 ≥2 个真实实例才引入契约层」的纪律；第 4 个实例已到，仍维持静态分派：
- * 各流程参数域差异大（gate/cycle/target/dryRun/maxRetries），抽象的参数税大于分派税）。
+ * 第 4 个实例已到仍维持：各流程参数域差异大，抽象的参数税大于分派税）。
  */
 import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
@@ -75,6 +74,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   // GET /anic/flows/status — 一站式观测面（D10 宿主域接线：客户端面板消费）
   // 单流程 /anic/flows/state 面板侧要发 N 次请求；本路由一次返回全部流程 + 各自投影
   //（无投影 = 从未运行过，如实为 null 不伪造 IDLE）。
+  // cycle-96 WS-A：增补 macroPhase（与 macro-phase/status 同一生产者）。root=null ⇒ null。
   reg('/anic/flows/status', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
     const cyclesDir = root ? `${root}/.cycles` : null;
@@ -90,6 +90,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
       running: flows.filter((f) => f.projection?.current === 'RUNNING').length,
       terminal: flows.filter((f) => f.projection && f.projection.current !== 'RUNNING').length,
       neverRun: flows.filter((f) => f.projection === null).length,
+      macroPhase: root ? statusMacroPhase(root) : null,
     });
   });
   // GET /anic/flows/state?flow=<id> — 单流程当前投影
@@ -107,10 +108,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   });
 
   // GET /anic/api/flows/matrix — 流程 ↔ 循环/相位/门禁 矩阵（cycle-89）
-  //
-  // 为什么需要这个出口：joinFlows / coverageMetrics 生产了归属数据，但此前
-  // **没有任何路由暴露它** —— 「生产了但没人消费」（用户点名的空心问题）。
-  // 隔离纪律（fail-closed）：拿不到工作区 → 500，**绝不**返回全项目的流。
+  // joinFlows/coverageMetrics 生产了归属数据但此前无路由暴露它（空心问题）。fail-closed。
   reg('/anic/api/flows/matrix', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
     if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
@@ -144,6 +142,8 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   });
 
   // GET /anic/flows/macro-phase/status — 宏观六相只读视图
+  // cycle-96 WS-A：增补 inferredPhase/drift/inferenceCeiling（不新增路由）。只报 stored 时
+  //「状态文件没跟上工件」不可见；技能侧此前恰好反过来（inferPhase 改盘）。
   reg('/anic/flows/macro-phase/status', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
     if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });

@@ -17,9 +17,10 @@
  * 4. 客户端**门禁白名单校正**：`gate:'G3'` 但 script 是 `workflow-state` 的记录
  *    **不得**被计入 G3 证据。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { tmpdir } from 'node:os';
+import { describe, expect, it, afterEach } from 'vitest';
 import {
   buildFlowMatrixForWorkspace,
   buildFlowMatrixView,
@@ -39,8 +40,21 @@ import {
   attributionRateOf,
   orphanCountOf,
 } from '../../src/client/features/flows/flowMatrixTypes.ts';
+// cycle-96 WS-A：宏观相位漂移读数（宿主生产者 + 客户端四态裁决）。
+import { buildMacroPhaseStatus } from '../../src/host/flows/macroPhaseStatusView.ts';
+import { PHASE_IDS } from '../../src/host/flows/macroPhaseEngine.ts';
+import { registerFlowsRoute } from '../../src/host/routes/flowsRoute.ts';
+import { registerBuiltinFlows } from '../../src/host/flows/builtin.ts';
+import { driftVerdictOf } from '../../src/client/features/flows/macroPhaseTypes.ts';
 
 const ROOT = process.cwd();
+const TMPS: string[] = [];
+afterEach(() => {
+  while (TMPS.length > 0) {
+    const d = TMPS.pop()!;
+    try { rmSync(d, { recursive: true, force: true }); } catch { /* 并行竞态忽略 */ }
+  }
+});
 
 /** 造一条 FlowRecord。 */
 function rec(over: Partial<FlowRecord> = {}): FlowRecord {
@@ -213,3 +227,140 @@ describe('宿主侧 / 客户端侧门禁白名单对账', () => {
     expect(m.gateEvidence.find((e) => e.gate === 'G3')?.evidence).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* cycle-96 WS-A：宏观相位漂移读数（生产 → 出口 → 消费 三段）           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 被守卫缺陷：同一概念（当前相位）存在两个口径 —— 宿主只读、技能脚本自行改写。
+ * 修复分两条腿：
+ *   生产：宿主 `statusMacroPhase` 补 `inferredPhase`/`drift`（**仍然不落盘**）；
+ *   出口：`/anic/flows/status` 与 `/anic/flows/macro-phase/status` 同一生产者；
+ *   消费：客户端 `driftVerdictOf` 把三值裁决成四态（consistent/drift/ceiling/unknown）。
+ *
+ * 为什么断言源码文本而不是只调函数：路由是「有没有出口」的唯一证据。
+ * 生产了字段却没人出口，等于面板漆黑 —— 这正是本仓反复出现的空心问题。
+ */
+describe('宏观相位漂移读数（cycle-96 WS-A）', () => {
+  const ROUTE_SRC = (): string => readFileSync(join(ROOT, 'src', 'host', 'routes', 'flowsRoute.ts'), 'utf-8');
+
+  it('**出口不新增路由**：路由数不变，只扩既有响应体（objectiveConformanceContract ⑧ 硬断言 76）', () => {
+    const src = ROUTE_SRC();
+    const regs = src.match(/reg\('/g) ?? [];
+    // 10 条既有路由（0zeroCoverageFiles.test.ts 的注册数同源）
+    expect(regs).toHaveLength(10);
+    expect(src).not.toContain("reg('/anic/flows/macro-phase/drift'");
+  });
+
+  it('**两个出口同一生产者**（不得各算一份口径）', () => {
+    const src = ROUTE_SRC();
+    // /anic/flows/status 的一站式响应里带上 macroPhase，且与专用端点同源。
+    expect(src).toMatch(/macroPhase: root \? statusMacroPhase\(root\) : null/);
+    expect(src).toContain('statusMacroPhase(root)');
+  });
+
+  it('**拿不到工作区 → macroPhase 为 null**（不伪造一个 plan）', () => {
+    // 路由侧的口径：root 缺失时整片读数如实为 null（不是投影成 plan 默认态）。
+    // 这里对「同一份磁盘事实」做直证：无状态文件 ⇒ 视图的相位三字段全 null。
+    const view = buildMacroPhaseStatus('/nonexistent-root-xyz-b', null);
+    expect(view.currentPhase).toBeNull();
+    expect(view.inferredPhase).toBeNull();
+    expect(view.drift).toBeNull();
+    const src = ROUTE_SRC();
+    expect(src).toMatch(/macroPhase: root \? statusMacroPhase\(root\) : null/);
+  });
+
+  it('生产侧：stored / inferred / drift 三字段齐全且 inferenceCeiling 如实', () => {
+    const view = buildMacroPhaseStatus('/nonexistent-root-xyz-a', null);
+    expect(view.currentPhase).toBeNull();
+    expect(view.inferredPhase).toBeNull();
+    // 无状态文件 ⇒ 无从比较 ⇒ null（不是 false —— false 会被画成「一致」）
+    expect(view.drift).toBeNull();
+    expect(view.inferenceCeiling).toBe('test');
+    expect(view.wroteState).toBe(false);
+    expect(view.projectionSeeded).toBe(false);
+  });
+
+  it('**同一概念三处读法全等**（宿主 PHASES / 客户端相序 / 技能脚本 PHASES 不得漂移）', () => {
+    // 客户端独立声明相序（不能 import host），靠本断言对账 —— 漂移即红。
+    const client = readFileSync(join(ROOT, 'src', 'client', 'features', 'flows', 'macroPhaseTypes.ts'), 'utf-8');
+    const order = /const PHASE_ORDER = \[(.+?)\] as const/.exec(client)?.[1] ?? '';
+    const ids = [...order.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+    const hosted = PHASE_IDS;
+    expect(ids).toEqual([...hosted]);
+  });
+
+  /*
+   * 两个出口都不得写盘（cycle-96 WS-A 的端到端形态）。
+   *
+   * 为什么在契约里跑真路由而不只直测视图：路由层可以做任何事 —— 视图是只读的，
+   * 但路由若在前后各补一次 `saveState`，缺陷照样存在。这条把「响应已生成」与
+   * 「磁盘未变」绑在**同一次**调用里。
+   */
+  it('**两个只读端点跑完磁盘不变**（响应生成 ⟺ 磁盘零写入）', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'anic-flows-readonly-'));
+    TMPS.push(ws);
+    mkdirSync(join(ws, '.cycles', 'cycles', 'cycle-1', 'test-reports'), { recursive: true });
+    for (const f of ['项目评估报告.md', '当前循环总规划.md', '任务清单.md']) {
+      writeFileSync(join(ws, '.cycles', 'cycles', 'cycle-1', f), 'x');
+    }
+    writeFileSync(join(ws, '.cycles', 'cycles', 'cycle-1', 'test-reports', 'r.md'), 'x');
+    const statePath = join(ws, '.cycles', 'workflow-state.json');
+    writeFileSync(statePath, JSON.stringify({
+      currentPhase: 'plan', currentCycle: 'cycle-1', phaseHistory: [], nodeStatus: {},
+      createdAt: 't', updatedAt: 't',
+    }));
+    const before = readFileSync(statePath, 'utf-8');
+
+    const routes = new Map<string, (req: unknown, res: unknown) => unknown>();
+    const ctx = { webServer: { register: (r: { path: string; handler: (q: unknown, s: unknown) => unknown }) => { routes.set(r.path, r.handler); return () => {}; } } };
+    registerFlowsRoute(ctx as never, () => {}, { getWorkspaceRoot: () => ws });
+    const sink = { writeHead: () => {}, end: () => {} };
+    // **必须 await 处理器返回的 Promise**：漏掉等于只测了「函数被调用」，
+    // 而路由可以把写盘放进 async 体里 —— 那样观测照样会改状态（实测形态已踩到）。
+    await Promise.resolve(routes.get('/anic/flows/status')!({}, sink));
+    await Promise.resolve(routes.get('/anic/flows/macro-phase/status')!({}, sink));
+
+    expect(readFileSync(statePath, 'utf-8'), '只读端点写了盘（观测改变被观察对象）').toBe(before);
+  });
+});
+
+/**
+ * 客户端裁决的四态（纯函数直测）：
+ * 把 `ceiling` 混进 `drift` 会让用户去修一个正确的状态文件；
+ * 把 `unknown` 混进 `consistent` 是把「没读到」画成「没问题」。
+ */
+describe('客户端 driftVerdictOf（四态裁决）', () => {
+  it('一致 → consistent（且两值原样给出）', () => {
+    const v = driftVerdictOf({ currentPhase: 'test', inferredPhase: 'test', drift: false });
+    expect(v).toEqual({ kind: 'consistent', stored: 'test', inferred: 'test' });
+  });
+
+  it('分叉 → drift', () => {
+    const v = driftVerdictOf({ currentPhase: 'plan', inferredPhase: 'test', drift: true });
+    expect(v.kind).toBe('drift');
+  });
+
+  it('**推断到顶 → ceiling（不是 drift）**：deploy/maintain 没有工件指纹', () => {
+    for (const stored of ['deploy', 'maintain']) {
+      const v = driftVerdictOf({ currentPhase: stored, inferredPhase: 'test', drift: true, inferenceCeiling: 'test' });
+      expect(v.kind, `${stored} 应判推断到顶而不是分叉`).toBe('ceiling');
+    }
+  });
+
+  it('**无状态文件 → unknown（不是 consistent）**：没读到 ≠ 没问题', () => {
+    expect(driftVerdictOf({ currentPhase: null, inferredPhase: null, drift: null }).kind).toBe('unknown');
+    expect(driftVerdictOf(null).kind).toBe('unknown');
+    // 旧宿主：字段整个缺失
+    expect(driftVerdictOf({ currentPhase: 'plan' }).kind).toBe('unknown');
+  });
+
+  it('反向自检：把 ceiling 判据去掉就必须把 deploy 误报成 drift', () => {
+    const beyond = driftVerdictOf({ currentPhase: 'deploy', inferredPhase: 'test', drift: true, inferenceCeiling: 'test' });
+    expect(beyond.kind).toBe('ceiling');
+    // 同一输入但 stored 在 ceiling 之前 ⇒ 真分叉（证明判别确实在按相序比）
+    expect(driftVerdictOf({ currentPhase: 'build', inferredPhase: 'test', drift: true, inferenceCeiling: 'test' }).kind).toBe('drift');
+  });
+});
+

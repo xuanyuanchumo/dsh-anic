@@ -10,6 +10,12 @@ import { join } from 'node:path';
 // Q5 单向依赖：schema 类型（BandStatus/BandEntry）与历史读取在 bandHistory.ts
 // （本文件是被依赖方——算法域单向依赖 schema 域，见 bandHistory.ts 架构注记）。
 import { autonomyEntries, loadRawHistory, BAND_HISTORY_PATH, type BandEntry, type BandStatus } from './bandHistory.ts';
+// 纯算术叶子（bandStats）+ 控制带读数组装（controlBand）——两文件均零依赖本文件，
+// 依赖图保持为树（cycle-96 解环；见 bandStats.ts 头注为何必须单独成文件）。
+import { bandStats } from './bandStats.ts';
+import { controlBandOf, type ControlBandReadout } from './controlBand.ts';
+export { bandStats, type BandStats } from './bandStats.ts';
+export { controlBandOf, controlBandTrustworthy, type ControlBandReadout } from './controlBand.ts';
 
 // 类型再导出：BandEntry/BandStatus 的历史导出面是本模块（消费方零改动）。
 export type { BandEntry, BandStatus };
@@ -29,6 +35,19 @@ export interface BandResult {
   threshold: { warn: number; alarm: number };
   /** Western Electric 模式违例（空数组 = 无模式异常）。 */
   weViolations: WeViolation[];
+  /**
+   * 控制带读数（cycle-96 · 补生产者）。
+   *
+   * ## 为什么这一项此前是"有消费、无生产"的结构性缺口
+   *
+   * 客户端 `gateColors.ts` 的 `renderControlBand` 早已写好（吃 `ControlBand`：
+   * mean / sigma2 / sigma3 / value / label），而且 `bandStats` 也算得出均值与标准差
+   * —— 但 `BandResult` **从来没把两者合起来暴露**。
+   * ⇒ 渲染器在等数据，数据在等出口，两边各自完备、中间断开。
+   * 这是本仓闭环体检「注册↔生产↔消费」三态矩阵要抓的形态；矩阵此前只看
+   * **资产级**有无，看不到"两个已有资产之间的接线缺口"。
+   */
+  controlBand: ControlBandReadout;
 }
 
 const DEFAULT_THRESHOLDS = { warn: 0.7, alarm: 0.5 };
@@ -48,14 +67,6 @@ export function detectTrend(scores: number[]): 'improving' | 'stable' | 'degradi
   if (delta > 0.05) return 'improving';
   if (delta < -0.05) return 'degrading';
   return 'stable';
-}
-
-/** 均值/标准差（技能 band-detector.mjs:110-115 同式）。 */
-export function bandStats(values: number[]): { mean: number; stdDev: number } {
-  if (values.length === 0) return { mean: 0, stdDev: 0 };
-  const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
-  return { mean, stdDev: Math.sqrt(variance) };
 }
 
 /**
@@ -184,6 +195,6 @@ export function runBandDetection(workspaceRoot: string, currentScore: number): B
     entries: [...autonomy.slice(-19), entry],
     threshold: DEFAULT_THRESHOLDS,
     weViolations: detectWeViolations(scores),
+    controlBand: controlBandOf(scores, currentScore),
   };
 }
-

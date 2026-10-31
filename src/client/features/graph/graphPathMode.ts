@@ -72,8 +72,36 @@ export function pathPickOf(sel: PathSelection, id: string): PathSelection {
   return sel.from === id ? { active: true, from: null, to: null } : { active: true, from: id, to: null };
 }
 
-/** 状态条该说什么（渲染层据此选文案键；`null` = 不在模式里，不渲染）。 */
-export type PathStatus = 'pickStart' | 'pickEnd' | 'found' | 'noPath' | 'duplicate';
+/**
+ * 状态条该说什么（渲染层据此选文案键；`null` = 不在模式里，不渲染）。
+ *
+ * ## 为什么 `noPath` 必须拆成 `unreachable` 与 `tooLong`（cycle-96 修正）
+ *
+ * `findPath` 早已区分两种失败：
+ *   - `reason === 'unreachable'` —— 图上**真的没有**这条路径（两块不连通）；
+ *   - `reason` 点名上限（如 `no path within 6 hops`）—— 路径**可能存在**，只是超出预算。
+ *
+ * 但本类型把它们合并成一个 `noPath`。这是**信息在类型层丢失**：
+ * 前者用户该做的是"换一对端点"，后者该做的是"提高跳数上限"。合并后
+ * 两种完全不同的补救动作被渲染成同一句话 —— 用户只能靠猜。
+ *
+ * 判据（本仓既有教训「数据源 A 与视图 B 一致吗要用跨源对账」的同族）：
+ * 视图层的失败分类**不得比数据层更粗**。`statusOf` 必须消费 `result.reason`，
+ * 而不是只看 `found === false`。
+ */
+export type PathStatus = 'pickStart' | 'pickEnd' | 'found' | 'unreachable' | 'tooLong' | 'duplicate';
+
+/**
+ * 把 `findPath` 的结果分类成视图状态（**唯一**分类点）。
+ *
+ * 这样"两种失败分得开"只在一个地方决定：渲染层、契约、面板读到的都是这一个答案。
+ * 任何人在别处再写一次 `found === false ? 'noPath' : …`，就会重新把两类揉回去。
+ */
+export function classifyPathResult(result: PathResult): 'found' | 'unreachable' | 'tooLong' {
+  if (result.found) return 'found';
+  // `reason === 'unreachable'` 是**结构性不可达**；其余（点名上限）都归 tooLong。
+  return result.reason === 'unreachable' ? 'unreachable' : 'tooLong';
+}
 
 /** 路径模式的完整读数（一次算完，渲染层只画）。 */
 export interface PathModel {
@@ -126,7 +154,9 @@ export function pathModelOf(sel: PathSelection, adjacency: TraceAdjacency): Path
   }
   const result = findPath(adjacency, from, to, MAX_PATH_HOPS);
   if (!result.found) {
-    return { active: true, from, to, status: 'noPath', highlight: new Set<string>(), length: 0, blast, result };
+    // 失败分类走 `classifyPathResult`（**唯一**分类点）——不在此处重写判据，
+    // 否则"不可达"与"超上限"又会在这里被揉回同一态（见 PathStatus 头注）。
+    return { active: true, from, to, status: classifyPathResult(result), highlight: new Set<string>(), length: 0, blast, result };
   }
   return {
     active: true, from, to, status: 'found',

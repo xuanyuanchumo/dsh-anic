@@ -108,7 +108,14 @@
     "title": "运行时自检（Runtime INV Probes）",
     "pass": "PASS",
     "fail": "FAIL",
-    "requestId": "requestId: {requestId}"
+    "requestId": "requestId: {requestId}",
+    "controlBandUntrusted": "控制带样本不足（{count} 点）",
+    "controlBandLabel": "代码质量带",
+    "controlBandStatus": {
+      "normal": "正常",
+      "warn": "警戒",
+      "alarm": "告警"
+    }
   },
   "org": {
     "cyclesTitle": "Cycle 全景",
@@ -199,7 +206,14 @@
     "disabled": "流程状态机面板已关闭（数据路由与流程本身不受影响）",
     "summary": "运行中 {running} · 终态 {terminal} · 未运行 {neverRun}",
     "hitl": "HITL 三段修复流程",
-    "autoFix": "自动修复循环流程"
+    "autoFix": "自动修复循环流程",
+    "macroPhaseLabel": "宏观相位读数",
+    "macroPhaseConsistent": "stored 与 inferred 一致",
+    "macroPhaseDrift": "推断不一致（工件说 {inferred}）",
+    "macroPhaseCeiling": "推断到顶（stored 在推断上限之后）",
+    "macroPhaseUnknown": "未采集（旧宿主或无状态文件）",
+    "macroPhaseDriftHint": "查询不写盘；要以前者为准请显式 advance --node {target}",
+    "macroPhaseCeilingHint": "推断器上限：{ceiling}（deploy/maintain 无工件指纹）"
   },
   "ledger": {
     "title": "账本事件流（最近 {shown} / {total} 条）",
@@ -484,7 +498,8 @@
     },
     "pathPickStart": "选起点：在节点上按 Enter",
     "pathPickEnd": "选终点：再选一个节点",
-    "pathExit": "退出找路径"
+    "pathExit": "退出找路径",
+    "pathFindTooLong": "路径超出 {hops} 跳上限（可能更远）"
   },
   "config": {
     "title": "配置与路径",

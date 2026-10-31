@@ -24,6 +24,8 @@ import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
 import {
   PHASES, PHASE_IDS, loadMacroState, readGateResults, advanceMacro,
 } from './macroPhaseEngine.ts';
+// cycle-96 WS-A：只读状态视图下移到独立文件（守 T3 ≤250 行；职责=「相位读作什么」）。
+import { buildMacroPhaseStatus } from './macroPhaseStatusView.ts';
 import { resolveSkillScriptsDir, invokeSkillScript } from '../skillInvoker.ts';
 // 超时 cap 单一事实源（cycle-79 O-03）：原先独立写死 120000，与技能入口 240000 不一致。
 // 默认值（120s）保持本流程原语义不变，只把 cap 统一到同一常量。
@@ -211,26 +213,21 @@ export function runMacroPhaseFlow(
   return out;
 }
 
-/** 只读状态视图（cmdStatus 的投影面；不落盘、不执行 inferPhase 回写）。 */
+/**
+ * 只读状态视图（cmdStatus 的投影面；不落盘、不执行 inferPhase 回写）。
+ *
+ * cycle-96 WS-A：实现已下移到 `macroPhaseStatusView.ts`（守 T3 ≤250 行），
+ * 这里保留同名再导出 —— 既有消费方（路由 + 单测）的 import 路径零变更。
+ * 下移的**语义**变化只有一处：响应体新增 `inferredPhase` / `drift` /
+ * `inferenceCeiling` 三字段（此前只报 stored，「状态文件没跟上工件」在面板上不可见）。
+ * `wroteState: false` 常量字段是给契约测试的断言锚点：查询命令永不写盘。
+ */
+export { buildMacroPhaseStatus } from './macroPhaseStatusView.ts';
+export type { MacroPhaseStatusView } from './macroPhaseStatusView.ts';
+
 export function statusMacroPhase(workspaceRoot: string) {
   const state = loadMacroState(workspaceRoot);
-  const gateResults = readGateResults(workspaceRoot);
-  const phase = PHASES.find((p) => p.id === state?.currentPhase) ?? null;
-  return {
-    flowId: 'macro-phase',
-    currentPhase: state?.currentPhase ?? null,
-    phaseName: phase?.name ?? null,
-    currentCycle: state?.currentCycle ?? null,
-    phaseHistoryLength: state?.phaseHistory.length ?? 0,
-    gates: phase
-      ? phase.gates.map((g) => ({
-        gate: g,
-        // 技能 cmdStatus 展示序：曾 PASS > 曾 FAIL > PENDING
-        status: gateResults.passed.includes(g) ? 'PASS' : gateResults.failed.includes(g) ? 'FAIL' : 'PENDING',
-      }))
-      : [],
-    projectionSeeded: state !== null,
-  };
+  return buildMacroPhaseStatus(workspaceRoot, state);
 }
 
 /** 崩溃恢复 / 测试共用（INV-13 replay === online）。 */

@@ -320,9 +320,19 @@ const passed = chain.ok && missing.length === 0;
 
 **响应 200**：`GateFlowRunResult`（`src/host/flows/gateCheckFlow.ts:67-84`）——含 gates/quality 逐门裁决、allPass、exitCode、drift（diff 模式分叉面，null=语义全等）、stdout（script 模式观测）、recorded（native+record 实际入账门）。差分契约：`tests/contract/flowDifferential.test.ts`。
 
-### 5.5 GET `/anic/flows/macro-phase/status`（`flowsRoute.ts:133`）
+### 5.5 GET `/anic/flows/macro-phase/status`（`flowsRoute.ts:146`）
 
-**只读**：宏观六相视图（plan/design/build/test/deploy/maintain）。**不落盘、不 inferPhase 回写**——技能 workflow-state 的 inferPhase 回写对 deploy/maintain 永远推不出来，是技能侧缺陷不复制（`macroPhaseFlow.ts` 头注）。
+**只读**：宏观六相视图（plan/design/build/test/deploy/maintain）。**不落盘、不 inferPhase 回写**——技能 workflow-state 的 inferPhase 回写对 deploy/maintain 永远推不出来，是技能侧缺陷不复制（`macroPhaseStatusView.ts` 头注）。
+
+**响应 200**：`{ flowId, currentPhase, phaseName, inferredPhase, drift, inferenceCeiling, currentCycle, phaseHistoryLength, gates[{gate,status}], projectionSeeded, wroteState:false }`。
+
+**相位双读数（cycle-96 WS-A）**：`currentPhase`(=**stored**，磁盘事实) 与 `inferredPhase`(=**工件推断**，只读读数) 并列返回，`drift = stored !== inferred`。技能侧此前恰好反过来（`cmdStatus` 用 `inferPhase` 静默改写磁盘，Lead 复现：强置 plan → 跑 status → 磁盘变 test），本轮两侧对齐为**都只读**、都把两个口径摆出来。
+
+- `drift === null`：无状态文件 ⇒ **无从比较**（不是 `false`）。消费方不得把 null 折成「一致」。
+- `inferenceCeiling`：推断器可达的最高相（恒 `'test'`）。deploy/maintain 无工件指纹 ⇒ 那时 `inferred` 必停在 test，属**推断到顶**而非真分叉。
+- `wroteState: false`：常量断言锚点 —— 本端点永不写盘，回写只发生在 `advance`。
+
+**同源出口**：`GET /anic/flows/status` 的响应体新增 `macroPhase` 字段（与本节**同一个**生产者 `statusMacroPhase`），供面板周期拉取一次拿到；`root` 缺失时该字段为 `null`（不伪造一个 plan）。
 
 ### 5.6 POST `/anic/flows/macro-phase/advance`（`flowsRoute.ts:140`）
 

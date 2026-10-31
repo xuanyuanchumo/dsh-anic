@@ -26,6 +26,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { blastRadiusStats, buildTrace, type BlastRadiusStats, type TraceAdjacency } from './graphTrace.ts';
+import { MAX_PATH_HOPS } from './graphPathFind.ts';
 import type { PathModel } from './graphPathMode.ts';
 import { gt } from './graphText.ts';
 import { t } from '../../i18n.ts';
@@ -48,7 +49,10 @@ function statusTextOf(model: PathModel): string {
     case 'pickStart': return gt('pathPickStart');
     case 'pickEnd': return gt('pathPickEnd');
     case 'duplicate': return t('graph.pathFindInvalid');
-    case 'noPath': return t('graph.pathFindNoPath');
+    // 两种失败**必须分开说**：`unreachable` 该换端点，`tooLong` 该抬跳数上限。
+    // 合并成一句会让两种完全不同的补救动作得到同样的提示 —— 等于没有提示。
+    case 'unreachable': return t('graph.pathFindNoPath');
+    case 'tooLong': return t('graph.pathFindTooLong', { hops: String(MAX_PATH_HOPS) });
     case 'found': return t('graph.pathFindResult', {
       hops: String(model.length),
       // 路径写进文本而不是只靠高亮：高亮在灰度/强制对比下会消失，文本不会。

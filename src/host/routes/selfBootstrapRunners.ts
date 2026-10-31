@@ -1,69 +1,25 @@
 /**
- * 自举端点的「记账 + 解析」执行体（cycle-72 T3 拆分：路由文件 265 行 > 250 上限）。
+ * 自举端点的「记账 + 解析」执行体 —— **cycle-96 起本文件只做转发**。
  *
- * 为什么单独成文件：evaluate / gate-check / iterate 三个端点都要「跑一次脚本、
- * 记一次 FlowTracker、解析成三态」。若各写一份，就是同一语义的第二、第三份实现
- * （CLAUDE.md 单一实现纪律）。这里收成两个函数，端点只做响应装配。
- */
-import type { BootstrapState } from '../selfBootstrap.ts';
-import {
-  parseEvalScore,
-  parseEvalOutcome,
-  parseGateOutcome,
-  type ScriptOutcome,
-} from '../runtime/scriptParsers.ts';
-import { loadFlowTracker } from '../runtime/flowTracker.ts';
-import { invokeTracked } from '../runtime/selfBootstrapFlow.ts';
-import { applyPhase } from '../runtime/bootstrapPhase.ts';
-import type { InvokeResult } from '../skillInvoker.ts';
-
-/** 已解析的自举靶标（与 routes/selfBootstrapShared.ts 的 SelfTarget 同形）。 */
-export interface TrackTarget {
-  cyclesDir: string;
-  scriptsDir: string;
-  roots: string;
-}
-
-export interface EvalTrackedResult {
-  result: InvokeResult;
-  flowId: string;
-  /** 二值分数（既有契约，0/1）。 */
-  score: number;
-  /** 三态裁决：区分「质量失败」与「根本没跑成」。 */
-  outcome: ScriptOutcome;
-  phase: { state: BootstrapState; rejected: string | null };
-}
-
-export interface GateTrackedResult {
-  result: InvokeResult;
-  flowId: string;
-  verdict: string;
-  outcome: ScriptOutcome & { verdict: string };
-}
-
-/**
- * 运行一次 eval（记账 + 解析 + 推进到 EVALUATING）。
+ * ## 实现已下沉到 `runtime/bootstrapTrackedRunners.ts`
  *
- * 同时返回 flowId 与三态 outcome：只记不报等于换个地方藏证据；只报二值分数
- * 则会把「没跑成」和「质量失败」混成一个 0。
+ * 搬迁理由（分层，不是行数）：cycle-96 起 `anic_bootstrap_other` 工具也要在
+ * **目标工作区**跑一次 eval / gate-check，于是这段「跑脚本 + 记 FlowTracker + 解析三态」
+ * 的纯执行逻辑多了一个**工具面**消费者。若工具继续 import 本文件，依赖方向就成了
+ * `tools → routes`（反向）：路由是**装配层**、工具是**入口层**，两者都该向下依赖
+ * 执行层。故实现下沉到 `runtime/`（L0）。
+ *
+ * ## 为什么保留这个文件而不是删掉
+ *
+ * `routes/selfBootstrapRoute.ts`、`routes/selfBootstrapIterate.ts` 的调用点属于
+ * 别的工作流写域（本任务书禁止触碰）。删掉旧路径会让不属于本任务的代码编译失败。
+ * 因此保留为**零逻辑转发**——不是兼容层（兼容层会留两套形态），这里只有一处实现：
+ * `runtime/bootstrapTrackedRunners.ts`。语义、签名、返回值形状均一字未改。
  */
-export function runEvalTracked(target: TrackTarget, state: BootstrapState): EvalTrackedResult {
-  const trackerState = loadFlowTracker(target.cyclesDir);
-  const { result, flowId } = invokeTracked(
-    target.scriptsDir, 'eval-runner', [], target.roots, 60000, trackerState, target.cyclesDir,
-  );
-  const score = parseEvalScore(result);
-  const outcome = parseEvalOutcome(result);
-  const phase = applyPhase(target.cyclesDir, state, 'start', { lastEvalScore: score });
-  return { result, flowId, score, outcome, phase };
-}
-
-/** 运行一次 gate-check（记账 + 解析）。args 由调用方给定（--record 由 iterate 控制）。 */
-export function runGateTracked(target: TrackTarget, args: string[]): GateTrackedResult {
-  const trackerState = loadFlowTracker(target.cyclesDir);
-  const { result, flowId } = invokeTracked(
-    target.scriptsDir, 'gate-check', args, target.roots, 60000, trackerState, target.cyclesDir,
-  );
-  const outcome = parseGateOutcome(result);
-  return { result, flowId, verdict: outcome.verdict, outcome };
-}
+export {
+  runEvalTracked,
+  runGateTracked,
+  type TrackTarget,
+  type EvalTrackedResult,
+  type GateTrackedResult,
+} from '../runtime/bootstrapTrackedRunners.ts';

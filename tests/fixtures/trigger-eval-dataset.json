@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "_meta": {
-    "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：正例覆盖全部 19 工具、负例取「关键词相近但应触发其他工具」的险些误触、确定性代理评分每次 description 改动可复跑。静态数据文件（研究产物，非源码）。",
+    "purpose": "A3 trigger-eval 数据准备（cycle-16 / eco-researcher）——SDO 描述纪律的触发评估查询集。对标 anthropics skill-creator §Description Optimization：正例覆盖全部 24 工具、负例取「关键词相近但应触发其他工具」的险些误触、确定性代理评分每次 description 改动可复跑。静态数据文件（研究产物，非源码）。",
     "createdAt": "2026-10-18",
     "updatedAt": "2026-10-18（cycle-35 扩容：20 → 38 条——pos-* 10 → 19 全工具覆盖；neg-* 10 → 19：5 区分度对（shouldTriggerOtherTool）+ 14 纯负例（shouldTriggerNone）；原 20 条核心措辞保留（4 条新增负例措辞微调去字面直撞，rationale 记录原因），train/test = 20/18 维持约 60/40）；cycle-77：40 → 41 条——pos-22 覆盖新增的 anic_autonomy_upgrade（22 工具全覆盖；train/test = 21/20）；cycle-80：41 → 42 条——pos-23 覆盖新增的 anic_reload_self（23 工具全覆盖；train/test = 22/20）；评分口径正例计分改为 28 条（23 pos + 5 区分度对）",
     "source": "skill-ecosystem.md P0-2 设计（.cycles/cycles/cycle-16/research/skill-ecosystem.md）",
@@ -308,23 +308,30 @@
       "query": "我刚把 dsh-anic 插件的源码改完并重新构建了 dist，帮我把插件热更新重载一下，让宿主马上用上新版本，别让我手动重启",
       "expectedTool": "anic_reload_self",
       "rationale": "正例（cycle-80 增补）：改完代码后要求插件热更新重载——此前只能人工重启宿主（插件从不消费 ctx.hmr），本轮新增 anic_reload_self 的正典场景"
+    },
+    {
+      "id": "pos-24",
+      "split": "test",
+      "query": "另一个项目 D:/projects/other-app 还没建过 anic 的 .cycles 骨架，帮我在那个项目上先把流程搭起来，顺便证明我这个项目的账本一根毛都没被动过",
+      "expectedTool": "anic_bootstrap_other",
+      "rationale": "正例（cycle-96 增补）：跨项目自举（举他）——目标项目初始化 + 源零写入证明。此前该能力只有 POST /anic/self/bootstrap-other 与外部调度器能触发（grep bootstrap_other src/host/tools*.ts 零命中 ⇒ 模型不可达），本轮补 anic_bootstrap_other 的正典场景。与 anic_bootstrap_cycle 的区分：后者跑的是**当前/指定单项目**的循环，本例是**两个项目**之间的关系"
     }
   ],
   "_stats": {
-    "total": 41,
-    "positiveIds": 22,
+    "total": 43,
+    "positiveIds": 23,
     "negativeIds": 19,
     "negativeBreakdown": {
       "shouldTriggerNone": 14,
       "shouldTriggerOtherTool": 5
     },
     "scoringCounts": {
-      "positives": 27,
+      "positives": 28,
       "negatives": 14
     },
     "splitBreakdown": {
-      "train": 21,
-      "test": 20
+      "train": 22,
+      "test": 21
     },
     "positiveToolsCovered": [
       "anic_evaluate",
@@ -339,6 +346,7 @@
       "anic_bootstrap_cycle",
       "anic_bootstrap",
       "anic_bootstrap_analyze",
+      "anic_bootstrap_other",
       "anic_flows_gate_check",
       "anic_snapshot",
       "anic_skill",
@@ -352,6 +360,7 @@
     ],
     "distinguishingPairsExercised": [
       "anic_bootstrap vs anic_bootstrap_cycle vs anic_bootstrap_analyze（neg-05/neg-08 + pos-11/pos-12）",
+      "anic_bootstrap_other（举他：两个项目）vs anic_bootstrap_cycle（单项目循环）（pos-24 vs pos-10）",
       "anic_gate_check vs anic_flows_gate_check（neg-06 + pos-13）",
       "anic_snapshot vs anic_status（neg-07 + pos-14）",
       "anic_status vs anic_skill（neg-09 + pos-15）",

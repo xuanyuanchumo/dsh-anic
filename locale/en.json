@@ -108,7 +108,14 @@
     "title": "Runtime self-check (Runtime INV Probes)",
     "pass": "PASS",
     "fail": "FAIL",
-    "requestId": "requestId: {requestId}"
+    "requestId": "requestId: {requestId}",
+    "controlBandUntrusted": "Not enough samples for control band ({count} point(s))",
+    "controlBandLabel": "Quality control band",
+    "controlBandStatus": {
+      "normal": "Normal",
+      "warn": "Warning",
+      "alarm": "Alarm"
+    }
   },
   "org": {
     "cyclesTitle": "Cycle overview",
@@ -199,7 +206,14 @@
     "disabled": "Flow-machines panel is off (data routes and flows themselves are unaffected)",
     "summary": "running {running} · terminal {terminal} · never-run {neverRun}",
     "hitl": "HITL Three-phase Flow",
-    "autoFix": "Auto-fix Loop Flow"
+    "autoFix": "Auto-fix Loop Flow",
+    "macroPhaseLabel": "Macro-phase readout",
+    "macroPhaseConsistent": "stored and inferred agree",
+    "macroPhaseDrift": "inferred phase disagrees ({inferred})",
+    "macroPhaseCeiling": "inference ceiling reached (stored is past the ceiling)",
+    "macroPhaseUnknown": "not collected (old host or no state file)",
+    "macroPhaseDriftHint": "queries never write; run advance --node {target} to adopt it",
+    "macroPhaseCeilingHint": "inference ceiling: {ceiling} (deploy/maintain have no artifact fingerprint)"
   },
   "ledger": {
     "title": "Ledger Event Stream (latest {shown} / {total})",
@@ -484,7 +498,8 @@
     },
     "pathPickStart": "Pick a start node: press Enter on a node",
     "pathPickEnd": "Pick an end node: select another node",
-    "pathExit": "Exit path mode"
+    "pathExit": "Exit path mode",
+    "pathFindTooLong": "Path exceeds {hops}-hop limit (may be farther)"
   },
   "config": {
     "title": "Configuration & Paths",

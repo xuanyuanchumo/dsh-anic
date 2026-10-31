@@ -11,6 +11,7 @@ import { loadProjectConfig, getYamlString } from './lib/config.mjs';
 import { getLatestCycleDir } from './lib/cycle.mjs';
 import { parseTaskRows } from './lib/tasks.mjs';
 import { appendEntry, loadLedger } from './lib/ledger.mjs';
+import { resolveTimeout, timeoutFromConfig, isTimeoutError } from './lib/budget.mjs';
 
 // 修 S-1：唯一 config 入口。原先读从未被 init-workflow 创建的 .cycles/cycle-config.yml，
 // 且错误提示自相矛盾（"No .cycles/cycle-config.yml found. Run init-workflow first."——
@@ -234,10 +235,21 @@ function checkG3(projectDir, configContent) {
 
   if (!buildCmd) return { pass: false, detail: 'No build command configured' };
 
+  // cycle-96 WS-C：预算改由 lib/budget.mjs 单一事实源给出（原写死 120000，
+  // 与 eval-runner 的同义调用点无对照）。可经 config build_timeout_ms 覆盖。
+  const timeoutMs = resolveTimeout('build', { configMs: timeoutFromConfig(configContent, 'build') });
   try {
-    execSync(buildCmd, { cwd: projectDir, timeout: 120000, stdio: 'pipe' });
+    execSync(buildCmd, { cwd: projectDir, timeout: timeoutMs, stdio: 'pipe' });
     return { pass: true, detail: `Build passed: ${buildCmd}` };
   } catch (e) {
+    // 超时不是「构建失败」：根本没有构建结论（半截输出会被读成失败原因）。
+    // 判据复用 lib/budget.mjs 的 isTimeoutError（三处调用点同一形态，不各写一份）。
+    if (isTimeoutError(e)) {
+      return {
+        pass: false,
+        detail: `Build timed out after ${timeoutMs}ms budget: ${buildCmd} (raise build_timeout_ms or build separately)`,
+      };
+    }
     return { pass: false, detail: `Build failed: ${buildCmd}` };
   }
 }
