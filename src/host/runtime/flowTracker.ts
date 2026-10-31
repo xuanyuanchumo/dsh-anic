@@ -38,54 +38,24 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { atomicWriteFileSync, safeReadFileSync } from '../../shared/fs-safe.ts';
 import { resolveFlowAttribution } from './flowAttribution.ts';
 import { appendHistory, readHistoryAll } from './flowTrackerHistory.ts';
+// cycle-94：淘汰策略 + 水位线（纯函数；见 flowRetention.ts 头注）。
+import { trimWithWatermark, type EvictionWatermark } from './flowRetention.ts';
 import {
   MAX_WINDOW,
   STDOUT_MAX,
   STDERR_MAX,
-  TRACKER_FILE,
-  TRACKER_VERSION,
 } from './flowTrackerStore.ts';
 import type { FlowRecord, FlowTrackerState } from './flowTrackerTypes.ts';
 
 export type { FlowRecord, FlowTrackerState, FlowStatus, FlowAttribution, FlowAttributionSource } from './flowTrackerTypes.ts';
+export type { EvictionWatermark } from './flowRetention.ts';
+export { EMPTY_WATERMARK, isLive, mergeWatermarks, trimWithWatermark, MAX_LIVE_RESCUE } from './flowRetention.ts';
 export { appendHistory, readHistoryAll } from './flowTrackerHistory.ts';
 export { recentFlows, activeFlows, flowStats } from './flowTrackerQuery.ts';
 export { HISTORY_FILE, MAX_WINDOW, TRACKER_FILE } from './flowTrackerStore.ts';
-
-/** 空状态。 */
-export function initialFlowTrackerState(): FlowTrackerState {
-  return { flows: [], counter: 0 };
-}
-
-/** 从磁盘加载状态。文件不存在或损坏时返回空状态。
- *
- * **向后兼容**：v1 文件（无 `version` 字段）的 `flows` / `counter` 语义与 v2
- * 完全一致（`counter` 本来就是单调累计值），故**无需迁移**。
- */
-export function loadFlowTracker(cyclesDir: string): FlowTrackerState {
-  const file = join(cyclesDir, TRACKER_FILE);
-  const raw = safeReadFileSync(file);
-  if (!raw) return initialFlowTrackerState();
-  try {
-    const parsed = JSON.parse(raw) as Partial<FlowTrackerState> & { version?: number };
-    if (Array.isArray(parsed.flows) && typeof parsed.counter === 'number') {
-      return { flows: parsed.flows, counter: parsed.counter };
-    }
-  } catch { /* corrupt → reset */ }
-  return initialFlowTrackerState();
-}
-
-/** 持久化状态到磁盘（原子写入）。 */
-export function saveFlowTracker(cyclesDir: string, state: FlowTrackerState): void {
-  if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
-  const file = join(cyclesDir, TRACKER_FILE);
-  const payload: { version: number; flows: FlowRecord[]; counter: number } = {
-    version: TRACKER_VERSION,
-    flows: state.flows,
-    counter: state.counter,
-  };
-  atomicWriteFileSync(file, JSON.stringify(payload, null, 2));
-}
+// cycle-94：持久化面拆至 flowTrackerPersist.ts（T3 ≤250 行）；此处再导出保持导入路径不变。
+export { initialFlowTrackerState, loadFlowTracker, saveFlowTracker } from './flowTrackerPersist.ts';
+import { initialFlowTrackerState, loadFlowTracker, saveFlowTracker } from './flowTrackerPersist.ts';
 
 /**
  * 读取全量样本 = **历史（append-only，无上界）∪ 热窗口里尚未进入历史的部分**。
@@ -143,10 +113,24 @@ export function loadAllFlowRecords(cyclesDir: string): FlowRecord[] {
  *
  * ⚠️ cycle-91 起这只是**热窗口**的裁剪，**不再丢数据**——
  * 终态记录已 append 进 `flow-history.jsonl`。
+ *
+ * ★cycle-94：淘汰策略与**水位线**下沉到 `flowRetention.ts`（纯函数可单测）。
+ * 本函数只做形态适配。两个行为变化（都是有意的）：
+ *   1. **进行中的流程永不淘汰**（`INVOKING`/`RUNNING` 即使落在被裁区间也捞回来）
+ *      —— 超时的任务正是最旧的，按"最旧先丢"裁会让"正在跑什么"凭空消失；
+ *   2. 淘汰**必须上报水位线**（`evictedThrough`/`evictedTotal`），
+ *      否则读侧无从判断自己看到的是全部还是被裁过的最近 200 条。
  */
-function trimFlows(flows: FlowRecord[]): FlowRecord[] {
-  if (flows.length <= MAX_WINDOW) return flows;
-  return flows.slice(flows.length - MAX_WINDOW);
+function trimFlows(
+  flows: FlowRecord[],
+  prev?: EvictionWatermark,
+): { flows: FlowRecord[]; watermark: EvictionWatermark } {
+  // `trimWithWatermark` 返回 `kept`；本函数保持仓内既有命名 `flows`（调用方
+  // `startFlow` 用的是 `trimmed.flows`）。这层改名不是多余的：`kept` 在策略层
+  // 表达的是「留下了哪些」（与 `evicted` 对偶），而 `flows` 在状态层表达的是
+  // 「窗口里有哪些」——两者语义不同，各自在自己那层是准确的名字。
+  const r = trimWithWatermark(flows, MAX_WINDOW, prev);
+  return { flows: r.kept, watermark: r.watermark };
 }
 
 /** 创建新流程记录（INVOKING 状态——脚本定位/校验通过但尚未 spawn）并持久化。
@@ -180,9 +164,12 @@ export function startFlow(
     gate: attr.gate,
     attribution: attr.attribution,
   };
+  // cycle-94：淘汰结果带水位线（`prev` 从 state 带入，保证跨次调用单调累加）。
+  const trimmed = trimFlows([...state.flows, record], state.watermark);
   const newState: FlowTrackerState = {
-    flows: trimFlows([...state.flows, record]),
+    flows: trimmed.flows,
     counter,
+    watermark: trimmed.watermark,
   };
   saveFlowTracker(cyclesDir, newState);
   return { state: newState, flowId };
@@ -194,7 +181,8 @@ export function markRunning(cyclesDir: string, state: FlowTrackerState, flowId: 
     if (f.flowId !== flowId || f.status !== 'INVOKING') return f;
     return { ...f, status: 'RUNNING' as FlowRecord['status'] };
   });
-  const newState: FlowTrackerState = { flows, counter: state.counter };
+  // cycle-94：水位线原样带过（本函数不改变窗口成员集合 ⇒ 不可能产生新淘汰）。
+  const newState: FlowTrackerState = { flows, counter: state.counter, watermark: state.watermark };
   saveFlowTracker(cyclesDir, newState);
   return newState;
 }
@@ -233,7 +221,8 @@ export function finishFlow(
     finished = next;
     return next;
   });
-  const newState: FlowTrackerState = { flows, counter: state.counter };
+  // cycle-94：水位线原样带过（终态转换不改变窗口成员集合）。
+  const newState: FlowTrackerState = { flows, counter: state.counter, watermark: state.watermark };
   saveFlowTracker(cyclesDir, newState);
   // 终态才进历史（INVOKING/RUNNING 不是可统计样本，见 appendHistory 头注）。
   if (finished !== undefined) appendHistory(cyclesDir, finished);

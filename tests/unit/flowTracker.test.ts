@@ -24,6 +24,7 @@ import {
   activeFlows,
   markRunning,
   flowStats,
+  MAX_LIVE_RESCUE,
   type FlowTrackerState,
 } from '../../src/host/runtime/flowTracker.ts';
 
@@ -137,17 +138,56 @@ describe('FlowTracker — 查询', () => {
 });
 
 describe('FlowTracker — 滚动淘汰', () => {
-  it('超过 200 条时保留最近 200 条', () => {
+  it('超过 200 条**终态**记录时保留最近 200 条', () => {
     let state = initialFlowTrackerState();
     for (let i = 0; i < 205; i++) {
-      const { state: s } = startFlow(tempDir, state, 'eval-runner', '/ws', []);
-      state = s;
+      const { state: s, flowId } = startFlow(tempDir, state, 'eval-runner', '/ws', []);
+      // ★cycle-94：必须**收尾**再进下一条。旧版本这里不收尾 ⇒ 205 条全停在
+      // INVOKING ⇒ 新语义把它们识别为「进行中」并保护起来 ⇒ 一条都裁不掉
+      // （实测 205 而非 200）。那条旧断言恰好暴露了「崩溃残留会无界增长」
+      // 这个真实缺陷，见 `flowRetention.ts` 头注「为什么必须有上界」。
+      // 本用例的语义是「**终态**记录的容量淘汰」，所以要收尾。
+      state = finishFlow(tempDir, s, flowId, {
+        exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 1,
+      });
     }
     expect(state.flows).toHaveLength(200);
     // 保留的是最后 200 条（counter 6-205）
     expect(state.flows[0].flowId).toContain('-6');
     expect(state.flows[199].flowId).toContain('-205');
     expect(state.counter).toBe(205);
+  });
+
+  it('进行中的流程被保护：205 条全 INVOKING ⇒ 不丢"正在跑什么"', () => {
+    let state = initialFlowTrackerState();
+    for (let i = 0; i < 205; i++) {
+      const { state: s } = startFlow(tempDir, state, 'eval-runner', '/ws', []);
+      state = s;
+    }
+    // 205 条全在 INVOKING（模拟崩溃残留 / 尚未收尾）。被裁区间的 5 条都是
+    // 进行中 ⇒ 全部捞回 ⇒ 205 条仍在。这就是「running 永不淘汰」的直接体现：
+    // 宁可超容量，也不丢"正在跑什么"。
+    expect(state.flows).toHaveLength(205);
+    // 且如实标注超容量（不是悄悄超限）
+    expect(state.watermark?.overCapacity).toBe(true);
+    // 没有真正淘汰任何一条 ⇒ 水位线落点仍为空（不伪造落点）
+    expect(state.watermark?.evictedTotal).toBe(0);
+    expect(state.watermark?.evictedThrough).toBeNull();
+  });
+
+  it('僵尸 INVOKING 无界增长受上界封顶（MAX_LIVE_RESCUE）', () => {
+    // 这一条守的是「保护机制自己不能变成新的泄漏」。
+    let state = initialFlowTrackerState();
+    for (let i = 0; i < 240; i++) {
+      const { state: s } = startFlow(tempDir, state, 'eval-runner', '/ws', []);
+      state = s;
+    }
+    // 200（尾窗）+ 32（捞回上界）= 232
+    expect(state.flows).toHaveLength(232);
+    expect(state.watermark?.evictedTotal).toBe(8);
+    expect(state.watermark?.evictedThrough).not.toBeNull();
+    // 上界本身可断言（防有人把它调成 Infinity 来"修"超容量告警）
+    expect(MAX_LIVE_RESCUE).toBe(32);
   });
 });
 

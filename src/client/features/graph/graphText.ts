@@ -36,7 +36,18 @@ export type GraphTextSuffix =
   | 'groupSearch' | 'groupType' | 'groupVerdict' | 'groupZoom' | 'groupA11y'
   | 'groupLayout' | 'groupView'
   | 'laneHeaderLabel'
-  | 'layoutModeLane' | 'layoutModeCompact' | 'layoutModeLabel'
+  | 'layoutModeLane' | 'layoutModeCompact' | 'layoutModeFlow' | 'layoutModeLabel'
+  // cycle-94：布局质量读数（`flow` 分层模式的交叉数徽标）
+  | 'layoutCrossings'
+  // cycle-94：边语义图例（六种线型的对照说明）
+  | 'edgeLegendLabel' | 'edgeLegendHint'
+  // cycle-94：节点角色（hub/orphan/leaf/entry）与测试健康度标题
+  | 'nodeRoleLabel' | 'healthLabel'
+  // cycle-94：两点最短路径（根因定位从「三次双击」降为「一次输入」）
+  | 'pathFind' | 'pathFindPlaceholder' | 'pathFindHint'
+  | 'pathFindNoPath' | 'pathFindResult' | 'pathFindInvalid'
+  // cycle-94：追溯深度分档（blast radius 的读数）
+  | 'traceDepth'
   | 'filterAnomaly' | 'filterAnomalyHint'
   | 'fitSelection' | 'fitSelectionHint'
   | 'exportSvg' | 'exportSvgHint'

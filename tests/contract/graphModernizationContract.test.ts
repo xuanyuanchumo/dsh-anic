@@ -29,6 +29,8 @@ import { fileURLToPath } from 'node:url';
 import { GraphInteractive } from '../../src/client/features/graph/GraphInteractive.ts';
 import { renderGraph } from '../../src/client/features/graph/renderGraph.ts';
 import { layoutGraph } from '../../src/client/features/graph/graphLayout.ts';
+// cycle-94：边语义图例的"同源"断言要对着 EDGE_STYLES 本身，而不是对着图例的副本。
+import { EDGE_STYLES } from '../../src/client/features/graph/graphEdgeRender.ts';
 import { PANEL_CSS } from '../../src/shared/panelCss.ts';
 import { WORKFLOW_SNAPSHOT, type WorkflowSnapshot } from '../../src/client/workflowGraphData.ts';
 
@@ -150,12 +152,67 @@ describe('② 视图组控件齐全（锚点 + 可访问名 + 键盘可达）', 
   it('布局模式按钮带模式值（当前是 lane）', () => {
     mount();
     const modes = [...host.querySelectorAll('[data-anic-graph-layout-mode]')];
-    expect(modes.length).toBe(2);
+    /*
+     * cycle-94：2 → 3。新增第三个模式 `flow`（拓扑分层，见 `graphLayoutFlow.ts`）。
+     *
+     * 这条断言是**有意的行为变更**，不是为了让测试变绿而放宽：模式数量本身就是
+     * 一个契约（"工具栏暴露了几个排布算法"）。从 2 改到 3 时，人的注意力应该被
+     * 强制引到"为什么多一个、它和另两个的语义差别是什么"这个决定上。
+     * 若只是 expect(3) 而不写下理由，下一个人看到数字只会再来改一次。
+     */
+    expect(modes.length).toBe(3);
     const values = modes.map((m) => m.getAttribute('data-anic-graph-layout-mode-value')).sort();
-    expect(values).toEqual(['compact', 'lane']);
+    expect(values).toEqual(['compact', 'flow', 'lane']);
     // 当前模式用 aria-pressed 表达（不是仅靠颜色）。
     const lane = host.querySelector('[data-anic-graph-layout-mode-value="lane"]');
     expect(lane?.getAttribute('aria-pressed')).toBe('true');
+    // 新增的 flow 按钮同样必须带可访问名（AT 不该只播报"按钮"）。
+    const flow = host.querySelector('[data-anic-graph-layout-mode-value="flow"]');
+    expect(flow?.getAttribute('aria-label')).toBeTruthy();
+    expect(flow?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('点「流程」真的换成 flow 分层布局（排布与 lane 不同，且节点一个不少）', () => {
+    mount();
+    const fingerprint = (): string => [...host.querySelectorAll('[data-anic-node]')]
+      .map((n) => n.getAttribute('transform') ?? '').join('|');
+    const before = fingerprint();
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[data-anic-graph-layout-mode-value="flow"]')?.click();
+    });
+    expect(fingerprint()).not.toBe(before);
+    // 换算法不等于丢节点（与既有 lane/compact 同一条不变量）。
+    expect(host.querySelectorAll('[data-anic-node]').length).toBe(SNAPSHOT.counts.nodes);
+    expect(host.querySelector('[data-anic-graph-layout-mode-value="flow"]')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('边语义图例解码：6 种边类型全部在场，且线型与 EDGE_STYLES 同源', () => {
+    mount();
+    /*
+     * cycle-94（WS-C 缺口三）：`renderEdgeLegend` 此前**只有 import、零调用点**
+     * ——组件写好却从未挂上。这条断言守的是"挂上了"，而不只是"组件存在"。
+     *
+     * 为什么必须断言**同源**：图例若自建一张线型表，改动 `EDGE_STYLES` 时它会
+     * 静默漂移，而漂移后的图例是**骗人的**（读者按它认线型会认错）。
+     * 这里比对的是写进 DOM 的 `data-anic-graph-edge-legend-dash`——它由
+     * `dashToBackground` 从 `EDGE_STYLES[type].dash` 解析而来，因此这条断言
+     * 同时证明了"渲染跑通了"和"没有第二张表"。
+     */
+    const items = [...host.querySelectorAll('[data-anic-graph-edge-legend-item]')];
+    const expected = Object.keys(EDGE_STYLES);
+    expect(items.length).toBe(expected.length);
+    const got = items.map((el) => el.getAttribute('data-anic-graph-edge-legend-item')).sort();
+    expect(got).toEqual([...expected].sort());
+    for (const el of items) {
+      const type = el.getAttribute('data-anic-graph-edge-legend-item') ?? '';
+      const dash = el.querySelector('[data-anic-graph-edge-legend-mark]')
+        ?.getAttribute('data-anic-graph-edge-legend-dash');
+      expect(dash).toBe(EDGE_STYLES[type]?.dash ?? 'solid');
+    }
+    // 图例不得新增画布：`svg === 1` 是既有不变量（这条图例已改为纯 CSS 实现）。
+    expect(host.querySelectorAll('svg').length).toBe(1);
+    // 图例不进 Tab 序列（说明而非控件）。
+    expect(host.querySelector('[data-anic-graph-edge-legend]')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('点「紧凑」真的换布局（DOM 里的排布变了）', () => {

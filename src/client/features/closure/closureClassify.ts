@@ -56,21 +56,19 @@ export function classifyItem(u: ClosureUnconsumedView): ClosureClassName {
   return 'producedGap';
 }
 
-/**
- * 整体分类计数（按**未消费明细**统计；合计恒 = list.length，每项落且仅落一类）。
+/*
+ * ★cycle-94：`classifyUnconsumed`（整体分类计数）**已删除**。
  *
- * ⚠ 与 `totals.consumedGap/producedGap` 的关系：同一判据口径，但 totals 是宿主对
- * **全量**未消费（实测 86 条）的计数，而这里只覆盖**投影明细**（同次实测 80 条 =
- * 截断上限）。截断时两者必然不等——**不许互相冒充**，渲染层因此分两层呈现
- * （全量计数 / 明细计数），并把「已显示 N / 共 M 条」显式说出。
+ * 它是 `classifyItem` 的一个聚合包装：对未消费明细逐项归类再累加。但渲染层
+ * （`renderClosure.ts:137-139`）本来就是**逐项**调用 `classifyItem` 分组渲染的，
+ * 全量计数则由宿主侧的 `totals.consumedGap/producedGap` 直接给出 ——
+ * 中间这层聚合**没有任何调用点**（`scripts/audit-wiring.mjs` 实测：全仓零文本证据）。
+ *
+ * 删除而不是保留的理由：仓库里一个"没人用的聚合器"看起来像基础设施，
+ * 下一个人会以为某处依赖它而不敢改判据；实际它是纯负担。
+ * 若将来真需要"明细分类计数"，正确形态是让渲染层从自己的分组结果里求和
+ * （那里的明细已经在手，不会出现"totals 与明细口径不一致"这个它当初要防的问题）。
  */
-export function classifyUnconsumed(list: readonly ClosureUnconsumedView[]): ClosureClassCounts {
-  const out: ClosureClassCounts = {
-    consumedGap: 0, producedGap: 0, dynamicClaimed: 0, channelOnly: 0, declaredChannel: 0,
-  };
-  for (const u of list) out[classifyItem(u)] += 1;
-  return out;
-}
 
 /**
  * 「未读取」未消费项的**产出锚点细分**（两种成因，两种补救动作，故分开报数）。

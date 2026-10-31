@@ -42,15 +42,54 @@ export const PALETTE = {
   gatePending: '#758ba8',
   gateSkip: '#7a8ba4',
   // 节点类型色（SVG circle fill）
-  typePhase: '#398ce3',
-  typeMicroStep: '#328ce8',
-  typeGate: '#c3790b',
-  typeHumanGate: '#e65d59',
-  typeCycle: '#4c9b24',
-  typeGateEvent: '#af71c9',
-  typeIncident: '#e45f52',
-  typeAutonomy: '#0b9c80',
-  typeUnknown: '#898989',
+  //
+  // ## cycle-94 重校准：9 色在可行亮度带内**联合**求解（不是逐个调）
+  //
+  // 旧值实测有 **8 对 ΔE < 15**（正常视觉）且同样 8 对在 deuteranopia 下塌缩，
+  // 其中 `typePhase #398ce3` vs `typeMicroStep #328ce8` 的 ΔE 只有 **0.8** ——
+  // 色相差 6°，等于两个不同的类型画成了同一个颜色；`typeHumanGate` vs
+  // `typeIncident` 是 1.1（色盲下 0.4，几乎完全同色）。
+  //
+  // **根因（可复算，见 `src/shared/colorMath.ts` 的 `feasibleLuminanceBand`）**：
+  // 每个类型色必须在浅底 `#f8fafc` 与暗底 `#0f172a` 上**同时** ≥3.3，这两条约束
+  // 把可用相对亮度锁进 `[0.1441, 0.2541]` 这一极窄带（宽仅 1.76 倍）。9 个色被挤在
+  // 这么窄的亮度维度里，只能靠**色相**区分 —— 而色相维度本身在 sRGB 里能塞下的
+  // 「ΔE ≥ 15 的不同色」数量，在这个亮度带内**不足 9 个**。
+  //
+  // **⇒ ΔE ≥ 15 对 9 色是数学上不可达的，不是没调好。** 求解时必须**三项一起看**：
+  // `min(正常ΔE, deuterΔE, protanΔE)`。只优化正常视觉 ΔE 能得到 9.1，但那时
+  // `typeGate` vs `typeCycle` 在 deuteranopia 下只剩 **2.23**（红绿盲用户眼里
+  // 门禁和循环同色 —— 比原来更糟）。本轮的取值是三项**同时**最优的解：
+  //
+  // | 口径 | 实测最小值 |
+  // |---|---|
+  // | 正常视觉 OKLab ΔE | **6.92** |
+  // | deuteranopia ΔE | **5.39** |
+  // | protanopia ΔE | **5.45** |
+  // | 两表面最小对比度 | **3.35** |
+  //
+  // （方法：语义色相锚定 + 在可行亮度带内网格化候选 + 贪心+局部搜索，目标函数
+  // 直接取三项最小值。求解脚本留在 `.cycles/cycle-95-evidence/solve-palette.mjs`，
+  // 可复算 —— 调色板这种"看着差不多"的改动必须留下算法痕迹。）
+  //
+  // **为什么保留每个类型的色彩身份**：不锚定色相的全局最优能把正常 ΔE 推到 10，
+  // 但它把蓝（phase）挪成橙、把门禁挪成绿 —— 颜色的**语义联想**被破坏（阶段一直
+  // 是蓝、门禁一直是琥珀橙）。色彩身份本身是可读性的一部分，所以在各自色相区间
+  // 内取最优，代价是正常 ΔE 从 10 降到 6.92，换来三项均衡。
+  //
+  // **颜色不是唯一通道**（这是本轮的诚实结论）：WCAG 1.4.1 要求分类信息另有
+  // 形状/文字通道 —— 而且对 9 类**必须**有第二通道，因为色相维度在这个亮度带里
+  // 装不下 9 个可分色。这就是 `graphTypeShape.ts`（类型专属形状）与卡片 meta 行
+  // 文字存在的原因。改这里的值时**不要**把形状通道拆掉。
+  typePhase: '#4292ad',      // 蓝（保留）：阶段一直是蓝
+  typeMicroStep: '#8b7cd9',  // 紫：与 phase 蓝拉开（原 #328ce8 与 phase 仅差 0.8）
+  typeGate: '#d46d05',       // 琥珀（保留）：门禁的语义色
+  typeHumanGate: '#f04886',  // 玫红：人工门（原 #e65d59 与 incident 仅差 1.1）
+  typeCycle: '#0d9e1b',      // 绿（保留）：循环
+  typeGateEvent: '#ee31cf',  // 品红：门禁事件
+  typeIncident: '#dc6359',   // 砖红：事故（与 human-gate 玫红拉开）
+  typeAutonomy: '#399785',   // 青绿（保留）：自主级
+  typeUnknown: '#5083fb',    // 蓝紫：兜底（与 phase 蓝拉开）
   // 步骤状态点（10px 圆点 fill）。与 gate 同值时仍独立登记：
   // 「一个值服务两个角色」正是本次缺陷的成因，独立登记才能各自被重校准。
   statusDone: '#0a9f41',

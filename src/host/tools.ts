@@ -23,6 +23,7 @@ import {
 } from './presentation.ts';
 import { t } from './i18n.ts';
 import { makeToolOutput } from './toolsSlot.ts';
+import { rootWithSessionFirst, setSessionWorkspaceCtx } from './runtime/sessionWorkspace.ts';
 import { registerPointerTools } from './toolsPointerGateway.ts';
 import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
 import { registerFlowsTools } from './toolsFlowsGateway.ts';
@@ -55,13 +56,14 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // 详见 toolFaceRecorder.ts 头注（依赖倒置，不是绕过检测）。
   const { reg, faces: registeredFaces } = createFaceRecorder(tools);
 
-  const getRoot = (): string | null => {
-    try {
-      return resolveWorkspaceRoots(c as SnapshotCtx);
-    } catch {
-      return null;
-    }
-  };
+  // 会话工作区解析（默认工作区缺陷修复）：ctx 交给出口包装层，wireGuard 每次
+  // execute 从 exec.agent 解析 workingDirectory/header.cwd。
+  setSessionWorkspaceCtx(c);
+
+  // 根工作区解析：**会话 → registry 链**（顺序即多项目隔离的核心，见
+  // `runtime/sessionWorkspace.rootWithSessionFirst` 头注）。
+  const getRoot = (): string | null =>
+    rootWithSessionFirst(() => resolveWorkspaceRoots(c as SnapshotCtx));
 
   // Tool: anic_evaluate — evaluate a project
   disposers.push(reg({
@@ -242,8 +244,6 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');
   if (cleanups.length === 0) return null;
-  // cycle-89 T-12：拆卸隔离——单个 disposer 抛错**不得阻断其余**。
-  // 工具侧的 disposer 常包着能力撤销（ctx.effect cleanup）；
-  // 一次抛错会让权限半途残留，后续整条链路跟着冻结。
+  // T-12 拆卸隔离：单个 disposer 抛错不得阻断其余（它常包着能力撤销，一次抛错会让权限半途残留）。
   return () => { safeDisposeAll(cleanups, disposeErrorSink('anic tools'), 'anic tools'); };
 }

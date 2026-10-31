@@ -454,7 +454,33 @@
       "event-seq": "Event sequence",
       "human-gate": "Human gate",
       "micro-entry": "Micro entry",
-      "micro-exit": "Micro exit"
+      "micro-exit": "Micro exit",
+      "gate-chain": "Gate chain (pass → next gate)",
+      "phase-transition": "Phase transition (all gates pass → next phase)",
+      "circuit-breaker": "Circuit breaker (gate fails → back to micro step)",
+      "flow": "Unregistered relation",
+      "next": "Sequential next step",
+      "on-pass": "Advance on pass",
+      "on-fail": "Rollback or reject on fail"
+    },
+    "layoutModeFlow": "Flow",
+    "edgeLegendLabel": "Edge types",
+    "edgeLegendHint": "Line style key for the six edge semantics (same source as the graph)",
+    "nodeRoleLabel": "Node roles",
+    "pathFind": "Find path",
+    "pathFindPlaceholder": "From… to… (label or id)",
+    "pathFindHint": "Enter two nodes (separated by → or a comma) to find the shortest path",
+    "pathFindNoPath": "No path between those nodes",
+    "pathFindResult": "Path of {hops} hop(s): {path}",
+    "pathFindInvalid": "Two distinct nodes are required",
+    "traceDepth": "{depth} hop(s)",
+    "layoutCrossings": "{count} crossing(s)",
+    "healthLabel": "Test health",
+    "nodeRole": {
+      "hub": "Hub",
+      "orphan": "Orphan",
+      "leaf": "Leaf",
+      "entry": "Entry"
     }
   },
   "config": {

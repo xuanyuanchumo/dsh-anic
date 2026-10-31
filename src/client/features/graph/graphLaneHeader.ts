@@ -27,6 +27,8 @@ import type { LaneHeaderPlacement } from './graphLayout.ts';
 import { typeColorOf } from './graphNodeRender.ts';
 import { gt } from './graphText.ts';
 import { t } from '../../i18n.ts';
+// cycle-94：类型专属形状（WCAG 1.4.1 第二通道；色彩在双表面约束下最多到 ΔE 6.92）。
+import { renderTypeShape } from './graphTypeShapeRender.ts';
 
 /** 表头渲染入参。 */
 export interface LaneHeaderInput {
@@ -92,12 +94,16 @@ export function renderLaneHeaders(input: LaneHeaderInput): ReactElement[] {
         transform: `translate(${String(h.x)},${String(h.y)})`,
       },
       // 类型色点：与卡片左侧色条同色 ⇒ "这一段是门禁"不必读文字也知道。
-      createElement('rect', {
-        key: 'dot',
-        'data-anic-graph-lane-header-dot': h.type,
-        x: 0, y: 3, width: 3, height: 9, rx: 1.5, ry: 1.5,
-        fill: typeColorOf(h.type),
-      }),
+      //
+      // ★cycle-94 —— **WCAG 1.4.1 第二通道**：`palette.ts` 已证明 9 个类型色
+      // 在"双表面 ≥3.3"的约束下最多只能做到正常 ΔE 6.92 / 色盲 5.39（色域上限，
+      // 不是调色水平）。所以类型信息**不能只靠颜色**承载 —— 这里把色点按
+      // `shapeOf(type)` 画成**专属形状**（方/菱/三角/人字/空心/星/叉/六边/小点）。
+      //
+      // 载体限制：`<circle>` 数被 smoke 钉死为「== 节点数」（一个节点一个裁决点），
+      // ⇒ 形状只能用 `<rect>`（含 rx 圆角档）与 `<path>`。矩形族用 rect，
+      // 非矩形族（三角/人字/菱/星/叉/六边）用 path。
+      renderTypeShape({ type: h.type }),
       // lane 名（本地化）。
       createElement('text', {
         key: 'name',

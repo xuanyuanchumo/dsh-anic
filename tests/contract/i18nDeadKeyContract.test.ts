@@ -163,8 +163,27 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   ⚠️ 这 22 键的**意义**是：让「读不出来」与「读出来是 0」在界面上**可区分**
      *   （`insufficient` / `degenerate` / `truncated` 各有自己的文案）。
      *   上限抬到 540 —— 留 7 条余量（本轮实际 533），仍能拦住"一次加 100 条没人用"的形态。
+     *
+     *   cycle-94：540 → 570。图谱能力升级新增 19 键（实际 557）：
+     *     - `graph.layoutModeFlow` / `layoutCrossings`：第三个布局模式（flow 分层）
+     *       与其质量读数（交叉数）。布局质量从"看着顺不顺眼"变成可断言数字后，
+     *       必须有一个位置把它**显示给用户**，否则那个数字只活在测试里。
+     *     - `graph.edgeLegendLabel` / `edgeLegendHint`：边语义图例。6 种边线型此前
+     *       图上可见但无法解码（图例只有节点类型），这是纯功能缺口。
+     *     - `graph.nodeRoleLabel` + `graph.nodeRole.{hub,orphan,leaf,entry}`：节点角色
+     *       （枢纽/孤立/末端/入口）。「被 8 条证据支撑的门禁」与「只被 1 条支撑的」
+     *       此前画得一模一样。
+     *     - `graph.pathFind*`（6 键）：两点最短路径。把"哪个 evt group 导致 G2 失败"
+     *       从三次双击降为一次输入。
+     *     - `graph.traceDepth` / `healthLabel`：追溯深度分档（blast radius 读数）
+     *       与测试健康度的可读名。
+     *   ⚠️ **本条上限对 `graph.*` 前缀是弱约束**（见下），所以抬上限不等于放水：
+     *   `dynamicKeyPrefixes` 以 `graph.` 前缀整体认领该族键 ⇒ 族内新增键即使无人消费，
+     *   ①（零死键双向相等）**依然为绿**。这是已知的遮蔽效应（`graphText.ts` 头注
+     *   自己写明）。因此 ① 绿**不能**作为"这批键已接线"的证据，验收必须逐键点名消费点。
+     *   抬到 570 —— 留 13 条余量，仍能拦住"一次加 100 条"。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(540);
+    expect(zhKeys.length).toBeLessThanOrEqual(570);
   });
 });

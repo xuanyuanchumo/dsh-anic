@@ -59,8 +59,52 @@ export interface FlowRecord {
   attribution?: FlowAttribution;
 }
 
+/**
+ * 淘汰水位线（cycle-94）—— 回答「我看到的是全部，还是被裁过的最近 N 条」。
+ *
+ * ## 为什么类型放在本文件而不是 `flowRetention.ts`
+ *
+ * `flowRetention.ts`（策略/算法）需要 `FlowRecord`，而本文件（纯类型）若反过来
+ * import 它，就形成 `flowTrackerTypes ↔ flowRetention` 的**类型环**。虽然
+ * `importGraph.mjs` 会排除 type-only 边，但本仓纪律是「让依赖成为树而不是环」
+ * （cycle-93 §3 的原话：环是静态可判的，运行时才爆的那类缺陷最难查）。
+ * ⇒ 类型下沉到零依赖的纯类型文件，算法文件单向依赖它。
+ *
+ * ## 四个读数的语义
+ *
+ * 对齐 dsh-context 的 `surfaceFloor` / `archiveFloor` 等 floor 家族：
+ * 记的是「裁到哪儿」而不是「裁了几条」—— floor 单调可比，条数不是。
+ */
+export interface EvictionWatermark {
+  /**
+   * 被裁掉的 flow 的最大 `startedAt`（ISO 串）；从未裁过 → null。
+   *
+   * **为什么用时间戳而不是 counter**：counter 只在 `startFlow` 递增，而
+   * `flowId` 的时间戳是调用真实发生的时刻。读侧拿它和「我最后一次看到的流程时间」
+   * 一比就知道界在哪 —— counter 做不到（读侧未必见过 counter）。
+   */
+  evictedThrough: string | null;
+  /** 累计被裁掉的条数（只增不减，用于「丢了多少」的定量）。 */
+  evictedTotal: number;
+  /** 最近一次淘汰裁掉几条（0 = 没触发淘汰）。 */
+  evictedNow: number;
+  /**
+   * 是否因「保护进行中流程」而保留了本应被裁的记录。
+   *
+   * 为 true 意味着**热窗口可能超过 MAX_WINDOW** —— 这是**有意的**：
+   * 「容量上限」与「看得见正在跑什么」冲突时，后者优先。诚实标注而不是
+   * 悄悄超限（否则下一个人看到 205 条会以为是 bug）。
+   */
+  overCapacity: boolean;
+}
+
 export interface FlowTrackerState {
   flows: FlowRecord[];
   /** 单调递增计数器，用于 flowId 唯一性 */
   counter: number;
+  /**
+   * 淘汰水位线（cycle-94）。**可选**：旧文件（v2 及之前）没有该字段，
+   * 读侧按空水位线处理 —— 语义恰好正确（那些文件确实没淘汰过，或淘汰未被记录）。
+   */
+  watermark?: EvictionWatermark;
 }

@@ -30,6 +30,15 @@ export interface LayoutSpec {
   columnBudgetPx: number;
   /** 同 lane 相邻卡片的垂直净空。 */
   gap: number;
+  /**
+   * 目标宽高比（只被 `flow` 消费；lane/compact 缺省 = 不设目标）。
+   *
+   * 为什么可选而不是必填：lane/compact 的宽高比是折列参数的**副产品**（cycle-89
+   * 的爆炸就出在这里），给它们加一个"目标比例"会诱导后来者去调参数凑比例。flow
+   * 反过来——它的层数由拓扑决定、不由参数决定，所以只能靠"层带多宽"这一个自由度
+   * 去逼近目标，目标比例因此是**必需**的输入。
+   */
+  aspectRatio?: number;
 }
 
 /**
@@ -90,6 +99,8 @@ export const LANE_HEADER_H = 18;
  * - `lane`（疏朗）：按泳道折列。同一泳道的节点在**连续的列**里，读者能顺着
  *   一列读下去 —— 这是默认模式，也是 `LAYOUT` 的原样。
  * - `compact`（紧凑）：**卡间隙更小 + 单列容量更大** ⇒ 同样的节点占**更少的列**。
+ * - `flow`（流程，cycle-94）：**不看泳道，看边的拓扑**。Sugiyama 简化版分层，
+ *   同一条链上的节点相邻，跨层边最少（算法见 `graphLayoutFlow.ts`）。
  *
  * ## 为什么"紧凑"不是"把卡片缩小"
  *
@@ -101,11 +112,17 @@ export const LANE_HEADER_H = 18;
  * 紧凑模式的真实收益在**装进视口后的可读性**：249 节点的图在疏朗模式下要适配
  * 到 900px 宽的视口，比例约 0.5 ⇒ 10.5px 的标签只剩 5px（看不清）；紧凑模式
  * 列数更少 ⇒ 适配比例更高 ⇒ 标签可读。**同样高度下更窄 = 缩放后更大**。
+ *
+ * ## `flow` 为什么不复用 lane 的参数表（这是三者里唯一的"换算法"）
+ *
+ * lane/compact 的差异全在**尺度**上（`LAYOUT_MODES` 的两张表），算法是同一份
+ * `planColumns`。flow 换的是**算法**：分桶折列 → 拓扑分层。所以它的参数表只是
+ * "尺度"，拓扑判据（分层/排序/交叉）在 `graphLayoutFlow.ts` 里，不在本表。
  */
-export type LayoutMode = 'lane' | 'compact';
+export type LayoutMode = 'lane' | 'compact' | 'flow';
 
 /**
- * 两种模式的参数表。
+ * 三种模式的参数表。
  *
  * `compact` 的取值依据（与 cycle-89 的耦合机理同源，此处是**安全方向**）：
  * - `rowsPerColumn: 30`（↑）：单列装更多 ⇒ 列数变少 ⇒ 宽度**降**；
@@ -117,6 +134,12 @@ export type LayoutMode = 'lane' | 'compact';
  * 两个数**一起升**是耦合机理里唯一被证明安全的方向（比值单调下降），
  * 所以本模式不会重演 cycle-89 的爆炸。两个模式的实测宽高比见
  * `tests/unit/graphLayoutMode.test.ts`。
+ *
+ * `flow` 的取值依据：`aspectRatio: 1.2` 是本仓实测目标（ELK Layered 的默认是
+ * 1.6，本研究 B1-4 建议 flow 单独取 ~1.2 以贴合 16:9 视口）。`rowsPerColumn`
+ * 与 `columnBudgetPx` 对 flow **不生效**（那是折列的判据），保留合理值只为让
+ * `LayoutSpec` 是同一张表、消费方不必分支取值 —— `graphLayoutFlow.assignCoordinates`
+ * 真正用的是 `columnPitch` / `rowPitch` / `gap` / `aspectRatio` 四个。
  */
 export const LAYOUT_MODES: Readonly<Record<LayoutMode, LayoutSpec>> = {
   lane: LAYOUT,
@@ -127,11 +150,21 @@ export const LAYOUT_MODES: Readonly<Record<LayoutMode, LayoutSpec>> = {
     columnBudgetPx: 900,
     gap: 4,
   },
+  flow: {
+    // 折列判据对 flow 不生效；取 lane 同值以免读者误以为它被用到了。
+    rowsPerColumn: 24,
+    columnPitch: 120,
+    rowPitch: 26,
+    columnBudgetPx: 840,
+    gap: 8,
+    aspectRatio: 1.2,
+  },
 };
 
 /** 模式 → 规格（未知模式回落到默认的疏朗模式，绝不抛）。 */
 export function specOf(mode: LayoutMode | undefined): LayoutSpec {
   if (mode === 'compact') return LAYOUT_MODES.compact;
+  if (mode === 'flow') return LAYOUT_MODES.flow;
   return LAYOUT_MODES.lane;
 }
 

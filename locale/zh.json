@@ -454,7 +454,33 @@
       "event-seq": "事件顺序",
       "human-gate": "人工门禁",
       "micro-entry": "微观进入",
-      "micro-exit": "微观退出"
+      "micro-exit": "微观退出",
+      "gate-chain": "门禁链（通过则进下一门）",
+      "phase-transition": "阶段推进（门禁全过则进下一阶段）",
+      "circuit-breaker": "熔断回退（门禁失败则回微观）",
+      "flow": "未登记关系",
+      "next": "顺序推进（默认下一步）",
+      "on-pass": "通过则推进",
+      "on-fail": "失败则回退/打回"
+    },
+    "layoutModeFlow": "流程",
+    "edgeLegendLabel": "边语义",
+    "edgeLegendHint": "六种边语义的线型对照（与图上同源）",
+    "nodeRoleLabel": "节点角色",
+    "pathFind": "找路径",
+    "pathFindPlaceholder": "从… 到…（名称或 id）",
+    "pathFindHint": "输入两个节点（用 → 或逗号分隔）找最短路径",
+    "pathFindNoPath": "两点之间不可达",
+    "pathFindResult": "路径 {hops} 跳：{path}",
+    "pathFindInvalid": "需要两个不同的节点",
+    "traceDepth": "{depth} 跳",
+    "layoutCrossings": "交叉 {count}",
+    "healthLabel": "测试健康度",
+    "nodeRole": {
+      "hub": "枢纽",
+      "orphan": "孤立",
+      "leaf": "末端",
+      "entry": "入口"
     }
   },
   "config": {

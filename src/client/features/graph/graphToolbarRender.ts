@@ -223,6 +223,14 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     props.view === undefined ? null : renderViewGroup(props.view),
 
     renderLegend(typeCounts),
+    /*
+     * cycle-94（WS-C 缺口三）：**边语义图例**。
+     *
+     * 此前 `renderEdgeLegend` 只有 import、零调用点 —— 组件写好了却没挂上，
+     * 于是「6 种边线型不同，但图例只有节点类型」这个研究结论修了一半就停了。
+     * 挂在节点图例之后（同一视觉行尾）：读者先认卡片类型，再认线型语义。
+     */
+    renderEdgeLegend(),
   );
 }
 

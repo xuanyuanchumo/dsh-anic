@@ -21,34 +21,12 @@ import { projectLatestTestReport, type TestReportSummary } from './testReportPro
 import type { LedgerEntryFact } from './aggregateGateEvents.ts';
 import type { CycleFact } from './projectionWindow.ts';
 
-/** 声明图（workflow-graph.yaml）的最小解析（只认技能侧真实形状）。 */
-export function parseWorkflowGraph(text: string): { nodes: { id: string; type: string; label: string }[]; edges: { from: string; to: string; type: string }[] } {
-  const nodes: { id: string; type: string; label: string }[] = [];
-  const edges: { from: string; to: string; type: string }[] = [];
-  let cur: { id: string; type: string; label: string } | null = null;
-  let section = '';
-  for (const raw of text.split('\n')) {
-    const line = raw.replace(/\s+#.*$/, '');
-    if (/^nodes:/.test(line)) { section = 'nodes'; continue; }
-    if (/^edges:/.test(line)) { section = 'edges'; continue; }
-    if (/^\S/.test(line)) { section = ''; continue; }
-    if (section === 'nodes') {
-      const idm = line.match(/^\s*-\s+id:\s*(\S+)/);
-      if (idm) { cur = { id: idm[1] ?? '', type: 'phase', label: idm[1] ?? '' }; nodes.push(cur); continue; }
-      if (cur) {
-        const t = line.match(/^\s*type:\s*(\S+)/);
-        if (t?.[1]) cur.type = t[1];
-        const l = line.match(/^\s*label:\s*"([^"]*)"/);
-        if (l?.[1]) cur.label = l[1];
-      }
-    }
-    if (section === 'edges') {
-      const m = line.match(/^\s*-\s*\{\s*from:\s*(\S+?),\s*to:\s*(\S+?)(?:,\s*type:\s*"([^"]+)")?\s*\}/);
-      if (m) edges.push({ from: m[1] ?? '', to: m[2] ?? '', type: m[3] ?? 'flow' });
-    }
-  }
-  return { nodes, edges };
-}
+/*
+ * ★cycle-94：解析器已拆至 `workflowGraphParse.ts`（三层关系修复都在那里，头注详述）。
+ * 此处**再导出**保持既有导入路径不变（既有测试直接 import 本模块的 parseWorkflowGraph）。
+ */
+export { parseWorkflowGraph } from './workflowGraphParse.ts';
+import { parseWorkflowGraph } from './workflowGraphParse.ts';
 
 /** 读声明图（缺失 ⇒ 空图；读坏 ⇒ **throw**，由路由层转 500：损坏不等于未 init）。 */
 export function readWorkflowGraph(cyclesDir: string): { nodes: { id: string; type: string; label: string }[]; edges: { from: string; to: string; type: string }[] } {

@@ -54,11 +54,20 @@ export interface ViewGroupInput {
   note: string;
 }
 
-/** 模式切换按钮（两个互斥按钮 + `aria-pressed` 表达当前态）。 */
+/**
+ * 模式切换按钮（互斥按钮 + `aria-pressed` 表达当前态）。
+ *
+ * cycle-94 加了第三档 `flow`（拓扑分层）。按钮结构**不变**：仍然是
+ * `modes.map(...)` 一个循环，仍是 `<button>` + `aria-pressed` + 两个锚点。
+ * 加一档只是往数组里多一条 —— 因为「模式」是**同一维度的三个取值**，不是三种
+ * 控件；任何按钮级的特例（比如给 flow 单独的图标或不同的按压语义）都会让
+ * "三选一"这件事对 AT 来说从单选退化成三个独立开关。
+ */
 function renderModeButtons(input: ViewGroupInput): ReactElement[] {
   const modes: Array<{ mode: LayoutMode; label: () => string }> = [
     { mode: 'lane', label: () => gt('layoutModeLane') },
     { mode: 'compact', label: () => gt('layoutModeCompact') },
+    { mode: 'flow', label: () => gt('layoutModeFlow') },
   ];
   return modes.map((m) => {
     const active = input.layoutMode === m.mode;

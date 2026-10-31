@@ -2,14 +2,16 @@
  * DSH tools 槽位的最小形状契约（tools.ts 与 toolsSkillGateway.ts 共享）。
  * 独立成文件以避免 tools ↔ toolsSkillGateway 的 type-only 循环引用。
  *
- * ★cycle-82：本文件同时承载**工具出口的无损 JSON 防线**（`wireGuard`）。
- * 为什么放在契约层而不是各 gateway：真正的缺陷不是某个字段漏了 `?? null`，
- * 而是「任何工具返回的 canonical value 都可能有可选 undefined 字段」这一整类。
- * 修在一个共同的出口才能对新工具、新字段持续生效（语义裁决见 runtime/jsonSanitize.ts）。
+ * ★cycle-82：同时承载**工具出口的无损 JSON 防线**（`wireGuard`）。缺陷不是某个
+ * 字段漏了 `?? null`，而是「canonical value 都可能有可选 undefined」这一整类
+ * ⇒ 修在共同出口才能对新工具/新字段持续生效（裁决见 runtime/jsonSanitize.ts）。
  */
 import { sanitizeForWire } from './runtime/jsonSanitize.ts';
 // cycle-89 T-04：未知参数键守卫（参数面语义裁决，独立成文件守 T3 ≤250 行）。
 import { withArgumentGuard } from './toolsArgGuard.ts';
+// 会话工作区 scope（anic_status 默认工作区缺陷修复）：出口包装注入会话感知，
+// getRoot 调用点零签名变化。包装器本体在 sessionWorkspace.ts（守行数纪律）。
+import { scopedToolExecute } from './runtime/sessionWorkspace.ts';
 
 /**
  * 工具调用呈现视图（DSH ToolCallView 子集）。
@@ -165,6 +167,13 @@ export function sanitizeToolValue(value: unknown): Record<string, unknown> {
   return safe as Record<string, unknown>;
 }
 
+/** sanitize 的 execute 适配层（wireGuard 组合件：收敛先于 scope 包装的外层返回）。 */
+function sanitizeExecute(
+  inner: ToolRegistration['execute'],
+): ToolRegistration['execute'] {
+  return async (args, exec) => sanitizeToolValue(await inner(args, exec));
+}
+
 /**
  * ★cycle-82：工具注册期的**统一出口防线**（包装 execute）。
  *
@@ -172,30 +181,25 @@ export function sanitizeToolValue(value: unknown): Record<string, unknown> {
  * `ScriptHealth.recentSuccessRate` 在「近 7 天无调用」时为 `undefined`，被原样
  * 塞进 canonical value；宿主 `visitJsonValue` 遇 undefined 判非法，整个返回值丢弃。
  *
- * 为什么包装**注册**而不是改 20 处 `execute`：调用点越多，漏一个就越隐蔽，
- * 而漏了在 vitest 里不会红（JSON.stringify 会静默吞掉 undefined）。包装注册面后，
- * 任何网关（含未来新增的）都自动经过同一道闸门 —— 出口防线才有保修期。
- * 语义裁决（对象删键 / 数组 null / Date→ISO …）见 runtime/jsonSanitize.ts 头注。
+ * 为什么包装**注册**面而不是改 20 处 `execute`：漏一个在 vitest 里不会红
+ * （JSON.stringify 静默吞 undefined）⇒ 包装注册面后任何网关（含未来新增）
+ * 都自动过闸门，出口防线才有保修期。语义裁决见 runtime/jsonSanitize.ts。
  */
 export function wireGuard(tool: ToolRegistration): ToolRegistration {
   const inner = tool.execute;
   return {
     ...tool,
-    // cycle-89 T-04：未知键守卫接在**唯一出口**（wireGuard），对新工具自动生效，
-    // 无需在 20+ 个 gateway 里逐个打补丁。守卫实现见 toolsArgGuard.ts。
-    execute: withArgumentGuard(tool, async (args, exec) => sanitizeToolValue(await inner(args, exec))),
+    // 唯一出口：参数守卫 + 会话 scope + 无损收敛（sanitize 在 scope 内层 ⇒
+    // 收敛发生在 ALS 帧内，与旧内联实现逐字节一致）。
+    execute: withArgumentGuard(tool, scopedToolExecute(sanitizeExecute(inner))),
   };
 }
 
 /**
- * 构造通用工具输出声明：object-rooted schema + JSON 文本块渲染。
- * 所有 ANIC 工具返回 JSON 对象，统一用此工厂避免 12 处重复。
- * render 包一个 text 块（ContentBlock[] 契约见 TextContentBlock 注释）。
- *
- * ★cycle-82 第二层：render 侧再 sanitize 一次。宿主对 canonical value 的校验发生在
- * render **之前**（本文件的 wireGuard 才是主防线）；这一层守的是「有人绕过注册面
- * 直接调 render」的形态，保证模型看到的 JSON 文本永不因 undefined 变成半截对象。
- * 快路径保证合法值原样通过（零重建）。
+ * 构造通用工具输出声明（object schema + JSON 文本块）；所有 ANIC 工具返回
+ * JSON 对象，统一用此工厂避免重复。★cycle-82 第二层：render 侧再 sanitize 一次
+ * （主防线是 wireGuard；这层守「绕过注册面直接调 render」）⇒ 模型看到的 JSON
+ * 永不因 undefined 变半截；快路径保证合法值原样通过（零重建）。
  */
 export function makeToolOutput(): ToolOutput {
   return {
@@ -209,9 +213,7 @@ export function makeToolOutput(): ToolOutput {
   };
 }
 
-export interface ToolsSlot {
-  register?: (tool: ToolRegistration) => (() => void) | null | undefined;
-}
+export interface ToolsSlot { register?: (tool: ToolRegistration) => (() => void) | null | undefined; }
 
 /**
  * 工具执行上下文（DSH dispatch 第二参的最小契约面）。
@@ -231,16 +233,13 @@ export interface ToolExecContext {
 /**
  * 包装 async execute 添加错误边界（P1-4）。
  *
- * cycle-22 语义修正（官方契约对齐，adding-a-tool.md「execute() 约定的规则」）：
- * - **基础设施故障 = 抛异常**——注册表捕获异常并收敛为 isError=true 的结果，
- *   模型与轨迹据此看到失败。旧实现把一切异常折叠成 { error } 正常返回，
- *   isError=false 的「成功」无法区分 infra 故障与领域失败（与官方语义相反）。
- * - **领域失败 = 规范值**——调用方应显式返回 { error: ... } 等规范值
- *   （如 script not whitelisted / validateWorkspace 拒绝），不经 throw。
- *   现有 gateway 均已遵守（grep 验证无 intentional throw）。
- * - 本包装保留的意义：async 边界统一（签名透传 exec）+ 注释锚点，
- *   不再吞异常——异常沿 Promise 拒绝传播给注册表。
- * P1-EXEC-SIGNAL：签名透传 exec（第二参），调用方可读 exec.signal 取消子进程。
+ * cycle-22 语义（官方契约对齐，adding-a-tool.md「execute() 约定的规则」）：
+ * **基础设施故障 = 抛异常**（注册表收敛为 isError=true；旧实现把一切异常
+ * 折叠成 { error } 正常返回，isError=false 无法区分 infra 故障与领域失败）；
+ * **领域失败 = 规范值**（调用方显式返回 { error: ... }，如 script not
+ * whitelisted —— 现有 gateway 均已遵守，grep 验证无 intentional throw）。
+ * 本包装保留：async 边界统一（签名透传 exec，P1-EXEC-SIGNAL）+ 注释锚点；
+ * 异常沿 Promise 传播。完整历史语义见 tests/unit/toolContractCycle22.test.ts。
  */
 export function safeHandler(
   fn: (args: Record<string, unknown>, exec?: ToolExecContext) => Promise<Record<string, unknown>>,

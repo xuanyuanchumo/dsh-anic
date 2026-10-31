@@ -57,6 +57,39 @@ export const EDGE_STYLES: Record<string, EdgeStyle> = {
   'human-gate': { dash: '6 3', width: 0.8, stroke: 'anic-border-strong', arrow: true, curve: 0.45 },
   'micro-entry': { dash: '2 2', width: 0.8, stroke: 'anic-border-strong', arrow: false, curve: 0.45 },
   'micro-exit': { dash: '2 2', width: 0.8, stroke: 'anic-border-strong', arrow: false, curve: 0.45 },
+  /*
+   * ★cycle-94：以下三种是 `workflow-graph.yaml` **一直声明、但快照从未画出**的边
+   * （解析器正则丢弃它们，见 `snapshotSource.parseWorkflowGraph` 头注）。
+   * 补上样式后，门禁链与熔断反馈环才第一次真正出现在图上。
+   *
+   * 线型选择的原则：**同一条链要能顺着读**，反馈方向要能一眼看出。
+   * - `gate-chain`：实线 + 箭头（G0→G1→G2→G3 是**严格顺序**，走不下去就停）；
+   * - `phase-transition`：长划 + 箭头（跨阶段的推进，比门禁链"重"一档）；
+   * - `circuit-breaker`：点线 + 箭头（**回头**的方向感 —— 点线的"断续"正好隐喻中断）。
+   */
+  'gate-chain': { dash: undefined, width: 1.0, stroke: 'anic-warn-text', arrow: true, curve: 0.3 },
+  'phase-transition': { dash: '7 3', width: 1.0, stroke: 'anic-text-strong', arrow: true, curve: 0.45 },
+  'circuit-breaker': { dash: '1.5 2.5', width: 0.9, stroke: 'anic-fail', arrow: true, curve: 0.6 },
+  /*
+   * ★cycle-94：`next` / `on-pass` / `on-fail` —— **31 条关系**（13 next + 9 on_pass
+   * + 9 on_fail，实测 `grep -c`），此前快照解析器**一条都不读**（见
+   * `snapshotSource.parseWorkflowGraph` 第三层修复）。补上后宏观主线
+   * （plan→design→build→test→deploy→maintain→plan）与微观链才第一次连通。
+   *
+   * ## 线型为什么这样分（三者必须可分，否则"有条件分支"画不出来）
+   *
+   * | 类型 | 语义 | 线型 |
+   * |---|---|---|
+   * | `next` | **无条件**顺序推进 | 细实线 + 无箭头（"然后"） |
+   * | `on-pass` | 裁决为通过时的推进 | 中粗实线 + 箭头（"向好"） |
+   * | `on-fail` | 裁决为失败时的回退 | 短划 + 箭头（"向回"，断续=中断） |
+   *
+   * 同一个节点同时有 `on-pass` 与 `on-fail` 两条出边时（人类门正是如此），
+   * 读者必须能一眼分出哪条是成功路径 —— 这就是三者不可合并的理由。
+   */
+  next: { dash: undefined, width: 0.8, stroke: 'anic-border-strong', arrow: false, curve: 0.45 },
+  'on-pass': { dash: undefined, width: 1.1, stroke: 'anic-pass', arrow: true, curve: 0.35 },
+  'on-fail': { dash: '2 2', width: 1.0, stroke: 'anic-doubt', arrow: true, curve: 0.6 },
 };
 
 /** 未登记边类型：细实线无箭头 —— 宁可"少语义"也不要"不可见"。 */

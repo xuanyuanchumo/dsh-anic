@@ -131,13 +131,17 @@ export function routeRegisterSites(files: Map<string, string>): Map<string, stri
   return out;
 }
 
-/**
- * 兼容包装（既有消费者按 AssetDef 形态取用）：id 集与 scanRouteDefs **完全同源**
- * （单一实现纪律 G-SINGLE），definedAt 取注册点优先、其次声明处。
+/*
+ * ★cycle-94：`scanRouteAssets`（兼容包装）**已删除**。
+ *
+ * 它声称"既有消费者按 AssetDef 形态取用"，但实测**没有这样的消费者**——
+ * 全仓零文本证据（`scripts/audit-wiring.mjs` 的判据是去注释后的真实引用）。
+ * 同文件内的真实读者用的是 `scanRouteDefs`，它给出的形态已带 `definedAt`。
+ *
+ * 删除理由与 `classifyUnconsumed` 同型：**没有人用的兼容层是最贵的兼容层**——
+ * 它把"两种形态"这个复杂度永久留在仓库里，却没有任何当前收益。
+ * 真需要 `AssetDef` 形态时，对 `scanRouteDefs` 的返回值映射一行就够，不必预置。
  */
-export function scanRouteAssets(files: Map<string, string>): AssetDef[] {
-  return scanRouteDefs(files).map((d) => ({ id: d.id, definedAt: d.producedAt ?? d.declaredAt ?? '?' }));
-}
 
 /**
  * 端点真消费面：客户端 fetch 常量 / 宿主内部调用 / CLI 脚本。

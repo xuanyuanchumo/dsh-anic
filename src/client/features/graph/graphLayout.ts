@@ -43,8 +43,11 @@
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import { nodeBoxOf } from './graphNodeBox.ts';
 import { placeLaneHeaders } from './graphLanePlacement.ts';
-import { planColumns } from './graphLayoutPlan.ts';
+import { planColumns, laneOrderOf } from './graphLayoutPlan.ts';
 import { specOf, type LayoutMode } from './graphLayoutSpec.ts';
+// `flow` 模式（cycle-94）：算法在 graphLayoutFlow.ts，装配在 graphLayoutFlowAssembly.ts。
+// 分成两层是因为前者全是「判据」（可独立单测），后者只做「形状适配」到 GraphLayout。
+import { crossingsFromPositions, flowLayout } from './graphLayoutFlowAssembly.ts';
 // 空图包围盒（与旧布局基线同源，见 graphLegacyBounds.ts 头注）。
 import { EMPTY_BOUNDS } from './graphLegacyBounds.ts';
 import type {
@@ -90,6 +93,13 @@ export function layoutGraph(
   edges: readonly WorkflowEdge[],
   options?: { mode?: LayoutMode },
 ): GraphLayout {
+  // `flow`（cycle-94）走**独立算法**，在此提前返回。为什么提前返回而不是按 mode 分支：
+  // flow 与 lane/compact 的相似处只有「输入节点与边、输出 PositionedNode[]」——折列 /
+  // 表头 / 列数这三步在 flow 里根本不存在（它没有 lane 列、也没有泳道表头）。挤进同一
+  // 个函数体后每个变量都要问"flow 模式下它有意义吗"，那正是最容易被改错的结构。
+  // 提前返回还把风险收进一行：lane/compact 的路径一个字节没变，三条既有不变量照旧。
+  if (options?.mode === 'flow') return flowLayout(nodes, edges, PAD);
+
   const mode: LayoutMode = options?.mode === 'compact' ? 'compact' : 'lane';
   const spec = specOf(mode);
   const plan = planColumns(nodes, spec);
@@ -97,7 +107,7 @@ export function layoutGraph(
   if (plan.lanes.length === 0) {
     return {
       nodes: [], edges: [...edges], bounds: EMPTY_BOUNDS, lanes: [],
-      laneHeaders: [], mode, columns: 0,
+      laneHeaders: [], mode, columns: 0, crossings: 0,
     };
   }
 
@@ -156,6 +166,17 @@ export function layoutGraph(
     laneHeaders,
     mode,
     columns: plan.columns,
+    // 同一把尺量所有模式（见 graphLayoutTypes.GraphLayout.crossings 注释）：
+    // 在 lane 模式下它是折列布局的交叉数，flow 拿它做比较基线。
+    crossings: crossingsFromPositions(edges, ordered),
+  };
+}
+
+/** 空图的统一返回（两种算法共用同一份形状，免得空图分支各写一遍）。 */
+function emptyLayout(edges: readonly WorkflowEdge[], mode: LayoutMode): GraphLayout {
+  return {
+    nodes: [], edges: [...edges], bounds: EMPTY_BOUNDS, lanes: [],
+    laneHeaders: [], mode, columns: 0, crossings: 0,
   };
 }
 
