@@ -30,6 +30,7 @@ import { loadAgentCards } from '../agents.ts';
 import { checkIndexDrift, loadInjectedIndex } from '../capabilityIndexRuntime.ts';
 import { resolveDisclosureMode } from '../toolDisclosure.ts';
 import { activationReady, planActivation } from '../indexActivation.ts';
+import { buildDisclosureReadout, summarizeDisclosure } from '../runtime/disclosureReadout.ts';
 import { captureRegisteredFaces } from '../toolsFaceCapture.ts';
 import { inlineSkillRoot } from '../skillInvoker.ts';
 import { verifySkillInstall } from '../skillIntegrity.ts';
@@ -151,7 +152,9 @@ export function runSelfChecks(input: SelfCheckInput): { checks: ProbeResult[]; a
     checks.push({
       id: 'P8-tool-disclosure-mode',
       ok: !selfLocked,
-      detail: `mode=${mode}${mode === 'full' ? ' (default full, zero behavior change)' : ''}; index=${String(bytes)}B; ${gate}`,
+      detail:
+        `mode=${mode}${mode === 'full' ? ' (default full, zero behavior change)' : ''}; index=${String(bytes)}B; ${gate}`
+        + '; runtime: ' + summarizeDisclosure(buildDisclosureReadout()), // cycle-93：运行时读数
     });
   } catch (e) {
     checks.push({ id: 'P8-tool-disclosure-mode', ok: false, detail: `threw: ${e instanceof Error ? e.message : String(e)}` });

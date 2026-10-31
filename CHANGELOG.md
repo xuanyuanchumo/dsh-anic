@@ -1,5 +1,107 @@
 # dsh-anic CHANGELOG
 
+## v0.51.0 — 2026-10-31（cycle-93：披露状态可观测 · 解运行时 import 环）
+
+> 起点：commit `e380db7`（v0.50.0 cycle-92），237 文件 / 3165 用例全绿。
+> 本轮修 **5 个实测缺陷**，核心是**把「验证困难」拆成「可查 + 待查」**。
+> 终点：**238 文件 / 3176 用例全绿**、eval **16/16**、G0-G3 **全 PASS**（含 Q1-Q8）、
+> HITL H1-H4 全过、L4 未降级。
+
+### ① 披露状态无出口（O-92-02/04 的**根本困难**）
+
+cycle-92 修掉了披露自锁，但留下两个「无法查证」项。排查发现根因**不是「没做真机验证」**，
+而是**披露状态没有任何出口**：
+
+- 状态存在内存 `WeakMap`/`Set`，**只在 `log.info` 出现过一次**；
+- `P8-tool-disclosure-mode` 探针只查**静态可激活性**（deny 集合 + 加载器在场），
+  **不查运行时发生了什么**。
+
+⇒ 即便切到 indexed 并重启会话，**同样看不到**内部状态，只能靠「模型能不能调通」
+**间接推断**。
+
+**修复**：新增 `disclosureReadout.ts`，把运行时状态做成**一问一答的读数**
+（不是"更强的日志"——日志是流，读数是状态）：
+
+```
+GET /anic/api/disclosure
+→ {
+    trackedAgents: 1,                          ← 几个 agent 被遮蔽
+    agents: [{ denyCount: 21,                  ← 遮蔽了多少工具
+               unlocked: ['anic_status'],      ← 谁解锁了什么
+               restricted: true }],
+    toolsChangeEmits: 3,                       ← 事件发了几次（0 = 接线断了）
+    fullyMaskedAgents: 0,                      ← 还有几个是全遮
+    summary: 'agents=1, unlocked=1, fullyMasked=0, tools/change=3'
+  }
+```
+
+**这是唯一不需要工作区参数的数据端点**——披露状态是**进程级**的，
+查证「插件当前处于什么披露状态」不该依赖「当前在哪个项目」。
+响应**不含** agent 标识（会话 id / cwd）⇒ 多会话共存时不串味。
+
+### ② `forgetDisclosure` 漏清 tracked（读数会撒谎）
+
+契约是「`forgetDisclosure` 清 WeakMap + **另调** `untrackAgent` 清 tracked」。
+接线层的 `agent/disposed` 恰好两个都调了，所以看不出问题；但**只调一个**的路径
+（单测 / 将来新调用方 / 早退分支）会留下幽灵条目 ⇒ `trackedAgents` **虚高**。
+
+⇒ 收敛为单一职责：**「销毁」= 全清**。
+
+### ③ 真实运行时 import 环（守卫生效的实证）
+
+首次实现把计数器放 `disclosureReadout.ts`：
+
+```
+disclosureActivation.ts → disclosureReadout.ts   （记发出）
+disclosureReadout.ts    → disclosureActivation.ts（读状态）
+```
+
+⇒ **真运行时环**（不是类型导入造成的伪环）。`skillConvergenceContract` 的
+`importGraph` 守卫**立刻报红**。
+
+**为什么这是本轮最值得记的一条**：环是**静态可判**的。若没有该守卫，Node ESM 下会在
+**运行时**报 `Cannot access 'X' before initialization`——且**只在特定加载顺序下出现**
+（最难查的一类缺陷）。
+
+**修复**：计数器下沉为**零依赖叶子** `toolsChangeCounter.ts` ⇒ 依赖从**环**变**树**。
+
+### ④ 解锁通道判据过于单一
+
+`unlockedTotal > 0` 单一判据会把 `full` 模式（**无遮蔽** ⇒ 无需解锁 ⇒ 0 是**正确**的）
+误判成「通道坏了」。
+
+⇒ 三态判据：`idle`（full，不适用）/ `masked-only`（遮蔽生效但无人取 schema）/
+`unlocking`（通道工作）。
+
+### ⑤ P8 探针升级
+
+从「静态可激活性」升级为「静态 + 运行时」：detail 追加 `runtime: …` 摘要。
+
+### 已知边界
+
+- **读数不能证明宿主的 `restrict` 真的按 deny 生效**（O-93-01）：那需读宿主工具视图
+  （A0′ 探针路径）。读数只覆盖**我们这侧**施加了什么、解锁了什么、发了几次事件。
+  ⇒ 它把「完全不可查」提升为「**我们这侧完全可查**」，**不是**把未验证项变成已验证项。
+- **真机切换 indexed 未做**（O-92-02）：读数让它可以**被查证**，但切换仍需人做
+  （改配置 + 重启会话）。
+- **读数不含 agent 标识**（O-93-02）：隐私边界；需排障可加 hash 前缀。
+
+### 下一轮：真机验证现在有据可依
+
+```yaml
+# .cycles/config.yml
+anic:
+  toolDisclosure: indexed
+```
+
+⇒ 重启会话 ⇒ 调 `GET /anic/api/disclosure`：
+
+- 初始：`trackedAgents=1, denyCount=21, unlocked=[]`；
+- 调一次 `anic_tool_detail({name:'anic_status'})` 后：
+  `denyCount=20, unlocked=['anic_status'], toolsChangeEmits≥2`。
+
+⇒ **不再需要"试试能不能调通"**。
+
 ## v0.50.0 — 2026-10-31（cycle-92：渐进式披露自锁根治 · 门禁映射死键治理）
 
 > 起点：commit `f3188f5`（v0.49.0 cycle-91），234 文件 / 3137 用例全绿。

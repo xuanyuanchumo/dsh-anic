@@ -25,11 +25,9 @@ import type { StepTraceJson } from '../features/stepTrace/renderStepTrace.ts';
 import type { SelfCheckJson } from '../features/diagnostics/renderDiagnostics.ts';
 import type { OrgStatusJson } from '../features/org/renderOrgStatus.ts';
 import type { FlowStatusJson } from '../features/flows/renderFlows.ts';
-// cycle-89：流程归属矩阵切片。
-import type { FlowMatrixJson } from '../features/flows/flowMatrixTypes.ts';
-// cycle-90：生命周期指标切片。
-import type { LifecycleMetricsJson } from '../features/flows/lifecycleTypes.ts';
-import type { ResolvedFlowsJson } from './resolvedFlowsTypes.ts';
+import type { FlowMatrixJson } from '../features/flows/flowMatrixTypes.ts'; // cycle-89：归属矩阵切片
+import type { LifecycleMetricsJson } from '../features/flows/lifecycleTypes.ts'; // cycle-90：生命周期指标
+import type { ResolvedFlowsJson } from './resolvedFlowsTypes.ts'; // cycle-91：开关解析态
 import type { CycleListJson, CycleStateJson } from '../features/cycles/renderCyclesTimeline.ts';
 import type { LedgerListJson, LedgerVerifyJson } from '../features/ledger/renderLedger.ts';
 import type { HitlAuditJson } from '../features/hitl/renderHitl.ts';
@@ -43,6 +41,7 @@ import type { BootstrapJson } from '../features/bootstrap/bootstrapTypes.ts';
 import { valueToDraftText, type ConfigJson, type ConfigWriteJson } from '../features/config/configTypes.ts';
 import type { InvocationsJson } from '../features/live/renderInvocations.ts';
 import type { FetchFailure } from './usePanelFetch.ts';
+import type { DisclosureReadoutJson } from './disclosureReadoutTypes.ts';
 import type { PanelDataStore, FetchSource } from '../panelState.ts';
 
 /** 拉取失败的行级文案三分类（唯一 classifier——原散布三处的规则收拢）。 */
@@ -80,9 +79,9 @@ export interface PanelActions {
   setFlowsStatus(v: FlowStatusJson): void;
   /** 流程归属矩阵落地（cycle-89 4s 档；量化条的数据源）。 */
   setFlowMatrix(v: FlowMatrixJson): void;
-  /** 生命周期指标落地（cycle-90 4s 档）。 */
-  setLifecycleMetrics(v: LifecycleMetricsJson): void;
+  setLifecycleMetrics(v: LifecycleMetricsJson): void; // cycle-90：生命周期指标（4s 档）
   setResolvedFlows(v: ResolvedFlowsJson): void; // cycle-91：开关解析态（workspace/deployment 层）
+  setDisclosure(v: DisclosureReadoutJson): void; // cycle-93：披露运行时读数
   setCycleList(v: CycleListJson): void;
   setCycleState(v: CycleStateJson): void;
   setSkillHealth(v: SkillHealthJson): void;
@@ -174,6 +173,7 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     setFlowMatrix: (v) => { store.setState({ flowMatrix: v }); },
     setLifecycleMetrics: (v) => { store.setState({ lifecycleMetrics: v }); },
     setResolvedFlows: (v) => { store.setState({ resolvedFlows: v }); },
+    setDisclosure: (v) => { store.setState({ disclosure: v }); },
     setCycleList: (v) => { store.setState({ cycleList: v }); },
     setCycleState: (v) => { store.setState({ cycleState: v }); },
     setSkillHealth: (v) => { store.setState({ skillHealth: v }); },

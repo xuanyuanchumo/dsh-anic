@@ -26,6 +26,7 @@ import { planActivation, INDEX_LOADER_TOOLS } from './indexActivation.ts';
 import { buildIndexSectionText, resolveDisclosureMode } from './toolDisclosure.ts';
 import type { CapabilityIndexInjectable } from './capabilityIndex.ts';
 import { forgetDisclosure, rememberDisclosure, trackAgent, untrackAgent } from './runtime/disclosureActivation.ts';
+import { noteToolsChangeEmit } from './runtime/disclosureReadout.ts';
 
 const log = createScoped('anic:tool-disclosure');
 
@@ -128,7 +129,7 @@ export function applyDisclosureToScope(
     }
     // 宿主契约（tools.md）：scoped restriction 变更属于 `tools/change` 的触发条件；
     // 不发 ⇒ 宿主下一次 prompt 装配可能沿用陈旧工具集。
-    try { (scoped as { emit?: (n: string) => unknown }).emit?.('tools/change'); } catch { /* 老代宿主无 emit */ }
+    try { (scoped as { emit?: (n: string) => unknown }).emit?.('tools/change'); noteToolsChangeEmit(); } catch { /* 老代宿主无 emit */ }
     return { wired: true, reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools (unlockable via anic_tool_detail)', denyCount: plan.deny.length };
   } catch (e) {
     // restrict 失败 ⇒ 未遮蔽（section 已注入但无害：索引在 full 模式下只是补充信息）。

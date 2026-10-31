@@ -45,6 +45,7 @@ import { isFlowMatrix, type FlowMatrixJson } from './features/flows/flowMatrixTy
 // cycle-90：生命周期指标。
 import { isLifecycleMetrics, LIFECYCLE_METRICS_URL, type LifecycleMetricsJson } from './features/flows/lifecycleTypes.ts';
 import { isResolvedFlows, RESOLVED_FLOWS_URL, type ResolvedFlowsJson } from './components/resolvedFlowsTypes.ts';
+import { isDisclosureReadout, DISCLOSURE_URL, type DisclosureReadoutJson } from './components/disclosureReadoutTypes.ts';
 import {
   isCycleList, isCycleState, CYCLE_LIST_URL, CYCLE_STATE_URL,
   type CycleListJson, type CycleStateJson,
@@ -79,6 +80,8 @@ export function periodicTarget(s: PanelActions, ledgerLimit: number): PanelFetch
     { url: LIFECYCLE_METRICS_URL, guard: isLifecycleMetrics, apply: (v) => { s.setLifecycleMetrics(v as LifecycleMetricsJson); }, onFail: fail('lifecycleMetrics'), onRecover: recover('lifecycleMetrics') },
     // cycle-91：开关解析态（服务端才知道的 workspace/deployment 层）。
     { url: RESOLVED_FLOWS_URL, guard: isResolvedFlows, apply: (v) => { s.setResolvedFlows(v as ResolvedFlowsJson); }, onFail: fail('resolvedFlows'), onRecover: recover('resolvedFlows') },
+    // cycle-93：披露运行时读数（进程级，不需要工作区）。
+    { url: DISCLOSURE_URL, guard: isDisclosureReadout, apply: (v) => { s.setDisclosure(v as DisclosureReadoutJson); }, onFail: fail('disclosure'), onRecover: recover('disclosure') },
     // cycle 时间线两端点（宏观节奏条）：list 给序列、state 给「当前推进到哪」。
     { url: CYCLE_LIST_URL, guard: isCycleList, apply: (v) => { s.setCycleList(v as CycleListJson); }, onFail: fail('cycleList'), onRecover: recover('cycleList') },
     { url: CYCLE_STATE_URL, guard: isCycleState, apply: (v) => { s.setCycleState(v as CycleStateJson); }, onFail: fail('cycleState'), onRecover: recover('cycleState') },

@@ -44,6 +44,7 @@
  * （不清理会随会话数线性增长 —— 长跑宿主上是真实泄漏）。
  */
 import { createScoped } from '../logger.ts';
+import { noteToolsChangeEmit } from './toolsChangeCounter.ts';
 
 const log = createScoped('anic:disclosure-activation');
 
@@ -95,13 +96,29 @@ export function disclosureOf(agent: unknown): AgentDisclosureState | null {
   return states.get(agent) ?? null;
 }
 
-/** 清掉状态（agent 销毁时调用，防长跑泄漏）。 */
+/**
+ * 清掉**全部**披露状态（agent 销毁时调用，防长跑泄漏）。
+ *
+ * ## ⚠️ cycle-93 修正：这里必须**同时** untrack
+ *
+ * 此前的契约是「`forgetDisclosure` 清 WeakMap，`untrackAgent` 清 tracked 集合」
+ * ——两个函数、两次调用，靠**调用方记得都调**。
+ *
+ * **实测缺陷**：接线层的 `agent/disposed` 恰好两个都调了，所以看不出问题；
+ * 但任何**只调一个**的路径（单测、将来的新调用方、或早退分支）都会留下
+ * `tracked` 里的幽灵条目 ⇒ `trackedAgents` 读数**虚高** ⇒ 披露读数**撒谎**。
+ *
+ * ⇒ 收敛为单一职责：**「销毁」= 全清**。`untrackAgent` 保留导出（幂等，
+ *   接线层继续调也不会出错），但 `forgetDisclosure` 自己兜住。
+ */
 export function forgetDisclosure(agent: object): void {
   const st = states.get(agent);
   if (st?.disposer) {
     try { st.disposer(); } catch { /* 撤销失败不该阻断销毁 */ }
   }
   states.delete(agent);
+  // 同源清理：读数按 tracked 遍历，漏清会让读数虚高。
+  tracked.delete(agent);
 }
 
 /**
@@ -189,6 +206,7 @@ export function unlockTool(agent: unknown, toolName: string): UnlockOutcome {
   // 宿主契约：scoped restriction 变更属于 `tools/change` 的触发条件。
   try {
     scoped?.emit?.('tools/change');
+    noteToolsChangeEmit();
   } catch (e) {
     log.warn('emit tools/change threw: ' + (e instanceof Error ? e.message : String(e)));
   }
@@ -207,6 +225,11 @@ export function trackedAgentCount(): number {
 /** 记录一个 agent 供巡检计数（生产路径由接线层调用；WeakMap 不会阻止 GC）。 */
 export function trackAgent(agent: object): void {
   tracked.add(agent);
+}
+
+/** 列出被跟踪的 agent（供读数模块遍历；读侧只依赖接口，不直接碰集合）。 */
+export function listTrackedAgents(): object[] {
+  return [...tracked];
 }
 
 /** 清理 tracked（销毁时调用）。 */
