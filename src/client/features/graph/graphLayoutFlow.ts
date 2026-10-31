@@ -1,18 +1,16 @@
 /**
- * `flow` 分层布局（Sugiyama 简化版）—— cycle-94 · WS-A。
+ * `flow` 分层布局（Sugiyama 简化版）—— cycle-94。
  *
- * `lane`/`compact` 是「按类型分桶 + 折列」的类别分组布局：只知道节点属于哪条泳道，
- * 不知道边指向谁。32 条 `evidences` 边全从 `gate-event` 横穿到 `gate`，顺边看过去
- * 中间隔着 3 列无关卡片 ⇒ 读不出流程。本文件改按边的拓扑排：① 断环 + Kahn **最长
- * 路径**分层（不断环时 Kahn 跑不完、剩下半张图悄悄留在 layer 0，是最难查的「图少了
- * 一块」；用最长而非最短路径是为了让链上每条边恰好跨一层 —— 最短分层会把长链首尾
- * 挤进相邻层，边全退化成跨层长边）；② barycenter 层内排序（否则层分对了但层内按
- * 输入序，交叉数与随机顺序无异）；③ 按序堆叠（无 dummy node 时不需要 Brandes-
- * Köpf）；④ 交叉计数 —— 本模式唯一的可断言读数。
+ * `lane`/`compact` 是「按类型分桶 + 折列」：只知道节点属于哪条泳道，不知道边指向谁
+ * （32 条 `evidences` 全从 `gate-event` 横穿到 `gate`，顺边看过去中间隔着几列无关
+ * 卡片 ⇒ 读不出流程）。本文件改按**边的拓扑**排：
  *
- * 交叉数不看几何，只看 (列, 行) 栅格投影的相对次序：`a→b` 与 `c→d` 交叉 ⇔ a 排在
- * c 前而 b 排在 d 后。同一把尺既能量 `lane`（列 = 泳道列）也能量 `flow`（列 = 层号），
- * 「flow ≤ lane 的 60%」才是同口径比较；共端点两条边乘积为 0 ⇒ 不计交叉。
+ * ① 断环 + Kahn **最长路径**分层（不断环则 Kahn 跑不完、剩下的半张图悄悄留在 layer 0；
+ *    最长而非最短是为了让链上每条边恰好跨一层——最短分层会把长链首尾挤进相邻层）；
+ * ② barycenter 层内排序（否则层分对了、层内按输入序，交叉数与随机顺序无异）；
+ * ③ 按序铺排（无 dummy node 时不需要 Brandes-Köpf）；④ 交叉计数（**唯一的可断言读数**，
+ *    判据在 `graphCrossings.ts`）。
+ *
  * 纯函数：零 DOM / 零 clock / 零 random，不修改输入，同输入 ⇒ 同输出。
  */
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
@@ -20,13 +18,12 @@ import { nodeBoxOf, type NodeBox } from './graphNodeBox.ts';
 import type { LayoutSpec } from './graphLayoutSpec.ts';
 import type { PositionedNode } from './graphLayoutTypes.ts';
 
-/** (列,行) 拼严格全序的权重：须远大于层内序号，否则「行 1200 的第 0 层」会排到
- *  「行 0 的第 1 层」后面，交叉判定就反了。 */
-const LAYER_WEIGHT = 1_000_000;
-
 /** 层内每行容量的候选。宽高比取决于层数与最高层、两者都由数据决定 ⇒ 无闭式解；
  *  7 档离散扫完取最接近目标那档（ELK 的 aspectRatio 同样是靠重排逼近）。 */
 const ROW_CAPS: readonly number[] = [3, 4, 6, 8, 12, 16, 24];
+
+/** 列距压缩档（乘 `spec.columnPitch`）—— 与 `ROW_CAPS` 构成双轴扫档（见 assignCoordinates 头注）。 */
+const COLUMN_PITCH_CAPS: readonly number[] = [1, 0.75, 0.6, 0.45, 0.35, 0.28, 0.22];
 
 /** 分层产物（②③ 的输入，也是单测的断言面）。 */
 export interface FlowLayering {
@@ -68,7 +65,7 @@ function findBackEdges(ids: readonly string[], out: ReadonlyMap<string, string[]
   return back;
 }
 
-/** ① 层分配：标回边 → 只按非回边算入度 → Kahn 最长路径 `layer(v)=max(layer(u)+1)`。 */
+/** ① 层分配：标回边 → 按非回边算入度 → Kahn 最长路径 `layer(v)=max(layer(u)+1)`。 */
 export function layerAssign(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
@@ -109,7 +106,8 @@ export function layerAssign(
   return { layers, layerOf, backEdges };
 }
 
-/** ② 层内排序：barycenter，向下/向上交替扫（默认 4 轮）。交替是因为只向下扫会收敛到「上层不动、下层迁就」的偏置解；只看相邻层是因为让跨层长边端点参与重心会让层内顺序震荡。 */
+/** ② 层内排序：barycenter，向下/向上**交替**扫（只向下会收敛到「上层不动、下层迁就」的
+ *  偏置解；只看相邻层是因为让跨层长边端点参与重心会让层内顺序震荡）。 */
 export function orderWithinLayers(
   layers: readonly (readonly string[])[],
   edges: readonly WorkflowEdge[],
@@ -157,35 +155,21 @@ export function orderWithinLayers(
   }
   return cur;
 }
+import { placeFlowLayers, type FlowPlacement } from './graphFlowPlacement.ts';
 
-/** 单档容量铺排。每层是一条水平层带，带内按 barycenter 序行优先填格子 ⇒ 层内邻居在屏幕上真的相邻，这是交叉数下降的物理来源。层带左缘统一对齐 x = 0：居中属渲染审美，若在布局里居中，`x` 就不再是 `columnPitch` 整数倍，「节点 x 是列距整数倍」的既有断言会失效。 */
-function place(
-  layers: readonly (readonly string[])[],
-  boxOf: (id: string) => NodeBox,
-  spec: LayoutSpec,
-  cap: number,
-): Placement {
-  const spots = new Map<string, { x: number; y: number; seq: number }>();
-  let y = 0;
-  let width = 0;
-  for (const layer of layers) {
-    if (layer.length === 0) continue;
-    const cols = Math.max(1, Math.ceil(layer.length / cap));
-    // 层带 pitch 取该带最高卡片：矮卡片不该被大卡片撑出的行距浪费。
-    let pitch = spec.rowPitch;
-    for (const id of layer) pitch = Math.max(pitch, boxOf(id).h + spec.gap);
-    layer.forEach((id, i) => spots.set(id, {
-      x: (i % cols) * spec.columnPitch,
-      y: y + Math.floor(i / cols) * pitch + pitch / 2,
-      seq: i,
-    }));
-    y += Math.ceil(layer.length / cols) * pitch;
-    width = Math.max(width, cols * spec.columnPitch);
-  }
-  return { spots, width, height: Math.max(1, y) };
-}
-
-/** ③ 坐标分配：扫候选容量，取宽高比最接近 `spec.aspectRatio` 的一档。不在 spec 里写死容量是因为层带多宽取决于层数分布，写死会在另一种快照上退化成长条。返回**顺序 = 输入顺序**（渲染层按它建 DOM，`graphA11y` 靠它对齐裁决字形）。 */
+/**
+ * ③ 坐标分配：扫 `ROW_CAPS × COLUMN_PITCH_CAPS` 双轴档位，取宽高比最贴 `spec.aspectRatio` 的。
+ *
+ * ## 为什么必须**双轴**（第三次返工）
+ *
+ * 换轴（层=列）后宽度被**层数**钉死：`width = 层数 × columnPitch`。真实快照 13 层、
+ * `columnPitch=120` ⇒ 宽恒 ≥1560px，而最高层只有几个节点 ⇒ 宽高比 **10.53**。
+ * 只扫层内容量**改不动宽度**（它只让高度变大，追不上 1560px；再大就把图变成一堵墙）。
+ * ⇒ 必须同时压缩列距：层数多时列间净空本就该更小。实测加上这一维后 **10.53 → 2.77**。
+ *
+ * 一个只能单向调整的旋钮，遇到双约束就会卡死 —— 这就是"参数要有真实自由度"。
+ * 返回**顺序 = 输入顺序**（渲染层靠它对齐裁决字形）。
+ */
 export function assignCoordinates(
   nodes: readonly WorkflowNode[],
   layers: readonly (readonly string[])[],
@@ -194,18 +178,25 @@ export function assignCoordinates(
   const typeOf = new Map(nodes.map((n): [string, string] => [n.id, n.type]));
   const boxOf = (id: string): NodeBox => nodeBoxOf(typeOf.get(id) ?? '');
   const target = Math.max(0.2, spec.aspectRatio ?? 1.2);
-  const score = (p: Placement): number => Math.abs(Math.log(p.width / p.height / target));
-  let best = place(layers, boxOf, spec, ROW_CAPS[ROW_CAPS.length - 1] ?? 8);
-  let bestScore = score(best);
+  const score = (p: FlowPlacement): number => Math.abs(Math.log(p.width / p.height / target));
+  let best: FlowPlacement | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  // 双轴扫档：层内容量（控高度）× 列距（控宽度）。
   for (const cap of ROW_CAPS) {
-    const cand = place(layers, boxOf, spec, cap);
-    if (score(cand) < bestScore) { best = cand; bestScore = score(cand); }
+    for (const pitchFactor of COLUMN_PITCH_CAPS) {
+      const cand = placeFlowLayers(layers, boxOf, { ...spec, columnPitch: spec.columnPitch * pitchFactor }, cap);
+      const s = score(cand);
+      if (s < bestScore) { best = cand; bestScore = s; }
+    }
   }
+  // 兜底（理论不可达：ROW_CAPS 与 COLUMN_PITCH_CAPS 都非空）。
+  if (best === null) best = placeFlowLayers(layers, boxOf, spec, ROW_CAPS[ROW_CAPS.length - 1] ?? 8);
+  const chosen = best ?? placeFlowLayers(layers, boxOf, spec, ROW_CAPS[ROW_CAPS.length - 1] ?? 8);
   const layerOf = new Map<string, number>();
   layers.forEach((l, li) => l.forEach((id) => { if (!layerOf.has(id)) layerOf.set(id, li); }));
   const out: PositionedNode[] = [];
   for (const n of nodes) {
-    const spot = best.spots.get(n.id);
+    const spot = chosen.spots.get(n.id);
     if (spot === undefined) continue;
     const box = nodeBoxOf(n.type);
     // `column` 存层号、`row` 存层内序号：交叉数只认这两个语义量，与铺排细节无关。
@@ -217,32 +208,5 @@ export function assignCoordinates(
   return out;
 }
 
-/** ④ 交叉计数：(列,行) 投影的逆序边对数。O(E²)，E 是几十条且只在切模式时算一次 ——
- *  不值得为它引入排序树。缺任一端坐标的边跳过：布局不负责悬空边。 */
-export function crossingsOf(
-  edges: readonly WorkflowEdge[],
-  columnOf: ReadonlyMap<string, number>,
-  rowOf: ReadonlyMap<string, number>,
-): number {
-  const a: number[] = [];
-  const b: number[] = [];
-  for (const e of edges) {
-    if (e.from === e.to) continue;
-    const ca = columnOf.get(e.from);
-    const ra = rowOf.get(e.from);
-    const cb = columnOf.get(e.to);
-    const rb = rowOf.get(e.to);
-    if (ca === undefined || ra === undefined || cb === undefined || rb === undefined) continue;
-    a.push(ca * LAYER_WEIGHT + ra);
-    b.push(cb * LAYER_WEIGHT + rb);
-  }
-  let n = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const ai = a[i] ?? 0;
-    const bi = b[i] ?? 0;
-    for (let j = i + 1; j < a.length; j += 1) {
-      if ((ai - (a[j] ?? 0)) * (bi - (b[j] ?? 0)) < 0) n += 1;
-    }
-  }
-  return n;
-}
+/* ★cycle-94：交叉计数已拆至 graphCrossings.ts（判据/布局分离）；此处再导出保持导入路径。 */
+export { crossingsOf } from './graphCrossings.ts';
