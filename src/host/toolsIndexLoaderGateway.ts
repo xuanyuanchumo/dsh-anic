@@ -21,6 +21,7 @@ import { makeToolOutput } from './toolsSlot.ts';
 import { TOOL_SUMMARIES } from './capabilityIndex.ts';
 import { INDEX_LOADER_TOOLS } from './indexActivation.ts';
 import type { ToolFace } from './capabilityIndex.ts';
+import { unlockTool } from './runtime/disclosureActivation.ts';
 
 /*
  * 为什么用**依赖注入**而不是自己 import `toolsFaceCapture`（cycle-74 实测环教训）：
@@ -81,13 +82,28 @@ export function registerIndexLoaderTools(
       presentCall: () => ({ card: 'generic' as const, title: 'anic_tool_detail' }),
       presentResult: () => ({ card: 'generic' as const, title: 'anic_tool_detail ✓' }),
       isConcurrencySafe: () => true,
-      execute: async (args) => {
+      execute: async (args, exec) => {
         const name = String(args.name ?? '');
         const d = detail(lookupFaces(), name);
         if (!d) {
           return { error: 'unknown tool: ' + name + ' (loaders: ' + list + ')' };
         }
-        return d;
+        // cycle-92（P0）：**真正解锁**目标工具。
+        //
+        // 修复前的致命缺陷：detail 只返回 schema，从不把目标工具变可见 ⇒
+        // indexed 模式下 21/23 个工具**永久不可用**（模型取回 schema 后仍调不到）。
+        // `restrict` 取交集（链上任一层拒绝即不可见）⇒ 解锁必须**先撤旧再施加新**。
+        const unlock = unlockTool(exec?.agent, name);
+        return {
+          ...d,
+          // 解锁结果**显式回给模型**：它必须知道「现在能不能调」——
+          // 否则会以为取回 schema 就等于能用了（那正是自锁的认知形态）。
+          activation: {
+            callable: unlock.callable,
+            newlyUnlocked: unlock.newlyUnlocked,
+            ...(unlock.reason !== undefined ? { reason: unlock.reason } : {}),
+          },
+        };
       },
     }) ?? null,
   ];

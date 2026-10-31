@@ -25,6 +25,7 @@ import { createScoped } from './logger.ts';
 import { planActivation, INDEX_LOADER_TOOLS } from './indexActivation.ts';
 import { buildIndexSectionText, resolveDisclosureMode } from './toolDisclosure.ts';
 import type { CapabilityIndexInjectable } from './capabilityIndex.ts';
+import { forgetDisclosure, rememberDisclosure, trackAgent, untrackAgent } from './runtime/disclosureActivation.ts';
 
 const log = createScoped('anic:tool-disclosure');
 
@@ -83,6 +84,8 @@ export function applyDisclosureToScope(
   index: CapabilityIndexInjectable | null,
   mode: 'full' | 'indexed',
   allToolIds: readonly string[],
+  /** 该 scoped ctx 所属的 agent（cycle-92：按需解锁的归属依据）。 */
+  agent?: unknown,
 ): WiringOutcome {
   if (mode !== 'indexed') return { wired: false, reason: 'mode=full (default, zero behavior change)', denyCount: 0 };
   if (!index) return { wired: false, reason: 'index artifact missing — stay full (no guessing)', denyCount: 0 };
@@ -111,8 +114,22 @@ export function applyDisclosureToScope(
     return { wired: false, reason: 'host has no systemPrompt.section — cannot inject index, refuse to restrict (would self-lock)', denyCount: 0 };
   }
   try {
-    scoped.tools.restrict({ deny: plan.deny });
-    return { wired: true, reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools', denyCount: plan.deny.length };
+    const disposer = scoped.tools.restrict({ deny: plan.deny });
+    // cycle-92：记录状态，供 `anic_tool_detail` **按需解锁**（只解锁该 agent）。
+    // 修复前这里**丢弃 disposer** ⇒ 既无法解锁、也无法在 agent 销毁时撤销（遮蔽泄漏）。
+    if (agent !== null && agent !== undefined && typeof agent === 'object') {
+      rememberDisclosure(agent, {
+        allToolIds,
+        loaderIds: INDEX_LOADER_TOOLS,
+        deny: plan.deny,
+        disposer: typeof disposer === 'function' ? disposer : null,
+      });
+      trackAgent(agent);
+    }
+    // 宿主契约（tools.md）：scoped restriction 变更属于 `tools/change` 的触发条件；
+    // 不发 ⇒ 宿主下一次 prompt 装配可能沿用陈旧工具集。
+    try { (scoped as { emit?: (n: string) => unknown }).emit?.('tools/change'); } catch { /* 老代宿主无 emit */ }
+    return { wired: true, reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools (unlockable via anic_tool_detail)', denyCount: plan.deny.length };
   } catch (e) {
     // restrict 失败 ⇒ 未遮蔽（section 已注入但无害：索引在 full 模式下只是补充信息）。
     return { wired: false, reason: 'restrict threw (not restricted, index section only): ' + (e instanceof Error ? e.message : String(e)), denyCount: 0 };
@@ -152,8 +169,17 @@ export function wireToolDisclosure(
     const d = opts.resolveForAgent
       ? opts.resolveForAgent(agent)
       : { mode: resolveDisclosureMode(opts.mode) as 'full' | 'indexed', index: opts.index };
-    const out = applyDisclosureToScope(scoped, d.index, d.mode, opts.allToolIds);
+    const out = applyDisclosureToScope(scoped, d.index, d.mode, opts.allToolIds, agent);
     log[out.wired ? 'info' : 'warn']('agent disclosure: ' + out.reason);
   });
-  return { wired: true, reason: 'listener registered (per-agent indexed disclosure)', denyCount: 0 };
+  // cycle-92：agent 销毁时**撤销遮蔽并清状态**。
+  // 修复前不监听 `agent/disposed` ⇒ restriction 的 disposer 从不调用 ⇒
+  // 状态随会话数线性增长（长跑宿主上是真实泄漏）。
+  host.on('agent/disposed', (payload) => {
+    const agent = (payload as { agent?: unknown })?.agent;
+    if (agent === null || agent === undefined || typeof agent !== 'object') return;
+    forgetDisclosure(agent);
+    untrackAgent(agent);
+  });
+  return { wired: true, reason: 'listener registered (per-agent indexed disclosure + unlock + dispose cleanup)', denyCount: 0 };
 }

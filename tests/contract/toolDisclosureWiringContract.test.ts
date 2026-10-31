@@ -96,13 +96,25 @@ describe('cycle-74 T-7406 按需加载接线契约', () => {
   });
 });
 describe('cycle-74 T-7408 per-agent 解析（修多工作区错配）', () => {
-  /** 受控 host 桩：捕获 agent/created 处理器，供手工投递。 */
+  /**
+   * 受控 host 桩：**按事件名**捕获处理器，供手工投递。
+   *
+   * ⚠️ cycle-92 修正：初版只保留**最后一个**注册的 handler —— 当时只注册
+   *  所以恰好能工作；cycle-92 起接线层**同时**注册
+   * （销毁清理），于是单槽桩把 created 的 handler 覆盖掉了，
+   * 测试报「A 项目应被激活: expected undefined」——**这是桩的保真度缺陷，不是产品缺陷**
+   * （宿主是按事件名分发的）。
+   */
   function hostStub() {
-    let handler: ((p: { agent?: unknown }) => void) | null = null;
+    const handlers = new Map<string, (p: { agent?: unknown }) => void>();
     return {
-      host: { on: (_n: string, h: (p: { agent?: unknown }) => void) => { handler = h; return undefined; } },
-      emit: (agent: unknown) => handler?.({ agent }),
-      isRegistered: () => handler !== null,
+      host: {
+        on: (n: string, h: (p: { agent?: unknown }) => void) => { handlers.set(n, h); return undefined; },
+      },
+      emit: (agent: unknown) => handlers.get('agent/created')?.({ agent }),
+      emitNamed: (name: string, agent: unknown) => handlers.get(name)?.({ agent }),
+      has: (name: string) => handlers.has(name),
+      isRegistered: () => handlers.has('agent/created'),
     };
   }
   /** 造一个「带 cwd 的 agent」：会话头 cwd 即其工作区。 */

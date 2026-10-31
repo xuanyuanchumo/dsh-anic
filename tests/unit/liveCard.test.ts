@@ -260,25 +260,24 @@ describe('renderLastCompletedCard —— ⑦ 门禁裁决段（含 INV-27 启发
     expect(html).toContain('heuristic');
   });
 
-  it('anic_flows_gate_check 走 G0-G3；anic_multi_agent_gate 走 release 类门（映射表按工具语义分域）', () => {
+  it('两个门禁工具都走 G0-G3；**未注册的工具名不贴裁决**（cycle-92 死键删除）', () => {
     const flowGate = renderToStaticMarkup(renderLastCompletedCard(
       inv({ callId: 'x', name: 'anic_flows_gate_check', status: 'done', startedAt: 10, endedAt: 20 }),
       ledger([{ gate: 'G3', result: 'PASS' }]),
     ));
     expect(flowGate).toContain('data-anic-last-completed-gate');
     expect(flowGate).toContain('G3 PASS');
-    const mag = renderToStaticMarkup(renderLastCompletedCard(
-      inv({ callId: 'x', name: 'anic_multi_agent_gate', status: 'done', startedAt: 10, endedAt: 20 }),
-      ledger([{ gate: 'release', result: 'PASS' }]),
-    ));
-    expect(mag).toContain('data-anic-last-completed-gate');
-    expect(mag).toContain('release PASS');
-    // 跨域不误配：G3 是 flows 门，不是 multi-agent 评估门
-    const mismatch = renderToStaticMarkup(renderLastCompletedCard(
+    // ⚠️ cycle-92： **不是本插件注册的工具**（该能力由
+    //  调起，feed 里工具名是 ）。
+    // 初版为它编了一个  类门映射并在此断言 —— 但**真实账本从不含**
+    // //// 这些门名（只有 G0-G3）⇒ 该映射
+    // **永远不可能命中** ⇒ 那是**死键**，而这条测试把它固化了。
+    // 现在：未注册的工具名**不贴裁决**（诚实缺席）。
+    const ghost = renderToStaticMarkup(renderLastCompletedCard(
       inv({ callId: 'x', name: 'anic_multi_agent_gate', status: 'done', startedAt: 10, endedAt: 20 }),
       ledger([{ gate: 'G3', result: 'PASS' }]),
     ));
-    expect(mismatch).not.toContain('data-anic-last-completed-gate');
+    expect(ghost, '未注册工具不应被贴门禁裁决（死键已删）').not.toContain('data-anic-last-completed-gate');
   });
 
   it('非门禁工具（anic_evaluate）→ 整段不渲染（不给无关调用贴裁决）', () => {

@@ -219,6 +219,13 @@ export interface ToolsSlot {
  */
 export interface ToolExecContext {
   signal?: AbortSignal;
+  /**
+   * 调用方 agent（cycle-92）—— 渐进式披露按需解锁的归属依据。
+   *
+   * 宿主契约 `ToolRunContext` 带 `agent`。indexed 模式把工具全 restrict 掉，只有
+   * 知道「哪个 agent 在取 schema」才能只解锁它 —— 放宽别的 agent 就是跨会话越权。
+   */
+  agent?: unknown;
 }
 
 /**

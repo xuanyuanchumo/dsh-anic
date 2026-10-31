@@ -1,5 +1,110 @@
 # dsh-anic CHANGELOG
 
+## v0.50.0 — 2026-10-31（cycle-92：渐进式披露自锁根治 · 门禁映射死键治理）
+
+> 起点：commit `f3188f5`（v0.49.0 cycle-91），234 文件 / 3137 用例全绿。
+> 本轮修 **7 个实测缺陷**，最高价值的是**功能性丧失级**的披露自锁。
+> 终点：**237 文件 / 3165 用例全绿**、eval **16/16**、G0-G3 **全 PASS**（含 Q1-Q8）、
+> HITL H1-H4 全过、L4 未降级。
+
+### ① 渐进式披露自锁（P0：21/23 个工具永久不可用）
+
+**实测反例**：
+
+```
+① computeDeny('indexed') → deny = 21 个工具（除 anic_tools_search / anic_tool_detail）
+② restrict({ deny })     → 那 21 个工具对模型不可见
+③ 模型调 anic_tool_detail({ name: 'anic_status' })
+④ 修复前：return { name, description, parameters }   ← 只有 schema 文本
+⑤ ⇒ 模型下一步仍然看不见 anic_status ⇒ 调不到
+```
+
+`indexActivation.ts` 头注写的是「模型先用 search/detail 取回 schema，**再调用目标工具**」
+—— **后半句从未被实现**。这不是"披露收益低"，是**功能性丧失**。
+
+**为什么「再施加一条更窄的 restriction」修不了**：宿主契约规定 restriction
+**取交集**（链上任一层拒绝即不可见）⇒ 旧 restriction 仍在时新增更窄的一条
+**只会更小**。本轮把这条写成**可执行的证明**（`disclosureE2E.test.ts` 的
+「自锁复现」用例：模拟宿主交集语义，叠加更窄 restriction 后工具**仍不可见**）。
+
+**修复的完整链**：
+
+```
+③ anic_tool_detail({ name }, exec)  ← exec.agent 是按需解锁的归属依据
+④ st.unlocked.add(name) → nextDeny = 20 项
+⑤ st.disposer()                     ← 撤销旧 restriction（解锁的前提）
+⑥ restrict({ deny: nextDeny })      ← 施加新 restriction
+⑦ emit('tools/change')              ← 宿主失效工具集缓存
+⑧ return { ...schema, activation: { callable: true } }  ← 显式告知模型"现在能调了"
+```
+
+**归属依据** = `exec.agent`（宿主契约 `ToolRunContext extends ToolExecution` 带
+`agent`；dsh-ops 的 discovery 正是用 `exec.agent === agent` 校验）⇒ **只解锁该 agent**
+（顺手放宽别的 agent 就是跨会话越权）。
+
+**终点对照**：`disclosureE2E.test.ts` 断言「逐次解锁到 **23/23** 全部可达」
+（修复前永久 **2/23**）。
+
+### ② `restrict()` 的 disposer 被直接丢弃
+
+`applyDisclosureToScope` 调 `scoped.tools.restrict({deny})` 后**不使用返回值**
+⇒ 既无法解锁（见 ①）、也无法在 agent 销毁时撤销 ⇒ **遮蔽只增不减**。
+现记录到状态表，`forgetDisclosure` 时调用。
+
+### ③ 无 `agent/disposed` 监听（长跑泄漏）
+
+agent 销毁后 disposer **从不调用** ⇒ 状态表随会话数线性增长；遮蔽也永不撤销。
+现接线 `agent/disposed` ⇒ `forgetDisclosure` + `untrackAgent`。
+
+### ④ `tools/change` 事件从不发
+
+宿主契约（`tools.md:612-626`）明确：「A tool was registered or unregistered,
+**or a scoped restriction changed**」属于该事件的触发条件。
+不发 ⇒ 宿主下一次 prompt 装配**可能沿用陈旧的工具集**（模型看不见刚解锁的工具
+—— **又一次自锁**）。现初始 restrict 后与每次解锁后都发。
+
+### ⑤ `anic_multi_agent_gate` 双重死键
+
+`GATE_TOOL_GATES` 表把它映射到 `intent`/`spec`/`plan`/`pr`/`release`，但：
+
+| 维度 | 实测 |
+|---|---|
+| 工具名 | **不在** `ANIC_TOOL_IDS`（23 项）⇒ feed 里永远没有这个名字（该能力由 `anic_skill({script:'multi-agent-gate'})` 调起，工具名是 `anic_skill`） |
+| 门名 | `intent`/`spec`/`plan`/`pr`/`release` **不在**账本（245 条全为 G0-G3）⇒ `gates.includes(e.gate)` 恒假 |
+
+**两个维度各自独立地足以让它永不命中**。**死键比缺键更坏**：缺键 = 诚实缺席；
+死键 = 读者以为该能力已被覆盖，而它**从来没有工作过**，且没有任何报错。
+
+**为什么不「补成 `anic_skill`」**：那会让**每一次** `anic_skill` 调用（15 个脚本）
+都去账本找 G0-G3 ⇒ 把与门禁无关的调用**误标**成门禁裁决（**谎报**）。
+
+⇒ 删除 + **双向**契约守卫（每个键必须是真实工具 id；每个门名必须在账本里出现过）。
+
+### ⑥ 测试固化了死键
+
+`liveCard.test.ts` 用**夹具账本**喂了一个真实账本里不存在的门 `release`，并断言
+`expect(mag).toContain('release PASS')` ⇒ **把永不命中的映射当作已工作**。
+这正是死键能存活 20+ 个循环的原因：**测试替它背书**。
+改为断言真实语义：未注册的工具名**不贴裁决**（诚实缺席）。
+
+### ⑦ 测试桩保真度缺陷
+
+`hostStub` 是**单槽**捕获（`let handler`）⇒ 新增 `agent/disposed` 监听后
+**覆盖了 `agent/created` 的 handler** ⇒ 假红（`A 项目应被激活: expected undefined`）。
+宿主是**按事件名分发**的；单槽桩在"只注册一个事件"时恰好能工作，
+是**潜伏的假绿源**。改为 `Map<string, handler>`。
+
+### 已知边界
+
+- **按需解锁未真机验证**（O-92-02）：需 `.cycles/config.yml` 写
+  `anic: toolDisclosure: indexed` 并**重启会话**（披露在 `agent/created` 施加）。
+  本轮用**宿主交集语义模拟**钉死我们这侧的接线正确性。
+- **`tools/change` 的宿主效果未验证**（O-92-04）：契约要求发，但是否真重装配需真机。
+- **解锁粒度为单工具**（O-92-03）：解锁 N 个需调 N 次 `detail`。
+- **`anic_multi_agent_gate` 的裁决面未提供**（O-92-05）：删除死键 = 诚实缺席；
+  要显示需接独立数据源（它的判据不在账本里）。
+- 测试耗时方差大（同代码 52–73s，本机负载敏感；O-92-01）。
+
 ## v0.49.0 — 2026-10-31（cycle-91：可达性治本 · 开关接真 · 图谱语义化）
 
 > 本轮起点**不是**全绿：基线 226 文件 / 3064 用例，**1 红**（棘轮守卫前提失效）。

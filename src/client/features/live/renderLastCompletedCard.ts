@@ -48,11 +48,36 @@ export interface GateLedgerView {
 /** 参数/结果单字段字面上限（超长只截展示，title 给全文）。 */
 const FIELD_CAP = 240;
 
-/** 门禁工具 → 账本 gate 集（只有这三类工具具备门禁裁决语义）。 */
-const GATE_TOOL_GATES: Record<string, readonly string[]> = {
+/**
+ * 门禁工具 → 账本 gate 集（只有这两类工具具备**可入账的**门禁裁决语义）。
+ *
+ * ## ⚠️ cycle-92 删除的**死键**：`anic_multi_agent_gate`
+ *
+ * 审计实测（cycle-91 `closure-audit` agent）发现这个键是**双重死键**：
+ *
+ * 1. **工具名不存在**：本插件 23 个工具里**没有** `anic_multi_agent_gate`
+ *    （`src/host/toolIds.ts` 的 `ANIC_TOOL_IDS` 无此项）。该能力是由
+ *    `anic_skill({ script: 'multi-agent-gate' })` 调起的，feed 里记录的工具名是
+ *    `anic_skill` —— 所以按工具名查表**永远查不到**。
+ * 2. **它的门名从不进账本**：该脚本的门是 `intent`/`spec`/`plan`/`pr`/`release`
+ *    （人工门，判据来自 git 变更文件），而门禁账本实测只含 `G0`-`G3`
+ *    （`.cycles/gates/ledger.json` 238 条全为 G0-G3）。
+ *    ⇒ 即使工具名对了，`gates.includes(e.gate)` 也**永远为假**。
+ *
+ * **为什么删而不是"补成 anic_skill"**：补成 `anic_skill` 会让**每一次**
+ * `anic_skill` 调用（15 个脚本，含 eval-runner / gate-check / archive-cycle…）
+ * 都去账本里找 G0-G3 ⇒ 把与门禁无关的调用**误标**成门禁裁决
+ * （比"没有信息"更糟：那是**谎报**）。
+ *
+ * ⇒ 诚实收窄：**能入账的门禁工具才在表里**。多 agent 门禁的裁决面
+ * 应在将来作为**独立数据源**接（它的判据不在账本里），不在本表硬凑。
+ *
+ * 契约钉死：`tests/contract/gateToolMappingContract.test.ts` 断言「表里每个键
+ * 都是真实注册的工具 id」+「每个门名都真的出现在账本门名集合里」。
+ */
+export const GATE_TOOL_GATES: Record<string, readonly string[]> = {
   anic_gate_check: ['G0', 'G1', 'G2', 'G3'],
   anic_flows_gate_check: ['G0', 'G1', 'G2', 'G3'],
-  anic_multi_agent_gate: ['intent', 'spec', 'plan', 'pr', 'release'],
 };
 
 /** 视觉截断：返回展示串与全文（展示串更短时 title 才有信息量）。 */
