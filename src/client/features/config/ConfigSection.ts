@@ -35,7 +35,7 @@ import { t } from '../../i18n.ts';
 import { renderFoldableSection } from '../../components/sectionShell.ts';
 import { useSectionFailure, bodyOrFailure, type SectionBody } from '../../components/sectionFailure.ts';
 import { renderConfigEditor, type ConfigEditorHandlers, type ConfigEditorInput } from './configRender.ts';
-import { valueToDraftText, type ConfigJson, type ConfigPathJson } from './configTypes.ts';
+import { valueToDraftText, type ConfigJson } from './configTypes.ts';
 import {
   adoptServerDraft, conflictSignature, detectConflicts, pendingConflicts, type FieldConflict,
 } from './configConflict.ts';
@@ -54,10 +54,22 @@ const selError = (s: PanelState) => s.configError;
 /** 面板实例唯一容器 id 的基础名（多实例同 id 会让 aria 关联静默错位，B5.1 教训）。 */
 export const CONFIG_PANEL_ID = 'anic-config-panel';
 
-/** 供契约测试断言「路径项可编辑性来自服务端」（只有 editable 为真才出编辑按钮）。 */
-export function editablePaths(cfg: ConfigJson): ConfigPathJson[] {
-  return cfg.paths.entries.filter((e) => e.editable === true);
-}
+/**
+ * ## cycle-95 删除 `editablePaths()`（为什么删）
+ *
+ * 注释自称「供契约测试断言『路径项可编辑性来自服务端』」，但**没有任何契约
+ * 测试引用它**（全仓去注释后零文本命中，tests/ 也没有）。真实的判据在两个
+ * 更靠下的地方，而且都直接读 `entry.editable`：
+ *
+ * - 渲染入口：`configPaths.ts` 的 `if (entry.editable !== true) return null;`
+ *   （不可编辑项连编辑按钮都不出）；
+ * - 服务端权威：`configGuards.ts` 的 `editableIds`（路径覆盖响应的登记表）。
+ *
+ * ⇒ 这是一个**聚合包装**：它把 `entries.filter(e => e.editable === true)`
+ * 包成"契约资产"，但契约资产实际上是那两处逐项判定的布尔语义。
+ * 留着会诱导下一个人以为可编辑性有第二个判据来源（两套真相源）。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */
 
 /**
  * 冲突计算（纯读三份事实；「上一次拉到」的基线由调用方给）。

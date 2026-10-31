@@ -33,16 +33,33 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { atomicWriteFileSync, safeReadFileSync } from '../../shared/fs-safe.ts';
+import { createScoped } from '../logger.ts';
 import { EMPTY_WATERMARK } from './flowRetention.ts';
-import { TRACKER_FILE, TRACKER_VERSION } from './flowTrackerStore.ts';
+import { TRACKER_FILE, TRACKER_VERSION, UNKNOWN_VERSION_BEHAVIOR } from './flowTrackerStore.ts';
 import type { EvictionWatermark, FlowRecord, FlowTrackerState } from './flowTrackerTypes.ts';
+
+const log = createScoped('anic:flow-tracker-persist');
 
 /** 空状态。 */
 export function initialFlowTrackerState(): FlowTrackerState {
   return { flows: [], counter: 0 };
 }
 
-/** 从磁盘加载状态。文件不存在或损坏时返回空状态（见文件头「向后兼容契约」）。 */
+/**
+ * 从磁盘加载状态。文件不存在或损坏时返回空状态（见文件头「向后兼容契约」）。
+ *
+ * ## cycle-95 接线：未知版本**真的**被警告了（此前是注释里的空承诺）
+ *
+ * `flowTrackerStore.ts` 的 `UNKNOWN_VERSION_BEHAVIOR` 注释写的是「返回时带上
+ * `versionMismatch`，由调用方决定是否提示」—— 但**读侧从没读过 `version` 字段**，
+ * 全仓也没有任何 `versionMismatch` 的消费者。也就是说：写下一条「宽容读 + 显式
+ * 警告」策略常量，却没有任何代码执行这个策略 ⇒ 策略常量本身成了死导出。
+ *
+ * 现在它在**唯一合法的位置**被消费：`version` 与 `TRACKER_VERSION` 不符
+ * （含 v1 无版本号文件，那是**已知合法**的旧格式）时 `log.warn` 一行。
+ * 注意这是**警告不是拒绝** —— 拒绝会让一整个可观测性面消失（见 store 头注）。
+ * v1 无版本号属于契约第 1 条「无需迁移」，故单独措辞，不与"未知版本"混为一谈。
+ */
 export function loadFlowTracker(cyclesDir: string): FlowTrackerState {
   const file = join(cyclesDir, TRACKER_FILE);
   const raw = safeReadFileSync(file);
@@ -50,6 +67,10 @@ export function loadFlowTracker(cyclesDir: string): FlowTrackerState {
   try {
     const parsed = JSON.parse(raw) as Partial<FlowTrackerState> & { version?: number };
     if (Array.isArray(parsed.flows) && typeof parsed.counter === 'number') {
+      // cycle-95：执行 UNKNOWN_VERSION_BEHAVIOR（宽容读 + 显式警告）。
+      if (parsed.version !== TRACKER_VERSION) {
+        log.warn(`flow-tracker version ${String(parsed.version ?? 'v1(no field)')} ≠ ${String(TRACKER_VERSION)} — ${UNKNOWN_VERSION_BEHAVIOR}`);
+      }
       const wm = parsed.watermark;
       // 坏形状回落 EMPTY_WATERMARK（不采信坏数据，也不伪造落点）。
       // `evictedThrough` 允许为 null（从未淘汰），所以只查键存在性 + 类型。

@@ -21,10 +21,11 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { gt } from './graphText.ts';
+import { t } from '../../i18n.ts';
 
 /** 一组的可见/可访问信息。 */
 export interface ToolbarGroupSpec {
-  id: 'search' | 'type' | 'verdict' | 'zoom' | 'a11y' | 'view';
+  id: 'search' | 'type' | 'verdict' | 'zoom' | 'a11y' | 'view' | 'path';
   label: () => string;
   /** 组内元素（key 已由调用方给出）。 */
   children: ReactElement[];
@@ -77,4 +78,9 @@ export const GROUP_LABEL = {
   zoom: (): string => gt('groupZoom'),
   a11y: (): string => gt('groupA11y'),
   view: (): string => gt('groupView'),
+  // cycle-95（WS-C）：路径模式是**第七类**动作——「把图当成图来问问题」
+  // （这两点怎么连），与"换一种看法"（view 组）和"收窄视图"（前三组）都不同。
+  // 单独成组是为了让用户一眼看到"找路径"不是筛选、也不是布局。
+  // 组标签复用既有键 `graph.pathFind`（"找路径"）—— 能复用就不新增（守死键）。
+  path: (): string => t('graph.pathFind'),
 } as const;

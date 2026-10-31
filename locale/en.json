@@ -481,7 +481,10 @@
       "orphan": "Orphan",
       "leaf": "Leaf",
       "entry": "Entry"
-    }
+    },
+    "pathPickStart": "Pick a start node: press Enter on a node",
+    "pathPickEnd": "Pick an end node: select another node",
+    "pathExit": "Exit path mode"
   },
   "config": {
     "title": "Configuration & Paths",
@@ -644,5 +647,13 @@
     "truncated": "⚠ Window truncated ({n} oldest dropped)",
     "insufficient": "Insufficient data (n={n} < {min})",
     "sensitivityFloor": "3σ rule unreachable at this granularity (EWMA floor {n}σ from centre line)"
+  },
+  "workspace": {
+    "badge": "Project · {label}",
+    "badgeAria": "Current workspace: {label}",
+    "unknown": "Unidentified project",
+    "crossProject": "Cross-project",
+    "crossProjectLine": " · {source} → {target}",
+    "crossProjectCount": " · {count} runs"
   }
 }

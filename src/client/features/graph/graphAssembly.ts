@@ -27,6 +27,8 @@ import type { GraphRenderOptions } from './renderGraph.ts';
 import type { ToolbarWiring } from './graphInteractiveParts.ts';
 import { toolbarWiring } from './graphInteractiveParts.ts';
 import { toolbarPropsWithView, type ViewWiringInput } from './graphToolbarWire.ts';
+import type { PathGroupInput } from './graphToolbarPath.ts';
+import type { RoleLegendStats } from './graphToolbarLegendRow.ts';
 
 /** 渲染装配的输入（全部由组件提供）。 */
 export interface RenderAssemblyInput {
@@ -45,6 +47,10 @@ export interface RenderAssemblyInput {
   toolbarBase: ToolbarWiring;
   /** 新增视图组字段（cycle-90）。 */
   view: ViewWiringInput;
+  /** 路径模式开关（cycle-95；缺省 = 不渲染该组，见 graphToolbarPath）。 */
+  path: PathGroupInput;
+  /** 角色图例读数（cycle-95；缺省 = 不渲染角色图例）。 */
+  roles: RoleLegendStats;
   /** 节点点击回调（缺省 = 不可交互）。 */
   onNodeClick: ((node: WorkflowNode) => void) | undefined;
   /** 拖拽过界时不该触发点击（组件提供）。 */
@@ -105,9 +111,15 @@ export function assemblyToolbarBaseOf(input: ToolbarBaseInput): ToolbarWiring {
   });
 }
 
-/** 工具栏 props（既有字段 + 视图组）。 */
-export function assemblyToolbarOf(input: RenderAssemblyInput): ToolbarWiring & { view: ViewWiringInput } {
-  return toolbarPropsWithView(input.toolbarBase, input.view);
+/** 工具栏 props（既有字段 + 视图组 + 路径组/角色图例，cycle-95）。 */
+export function assemblyToolbarOf(
+  input: RenderAssemblyInput,
+): ToolbarWiring & { view: ViewWiringInput; path: PathGroupInput; roles: RoleLegendStats } {
+  return {
+    ...toolbarPropsWithView(input.toolbarBase, input.view),
+    path: input.path,
+    roles: input.roles,
+  };
 }
 
 /** `renderGraph` 的选项（与工具栏吃的是同一批值，见文件头）。 */

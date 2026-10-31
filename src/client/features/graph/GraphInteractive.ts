@@ -1,44 +1,24 @@
 /**
- * 交互式工作流图（cycle-82 建立 · cycle-83 预览/小地图/面包屑 · cycle-84 追溯/跳转）
+ * 交互式工作流图（cycle-82 建立 · cycle-83 预览/小地图/面包屑 · cycle-84 追溯/跳转
+ * · cycle-90 视图组 · cycle-95 分键视图态 + 路径模式 + 影响半径）
  * ——**唯一**持有交互状态的组件。
  *
- * 职责边界：`graphGestures`（视口怎么变）、`graphToolbar`（控件怎么画）、
- * `renderGraph`+`graphNodeCard`/`graphEdgeRender`（画成什么）、`graphStage`（屏幕
- * 交互层怎么摆）、`graphViewportFrame`（视口外框）、`graphInteractiveParts`（props
- * 装配的纯函数）、`graphTraceBar`（追溯状态条）、`useGraphTooltip`（预览揭示）、
- * `useGraphView`（cycle-90 新增交互）、`useLayoutCache`（布局缓存 + 模式）。
- * 本文件只剩「状态 + 一次装配」。
+ * ## 文件头注的其余部分已迁出（cycle-95，守 250 行）
  *
- * ## 只用 stub 支持的 hooks
+ * 本文件此前 248 行、已贴 T3 硬限（`objectiveConformanceContract ⑪`）。cycle-95
+ * 要接线三件新能力，若靠删注释腾空间，等于把判据扔掉 —— 所以把长段设计裁决
+ * **迁到它们真正回答的地方**：
  *
- * `scripts/offline-smoke.mjs` 的 React 桩只提供七个 API；`useMemo`/`useReducer` 会在
- * smoke 里直接 TypeError —— 而 smoke 是唯一在"无宿主"条件下验证组件树能展开的层。
- * **所有 useState 初值必须自足可渲染**（stub 只取初值、不跑 setState/effect），
- * 故初值 = 未缩放、未筛选、全部可见、无预览、无追溯。
+ * - 「五份状态为什么不合并」→ `useGraphView` 头注（状态归属）；
+ * - 「stub 只认七个 hook / 初值必须自足」→ `graphGestures` 与 `useLayoutCache` 头注；
+ * - 「预览的鼠标 + 键盘双通道」→ `graphStage` 头注；
+ * - 「筛选不删节点」→ `graphFilter` 头注；
+ * - 「工作区标识从哪来」→ `GraphSection`（可选 prop 通道的说明在 `useGraphViewState`）。
  *
- * ## 五份状态为什么是五份（不合并）
- *
- * - `filter`：用户显式选的子集（持续，直到手动清）；
- * - `focusId`：瞬时的悬停/键盘焦点（鼠标一移就走）；
- * - `traceRoot`：用户双击进入的**持续模式**（不能随焦点消失，否则追溯刚开就没了）；
- * - `adjacencyOn`：视觉策略开关（与"选了哪些"无关）；
- * - `layoutMode`（cycle-90）：排布方式（图区局部，见 `useLayoutCache` 头注）。
- * 把这些塞进一个对象，任何一个字段的更新都会让另几个的消费方误重渲，
- * 且"Esc 该清哪些"会变成隐式约定——分开是最小惊讶。
- *
- * ## 预览的两条触发通道都必需
- *
- * `pointerover` 给鼠标用户，`focus` 给键盘用户。只做前者会让"键盘可达"变成空话，
- * 而**任何截图验收都看不出**——键盘用户按 Tab，屏幕上什么都没发生。
- *
- * ## 不删节点（刻意取舍，不是没做）
- *
- * 筛选只改 visibility（→ opacity + pointer-events），节点 DOM 全部保留：
- * ① smoke 与契约钉死「circle 数 == 节点数」；② AT 没有"淡出"概念，从 DOM 移除
- * 等于让屏幕阅读器用户再也遍历不到。详见 `graphFilter.ts` 头注。
+ * 本文件只剩「状态 + 一次装配」，所有判据各归其位，没有一条被删。
  */import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
-import { EMPTY_FILTER, buildFilterView, type FilterState } from './graphFilter.ts';
+import { EMPTY_FILTER, type FilterState } from './graphFilter.ts';
 import { useViewportGestures } from './graphGestures.ts';
 import { renderGraph } from './renderGraph.ts';
 import { renderGraphToolbar } from './graphToolbar.ts';
@@ -50,10 +30,9 @@ import { worldToViewport } from './graphMiniMap.ts';
 import { useGraphTooltip } from './useGraphTooltip.ts';
 import { useGraphSearch } from './useGraphSearch.ts';
 import { EMPTY_TRACE, buildTrace } from './graphTrace.ts';
-import { useGraphView } from './useGraphView.ts';
 import { useLayoutCache } from './useLayoutCache.ts';
+import { useGraphInteraction } from './useGraphInteraction.ts';
 import { assemblyGraphOptionsOf, assemblyNodeClickOf, assemblyToolbarBaseOf, assemblyToolbarOf } from './graphAssembly.ts';
-
 import {
   FALLBACK_SIZE, KEYHINT_ID, VIEWPORT_HEIGHT, keyHintText,
   adjacencyOf, stagePropsOf, toggleIn, traceAdjacencyOf,
@@ -64,10 +43,12 @@ export interface GraphInteractiveProps {
   edges: WorkflowEdge[];
   verdicts?: Map<string, string>;
   onNodeClick?: (node: WorkflowNode) => void;
+  /** 当前工作区（cycle-95）：分键视图态的分键依据；缺省 ⇒ 视图态不记忆。 */
+  workspace?: string;
 }
 
 export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
-  const { nodes, edges, verdicts, onNodeClick } = props;
+  const { nodes, edges, verdicts, onNodeClick, workspace } = props;
 
   // ── 数据态（初值必须自足，见文件头）────────────────────────
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
@@ -107,6 +88,10 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
    *
    * 用 ref 守卫「只跑一次」：数据 tick 换 nodes 引用时不该把用户调好的缩放/平移
    * 重置回适配态——那会让 2s 轮询下的用户没法稳定看图。
+   *
+   * cycle-95：**先恢复**分键视图态再适配 —— 恢复的 effect 声明在
+   * `useGraphInteraction` 里（比这里更早注册 ⇒ 更早执行），所以有存过的项目
+   * 不会被首屏适配顶掉；没存过的项目仍走这里的适配。
    */
   const fittedRef = useRef(false);
   useEffect(() => {
@@ -124,9 +109,8 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
 
   // ── 追溯（cycle-84）：双向邻接表按 edges 引用缓存 + 纯函数 BFS ──────
   const traceAdjRef = useRef<{ key: readonly WorkflowEdge[]; adj: ReturnType<typeof traceAdjacencyOf> } | null>(null);
-  const trace = traceRoot === null
-    ? EMPTY_TRACE
-    : buildTrace(traceAdjacencyOf(edges, traceAdjRef), traceRoot);
+  const traceAdjacency = traceAdjacencyOf(edges, traceAdjRef);
+  const trace = traceRoot === null ? EMPTY_TRACE : buildTrace(traceAdjacency, traceRoot);
 
   /** 双击节点：进入该节点的追溯；再次双击同一节点则退出（切换语义）。 */
   const onNodeTrace = useCallback((node: WorkflowNode): void => {
@@ -152,21 +136,25 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   const onNodeFocus = useCallback((id: string | null): void => { setFocusId(id); }, []);
 
   // 邻接高亮关闭时传 null 焦点 ⇒ 高亮集为空 ⇒ 子集内节点全亮（关掉"非邻居降透明"）。
-  const filterView = buildFilterView(nodes, edges, filter, adjacencyOn ? focusId : null, verdicts);
-
-  // ── 新增交互（cycle-90）：布局模式 / 仅看异常 / 缩放到选中 / 导出 / 全屏 ──
-  // 状态与动作全在 useGraphView（图区局部，不进面板 store —— 理由见其头注）。
   const containerRef = useRef<HTMLElement | null>(null);
-  const view = useGraphView({
-    edges, layout, adjacency, filter, filterView,
+  /**
+   * cycle-95 交互组合层：分键视图态（O-94-03）/ 路径模式 / 影响半径 / 角色计数。
+   * 四件事各自的"为什么"写在 `useGraphInteraction` 与三个被它调用的文件头注里。
+   * 本文件只提供状态与回调 —— 这是它能留在 250 行以内的唯一原因。
+   */
+  const interaction = useGraphInteraction({
+    nodes, edges, verdicts, layout, filter, focusId,
     viewport: gestures.viewport, size: sizeOf(),
-    focusId,
     containerRef,
-    layoutMode,
-    onLayoutMode: setLayoutMode,
-    onFilterChange: (next) => { setFilter(next); },
-    onViewportChange: (next) => { gestures.setViewport(next); },
+    layoutMode, onLayoutMode: setLayoutMode,
+    onFilterChange: setFilter,
+    onViewportChange: gestures.setViewport,
+    onNodeClick,
+    hasMoved: gestures.hasMoved,
+    adjacencyOn,
+    workspace,
   });
+  const view = interaction.view;
 
   /** 小地图点击 → 局部坐标 → 纯函数换算 → 过钳制的视口。 */
   const onMinimapClick = useCallback((local: { x: number; y: number }): void => {
@@ -175,7 +163,7 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
 
   const size = sizeOf();
   const assembly = {
-    nodes, edges, verdicts, layout, filter, filterView, focusId,
+    nodes, edges, verdicts, layout, filter, filterView: interaction.filterView, focusId,
     viewport: gestures.viewport, size, trace, adjacencyOn,
     toolbarBase: assemblyToolbarBaseOf({
       nodes, verdicts, filter, adjacencyOn,
@@ -199,7 +187,10 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
       fullscreen: view.fullscreen,
       note: view.note,
     },
-    onNodeClick,
+    // cycle-95：路径模式开关 + 角色图例读数（两者都走「缺省不渲染」的同一形状）。
+    path: { active: interaction.path.model.active, onToggle: interaction.path.toggle },
+    roles: interaction.roleStats,
+    onNodeClick: interaction.nodeClick,
     hasMoved: gestures.hasMoved,
     keyHandler: gestures.onKeyDown, describedBy: KEYHINT_ID, onNodeTrace,
   };
@@ -222,6 +213,8 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     // 追溯状态条：进入追溯后必须能看到"追的是谁 / 上下游各几个 / 是否被截断"。
     // 未启用追溯时整条不渲染（零占位，不改变既有布局）。
     traceRoot === null ? null : renderTraceBar({ trace, onExit: () => { setTraceRoot(null); } }),
+    // cycle-95：路径状态条 + 影响半径读数（未启用时 null ⇒ 零占位）。
+    interaction.extras,
     // 面包屑：定位感（小地图回答"在图哪一块"，面包屑回答"在生命周期哪一段"）。
     renderBreadcrumb({ nodes }),
     // 视口外框（容器 + 键盘说明）与舞台（悬停代理 + 图 + 预览 + 小地图）分开成两个文件：

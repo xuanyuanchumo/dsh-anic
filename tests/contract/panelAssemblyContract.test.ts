@@ -51,6 +51,26 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const CLIENT_DIR = join(PLUGIN_ROOT, 'src', 'client');
 const PANEL_REL = join('src', 'client', 'WorkflowGraphPanel.ts');
 const ZH_REL = join('locale', 'zh.json');
+/*
+ * 腿3 扫描域（cycle-95 修正 —— 与本文件腿1 的 cycle-72 修正是同一族缺陷的第二次发生）。
+ *
+ * 被守卫的缺陷（实测）：腿3 原先是 `scanAssemblyComponents(panelSrc)` —— **单文件**
+ * 扫描 `WorkflowGraphPanel.ts`。cycle-95 为守 T3（单文件 ≤250 行）把分区编排
+ * （「这一堆分区按什么顺序、带什么门控」）整体拆到 `panelSectionOrder.ts`，
+ * 于是 15 处 `createElement(XxxSection, …)` 装配点**全部搬家**，
+ * `assemblyComponents` 当场从 15 → **0**。
+ *
+ * 为什么这不是"少几条断言"而是假守卫：扫描集为空时腿3 的集合比较恒不成立
+ * （红一次逼人看见），但**任何"未来再拆走一个分区"的改动都不再被它扫见**——
+ * 守卫退化成永远绿的空转。这正是本仓三条既有教训的同一个形态：
+ *   - truthAudit T4：工具拆成 `tools*.ts` 后单文件计数漏报；
+ *   - graphInteractiveContract ⑦：图区拆成 15 个文件后手工文件名清单漏扫；
+ *   - 本文件腿1（cycle-72）：closure 分区搬走后仍只看 panelSections.ts。
+ *
+ * ⇒ 扫描域由「源码在哪」决定，不手工枚举文件名：`src/client` 全量递归
+ *（装配只发生在客户端；`src/host` 没有分区组件）。
+ */
+const ASSEMBLY_SCAN_DIR = CLIENT_DIR;
 
 /*
  * 腿 1 扫描域（cycle-72 修正）：由「panelSections.ts 单文件」扩到 **src/client 全量**。
@@ -79,6 +99,8 @@ function collectClientSources(dir: string): { src: string; files: number } {
 const clientScan = collectClientSources(CLIENT_DIR);
 const clientFileCount = clientScan.files;
 const panelSrc = readFileSync(join(PLUGIN_ROOT, PANEL_REL), 'utf8');
+// 腿3 源 = src/client 全量（见 ASSEMBLY_SCAN_DIR 头注）；不再只读 WorkflowGraphPanel.ts。
+const assemblyScan = collectClientSources(ASSEMBLY_SCAN_DIR);
 
 /** 已知 id→键形态映射（T-6902 成文）：驼峰 id `techDebt` ⇄ 小写键 `techdebt`，其余同形。 */
 const ID_TO_LOCALE_KEY: Record<string, string> = { techDebt: 'techdebt' };
@@ -105,7 +127,7 @@ function setsEqual(a: string[], b: string[]): boolean {
 const sectionIds = scanSectionIds(clientScan.src);
 const localeFoldKeys = Object.keys(zh.fold);
 const localeKeysById = sectionIds.map((id) => ID_TO_LOCALE_KEY[id] ?? id);
-const assemblyComponents = scanAssemblyComponents(panelSrc);
+const assemblyComponents = scanAssemblyComponents(assemblyScan.src);
 
 describe('cycle-69 T-6901 面板分区装配契约', () => {
   it('扫描集非空下限：三分区集各 ≥10（空集恒绿=假守卫，直接 FAIL）', () => {

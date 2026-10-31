@@ -19,11 +19,11 @@ import type { FilterState, TypeCount } from './graphFilter.ts';
 import type { Viewport } from './graphViewport.ts';
 import { typeColorOf } from './graphNodeRender.ts';
 import { GROUP_LABEL, renderGroupSeparator, renderToolbarGroup } from './graphToolbarGroups.ts';
-import { renderLegend } from './graphToolbarLegend.ts';
-import { renderEdgeLegend } from './graphEdgeLegend.ts';
+import { renderLegendRow, type RoleLegendStats } from './graphToolbarLegendRow.ts';
 import { renderSearchChildren } from './graphToolbarSearch.ts';
 import { renderAuxGroup, renderZoomGroup } from './graphToolbarActions.ts';
 import { renderViewGroup, type ViewGroupInput } from './graphToolbarView.ts';
+import { renderPathGroup, type PathGroupInput } from './graphToolbarPath.ts';
 import { t } from '../../i18n.ts';
 
 interface RenderProps {
@@ -59,6 +59,19 @@ interface RenderProps {
    * 这样老断言（"每组控件齐全"）不会因为新控件而误判，测试也能按需断言新控件。
    */
   view?: ViewGroupInput;
+  /**
+   * 路径组（cycle-95 WS-C）：找路径的模式开关。
+   *
+   * 与 `view` 同一形状（整组可选，缺省不渲染）——「零参调用 = 改造前的工具栏」
+   * 这条既有纪律对新组同样成立，否则老契约会因多了一个 button 而误判。
+   */
+  path?: PathGroupInput;
+  /**
+   * 角色图例（cycle-95 WS-C）：entry/orphan/leaf/hub 的形状图例 + 计数。
+   *
+   * 可选：缺省时不渲染（节点角色读数需要数据，纯渲染路径的零参调用不该假设它）。
+   */
+  roles?: RoleLegendStats;
 }
 
 /** chip 的可见文案（类型名，动态键族 `graph.lane.<type>`）。 */
@@ -222,15 +235,13 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     props.view === undefined ? null : renderGroupSeparator('before-view'),
     props.view === undefined ? null : renderViewGroup(props.view),
 
-    renderLegend(typeCounts),
-    /*
-     * cycle-94（WS-C 缺口三）：**边语义图例**。
-     *
-     * 此前 `renderEdgeLegend` 只有 import、零调用点 —— 组件写好了却没挂上，
-     * 于是「6 种边线型不同，但图例只有节点类型」这个研究结论修了一半就停了。
-     * 挂在节点图例之后（同一视觉行尾）：读者先认卡片类型，再认线型语义。
-     */
-    renderEdgeLegend(),
+    // ── 组 7：路径（cycle-95 WS-C）——"这两点怎么连"的模式开关（缺省不渲染）──
+    props.path === undefined ? null : renderGroupSeparator('before-path'),
+    props.path === undefined ? null : renderPathGroup(props.path),
+
+    // 图例行：类型色点 → 边线型 → 角色形状（由粗到细解码；理由见该文件头注）。
+    // 角色图例缺省不渲染：它要真实角色计数，纯渲染的零参调用没有这份数据。
+    renderLegendRow(typeCounts, props.roles),
   );
 }
 

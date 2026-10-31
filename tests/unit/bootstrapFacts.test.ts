@@ -16,6 +16,7 @@ import {
   diffFacts,
   factsDigest,
   FACT_KEYS,
+  readStoredFacts,
   type ProjectFacts,
 } from '../../src/host/runtime/bootstrapFacts.ts';
 
@@ -211,6 +212,43 @@ describe('diffFacts — 陈旧判据', () => {
     expect(FACT_KEYS).not.toContain('hasCyclesDir');
     const same = diffFacts(blankFacts(), blankFacts());
     expect(same.changed.length === 0).toBe(same.stale === false);
+  });
+});
+
+describe('readStoredFacts — 存档事实的形状守卫（cycle-95）', () => {
+  it('合法存档事实原样返回（引用同一对象，不做深拷贝——陈旧判定只读不写）', () => {
+    const f = blankFacts({ gitHead: 'abc', activeCycleNames: ['cycle-88'] });
+    expect(readStoredFacts({ status: 'IDLE', facts: f })).toBe(f);
+  });
+
+  it('旧状态文件（**没有** facts 键）⇒ null（调用方据此判 stale:true）', () => {
+    // 复刻真实事故形态：cycle-89 之前的 self-bootstrap.json 没有这个字段。
+    expect(readStoredFacts({ status: 'EXHAUSTED', round: 3, lastEvalScore: 0 })).toBeNull();
+  });
+
+  it('坏形状一律判"未采集"，绝不半截参与陈旧判定', () => {
+    // 半截 facts（缺 activeCycleNames）比没有 facts 更危险：它会让 diffFacts 拿
+    // undefined 参与比较，把真实变化静默读成"相等"。
+    expect(readStoredFacts({ facts: { hasCyclesDir: true, ledgerEntries: 0, activeCycles: 2, archivedCycles: 1 } })).toBeNull();
+    expect(readStoredFacts({ facts: { ...blankFacts(), activeCycleNames: 'cycle-88' } })).toBeNull();
+    expect(readStoredFacts({ facts: { ...blankFacts(), hasCyclesDir: 'true' } })).toBeNull();
+    expect(readStoredFacts({ facts: { ...blankFacts(), ledgerEntries: '0' } })).toBeNull();
+    expect(readStoredFacts({ facts: null })).toBeNull();
+    expect(readStoredFacts({ facts: [] })).toBeNull();
+    expect(readStoredFacts(null)).toBeNull();
+    expect(readStoredFacts('nonsense')).toBeNull();
+  });
+
+  it('坏形状 ⇒ diffFacts 判陈旧（与"没有存档事实"同一方向，可自我修复）', () => {
+    // 反向自检：守卫把坏形状读成 null 之后，陈旧判定必须落到 stale:true；
+    // 若落到 false，坏数据就被当成"最新事实"，本缺陷换个形态复发。
+    for (const broken of [
+      { hasCyclesDir: true, ledgerEntries: 0, activeCycles: 2, archivedCycles: 1 },
+      { ...blankFacts(), activeCycles: '2' },
+    ]) {
+      const prev = readStoredFacts({ facts: broken });
+      expect(diffFacts(prev, blankFacts())).toEqual({ stale: true, changed: ['facts'] });
+    }
   });
 });
 

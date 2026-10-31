@@ -155,6 +155,11 @@ export function factsDigest(facts: ProjectFacts): string {
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 
+// 存档事实的**形状守卫与读取面**在 bootstrapFactsReaders.ts（T3 ≤250 行）。
+// 这里只再导出 `readStoredFacts`，让路由侧保持**单一 import 源**（facts 域从本文件进）；
+// `isProjectFacts` 不在此暴露——它是守卫的内部组成，不该长出第二个公开入口。
+export { readStoredFacts } from './bootstrapFactsReaders.ts';
+
 /**
  * 活跃 vs 归档的**唯一分列口径**（P1：评估/门禁/重启的输入面统一走这里）。
  *

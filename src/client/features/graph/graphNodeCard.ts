@@ -26,9 +26,12 @@ import { token } from '../../../shared/tokens.ts';
 import { canonicalVerdict, gateFillOf } from './gateColors.ts';
 import { OPACITY, type NodeVisibility } from './graphFilter.ts';
 import type { TraceRole } from './graphTrace.ts';
+import { traceDepthStyleOf } from './graphTraceDepth.ts';
+import type { NodeRole } from './graphNodeRole.ts';
+import { renderCardBody } from './graphNodeCardBody.ts';
+import { renderHealthBar } from './graphHealthBar.ts';
 import {
-  BAR_INSET, BAR_W, CARD_FILL, CARD_RADIUS, CARD_STROKE, DOT_DY, DOT_R, DOT_X, LABEL_DY,
-  LABEL_FILL, LABEL_PX, LABEL_X, META_DY, META_FILL, META_PX, VERDICT_SHAPE, colorOf, fitLabel,
+  LABEL_DY, LABEL_FILL, LABEL_PX, LABEL_X, META_DY, META_FILL, META_PX, VERDICT_SHAPE, colorOf, fitLabel,
 } from './graphNodeStyle.ts';
 import { t } from '../../i18n.ts';
 import { healthOf, healthSegments, healthSummaryText } from './graphHealth.ts';
@@ -64,11 +67,26 @@ export interface NodeRenderInput {
   trace?: TraceRole;
   /** 双击进入追溯（cycle-84）；缺省不挂处理器。 */
   onNodeTrace?: ((node: WorkflowNode) => void) | undefined;
+  /**
+   * 节点角色（cycle-95）：hub / entry / leaf / orphan / null。
+   * null = 未判定（中间节点）⇒ 不画角色标记，渲染与 cycle-94 逐字节等价。
+   */
+  role?: NodeRole;
+  /**
+   * 追溯跳数（cycle-95）：1 / 2 / 3，0 = root 或圈外。
+   *
+   * 为什么要把 depth 单独传而不是让卡片自己从 trace 里查：renderGraph 已经在
+   * 循环里握着 trace，再让每个节点各查一次等于 O(N) 重复查表；更关键的是
+   * 单测（graphA11y）可以直接传 depth 断言三档渲染，不必构造完整 trace。
+   */
+  traceDepth?: number;
 }
 
 export function renderNode(input: NodeRenderInput): ReactElement {
   const { node: n, verdict, visibility, focusId, interactive, onNodeClick, onNodeTrace } = input;
   const trace = input.trace ?? null;
+  const role = input.role ?? null;
+  const traceDepth = input.traceDepth ?? 0;
   const failed = n.result === 'FAIL';
   const key = canonicalVerdict(verdict);
   const fill = gateFillOf(verdict) ?? colorOf(n.type);
@@ -88,6 +106,19 @@ export function renderNode(input: NodeRenderInput): ReactElement {
       : trace === 'down'
         ? token('anic-warn-text')
         : null;
+  /**
+   * 追溯距离分档（cycle-95）：样式表在 `graphTraceDepth.ts`（跨元素的单一事实源）。
+   * 三档同时改 line型与透明度，并写 `data-anic-trace-depth` 进 DOM ——
+   * 视觉与断言两条腿都要有（详见该文件头注）。
+   */
+  const depthStyle = traceDepthStyleOf(traceStroke !== null, traceDepth);
+  /**
+   * 角色的可访问名（cycle-95）：走既有 `graph.nodeRole.<role>` 动态键族
+   * （闭包扫描器认得这种拼接前缀）。null = 中间节点 ⇒ 不播报（"普通"不是信息）。
+   */
+  const roleText = role === null ? null : t('graph.nodeRole.' + role);
+  const traceDash = depthStyle?.dash;
+  const traceFade = depthStyle?.fade ?? 1;
 
   return createElement(
     'g',
@@ -104,16 +135,27 @@ export function renderNode(input: NodeRenderInput): ReactElement {
       tabIndex: interactive ? -1 : undefined,
       // aria-label 覆盖 <title> 的命名计算，所以它必须**自带全部**信息：
       // 带上 id 是因为 label 不唯一（同名阶段节点存在）。
-      'aria-label': interactive ? t('panel.nodeAriaLabel', { label, id: n.id }) : undefined,
+      // cycle-95：角色也进可访问名 —— 形状标记是 AT 完全读不到的第二通道，
+      // 若只画形状不播报，"这是个枢纽"对屏幕阅读器用户等于不存在（WCAG 1.3.1）。
+      'aria-label': interactive ? [t('panel.nodeAriaLabel', { label, id: n.id }), roleText === null ? null : roleText].filter(Boolean).join(' · ') : undefined,
       'data-anic-node': n.id,
       'data-anic-verdict': key ?? 'none',
       // 三档视觉状态进 DOM：opacity 是**视觉**通道，AT 看不见；
       // 把状态同时写成 data-* 才能被断言（也让"筛选是否生效"可机器验证）。
       'data-anic-visibility': visibility,
       'data-anic-lane': n.lane,
+      // 节点角色进 DOM（cycle-95）：角色视觉是**形状/线型**通道（AT 读不到），
+      // 且它同时出现在节点 `<g>` 与圆点两处——`<g>` 是**节点粒度**的断言入口
+      //（"这个节点是什么角色"），圆点那处是**元素粒度**（渲染层确实用了它）。
+      // 两处同值不是冗余：只用圆点断言时，测试必须写 `circle[data-anic-...]`，
+      // 而既有的节点级契约全部基于 `[data-anic-node]`（会看不到这条通道）。
+      'data-anic-node-role': role ?? 'none',
       // 追溯角色进 DOM（cycle-84）：视觉是描边色，那是 AT 读不到的通道；
       // 同时写 data-* 才能被契约测试断言（与 data-anic-visibility 同纪律）。
       'data-anic-trace': trace ?? 'none',
+      // 追溯跳数进 DOM（cycle-95）：1/2/3 三档的视觉差（实色/半透明/虚线）是
+      // AT 读不到的通道；写成 data-* 才能被契约逐档断言（同 data-anic-trace 纪律）。
+      'data-anic-trace-depth': String(traceDepth),
       // 卡片尺寸进 DOM：布局压缩率与重叠检查都能据此断言，不必自己重算布局。
       'data-anic-node-box': `${String(n.w)} ${String(n.h)}`,
       onClick: onNodeClick ? () => { onNodeClick(n); } : undefined,
@@ -143,74 +185,18 @@ export function renderNode(input: NodeRenderInput): ReactElement {
     },
     createElement('title', null, label),
 
-    // 卡片体。`data-anic-node-card` 是"卡片确实渲染了"的可断言锚点。
-    createElement('rect', {
-      key: 'card',
-      'data-anic-node-card': 'true',
-      x: 0, y: -n.h / 2, width: n.w, height: n.h,
-      rx: CARD_RADIUS, ry: CARD_RADIUS,
-      fill: CARD_FILL,
-      // 焦点卡片描边加粗：182 个节点里"我在看哪个"必须一眼可见。
-      // 追溯态优先于焦点态：追溯是用户**显式进入**的模式，它的颜色编码
-      // （上游/下游）比"鼠标刚好停在这"承载更多信息。
-      stroke: traceStroke ?? (focused ? token('anic-focus-ring') : CARD_STROKE),
-      strokeWidth: traceStroke !== null ? 1.8 : focused ? 1.6 : 0.8,
+    // 卡片体 / 色条 / 圆点 / 字形 / 角色标记（cycle-95 下移到 graphNodeCardBody.ts，
+    // 守 T3 ≤250 行；三条计数不变量与通道分工见该文件头注）。
+    ...renderCardBody({
+      w: n.w, h: n.h, type: n.type, fill, dotFill: fill, failed,
+      verdictDash: shape?.dash, verdictGlyph: shape?.glyph,
+      traceStroke, depthStyle, focused, role,
     }),
 
-    // 左侧类型/裁决色条（非文本角色，3.3 阈值适用）。
-    createElement('rect', {
-      key: 'bar',
-      'data-anic-node-bar': n.type,
-      x: 0, y: -n.h / 2 + BAR_INSET, width: BAR_W, height: n.h - BAR_INSET * 2,
-      rx: BAR_W / 2, ry: BAR_W / 2,
-      fill,
-    }),
-
-    // 状态圆点：每节点**恰好一个**。FAIL 用 strokeWidth=2 的红圈（smoke 数据驱动断言）。
-    createElement('circle', {
-      key: 'dot',
-      'data-anic-node-dot': 'true',
-      cx: DOT_X, cy: DOT_DY, r: DOT_R,
-      fill,
-      stroke: failed ? token('anic-bad-text') : token('anic-text'),
-      strokeWidth: failed ? 2 : 0.6,
-      strokeDasharray: shape?.dash,
-      className: failed ? 'anic-fail-node' : undefined,
-    }),
-
-    // 字形是与颜色**正交**的第二个通道：灰度打印、色盲、强制高对比模式下仍然可读。
-    // 没有裁决时不画字形（画一个"无"字反而是噪声）。
-    shape === undefined
-      ? null
-      : createElement('text', {
-          key: 'glyph',
-          x: DOT_X, y: DOT_DY + 2.1, fontSize: 5.4, textAnchor: 'middle',
-          fill: token('anic-on-accent'), 'data-anic-verdict-glyph': shape.glyph,
-        }, shape.glyph),
-
-    // 健康度分段条（cycle-91）：贴在卡片**底缘内侧**，高 1.6px。
-    //
-    // 为什么用 <rect> 分段而不是「比例环」：环需要第二个 <circle>，而
-    // 「每节点恰好一个 circle」是 smoke 钉死的不变量 ⇒ 环会破坏它。
-    // rect 分段保留了「比例可读」且零不变量风险。
-    ...(healthSegs.length > 0
-      ? healthSegs.map((seg, i) => {
-        const segFill = seg.kind === 'passed'
-          ? token('anic-pass')
-          : seg.kind === 'failures'
-            ? token('anic-bad-text')
-            : token('anic-warn-text');
-        // 段宽按比例切分；起点按前面段累加（世界坐标，卡片左缘 = 0）。
-        const segX = BAR_INSET + healthSegs.slice(0, i).reduce((a, s) => a + s.ratio * (n.w - BAR_INSET * 2), 0);
-        const segW = seg.ratio * (n.w - BAR_INSET * 2);
-        return createElement('rect', {
-          key: `health-${String(i)}`,
-          'data-anic-node-health': seg.kind,
-          x: segX, y: n.h / 2 - BAR_INSET - 1.6, width: Math.max(0.5, segW), height: 1.6,
-          fill: segFill,
-        });
-      })
-      : []),
+    // 健康度分段条（cycle-91；cycle-95 下移到 graphHealthBar.ts 守 T3 行数）。
+    // 仍用 <rect> 分段而非「比例环」：环需要第二个 <circle>，而
+    // 「每节点恰好一个 circle」是 smoke 钉死的不变量。
+    ...renderHealthBar(healthSegs, n.w, n.h),
     // 主标签：按卡片宽度截断（见 graphNodeStyle 的 fitLabel）。
     createElement('text', {
       key: 'label',

@@ -21,12 +21,14 @@ import { createElement, useCallback, useRef, useState, type ReactElement } from 
 import { createPanelStore } from './components/panelStore.ts';
 import { bindPanelActions } from './components/panelActions.ts';
 import { createInitialPanelState, type PanelDataStore } from './panelState.ts';
-import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine, BootstrapSection } from './components/panelSections.ts';
+import { GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection, DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection, LedgerSection, HitlSection, BudgetSection, ToolbarStatusLine, BootstrapSection, WorkspaceBadge } from './components/panelSections.ts';
 // cycle-72 T-7207：闭环体检分区（注册↔生产↔消费 三态矩阵白盒面）+ 其数据腿 target。
 import { ClosureSection } from './features/closure/ClosureSection.ts';
 import { closureTarget } from './features/closure/closureTarget.ts';
 // cycle-82：配置与路径分区（唯一可写面）+ 其 4s 档数据腿。
 import { ConfigSection, CONFIG_PANEL_ID } from './features/config/ConfigSection.ts';
+// cycle-95：分区编排（旅程排序）已拆出，本文件只保留编排的**调用**（守 T3 ≤250 行）。
+import { renderPanelSections } from './panelSectionOrder.ts';
 import { configTarget } from './features/config/configTarget.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
@@ -113,13 +115,21 @@ export function WorkflowGraphPanel(): ReactElement {
   //（快照学头副作用经 setters 接口回流 workspaceRef）。
   // cycle-46（T-4601 写侧收口）：写路径全部走 bindPanelActions 动作层；
   // learnWorkspace/workspaceKnown 两 ref 通道保留在调用点（非 store 写）。
-  // cycle-72：闭环体检数据腿并入同一 pollMs=0 档（全仓扫描 ~7s 故不与轻量档混轮询）。
+  // cycle-95：`learnWorkspace` 除写 ref 外**同时**镜像进 state —— ref 是给
+  // 「下一次请求该带哪个头」用的（时序要求：必须立即可读，不能等重渲），
+  // 而图区分键视图态需要的是一个**可触发重渲的值**（ref 变化不重渲，
+  // 所以只传 ref.current 会让分键记忆永远停在 undefined ⇒ 功能看似接好实际不生效）。
+  // 两者并存：ref 保时序，state 保可见性。
+  const [learnedWorkspace, setLearnedWorkspace] = useState<string | null>(null);
   usePanelFetch([...panelLiveTargets({
     setData: bindPanelActions(store).setGraph,
     setFetchLine: bindPanelActions(store).setFetchLine,
     setTrace: bindPanelActions(store).setTrace,
     setCheck: bindPanelActions(store).setCheck,
-    learnWorkspace: (root) => { workspaceRef.current = root; },
+    learnWorkspace: (root) => {
+      workspaceRef.current = root;
+      setLearnedWorkspace(root);
+    },
     workspaceKnown: () => workspaceRef.current,
   }), ...closureTarget(bindPanelActions(store))], 0, reloadKey, wsHeaders, isolationOptions());
 
@@ -200,50 +210,16 @@ export function WorkflowGraphPanel(): ReactElement {
     ),
     // cycle-91：服务端解析态喂抽屉（workspace/deployment 层的真实生效值）。
     prefsOpen ? renderPrefsDrawer({ resolved: store.getState().resolvedFlows }, () => { setFlowTick((k) => k + 1); }, prefsPanelId) : null,
-    // 图区：订阅 graph+trace 两切片（verdicts 由 trace 派生）。
-    createElement(GraphSection, { store, onNodeClick }),
-    // 实时调用分区紧跟图区：动态白盒是本面板的主叙事（m02733），
-    // 用户展开面板第一眼应看到"模型此刻在怎么调用本插件"。
-    // cycle-41（用户目标 A）：默认只展开「最近一次已完成调用」与「运行中调用」
-    // 所在组——旧轮次默认折叠收纳（组内摘要仍有计数，点开即全文）。
-    // cycle-42（T-4204）：deferred 渲染 + 陈旧指示（panelSections 内部）。
-    createElement(LiveInvocationsSection, { store, autoRefreshOn }),
-    // Cycle 时间线（B1 · P0 缺口）：宏观节奏条，旅程排序在实时调用之后、
-    // 静态投影之前——「正在发生的调用」与「循环走到哪了」相邻呈现。
-    // cycle-41（Top4b）：次级分区套可折叠壳（默认展开；折叠是用户主动收纳）。
-    createElement(CyclesSection, { store }),
-    createElement(StepTraceSection, { store, enabled: stepTraceOn }),
-    createElement(DiagnosticsSection, { store, enabled: diagnosticsOn }),
-    // cycle-20（P2）：自主级仪表带——org 全景的"一眼可读"形态（OrgSection 内
-    // 仪表带是总览、文本行是明细，两区消费同一 orgStatus 切片）。
-    createElement(OrgSection, { store }),
-    // cycle-20（P3）：技能健康面板——FlowTracker 调用历史的健康分析面，
-    // 旅程排序在 org 全景后、流程状态机前（「组织状态」→「技能健康」→「流程白盒」）。
-    createElement(SkillHealthSection, { store }),
-    // cycle-54（T-5401）：技术债务队列——「技能健康」之后呈现「欠了什么债」
-    //（提案工作队列 + 已消费计数 + 非 TechDebtEntry 形态如实跳过说明）。
-    createElement(TechDebtSection, { store }),
-    // 流程状态机分区（cycle-9 · D10）：FlowRegistry 全景白盒。关闭形态契约与
-    // stepTrace 同款 —— 分区隐藏 + 一行如实说明（INV-30），数据路由不受影响。
-    createElement(FlowsSection, { store, enabled: flowsViewOn }),
-    // 账本事件流 + HITL 审计队列（B2 · cycle-18）：治理证据簇，旅程排序紧跟
-    // 流程状态机——「状态机走到哪」与「裁决留了什么痕、谁在等人工」相邻呈现。
-    // cycle-24（P3 分页）：「显示更多」的 hasMore 由 LedgerSection 订阅数据自算。
-    createElement(LedgerSection, { store, onShowMore }),
-    createElement(HitlSection, { store, enabled: approvalsOn }),
-    // cycle-24（P3 治理预算）：预算余量条 + 大文件榜——治理证据簇收尾
-    //（「留了什么痕」之后呈现「这些痕占了多少空间」）。
-    createElement(BudgetSection, { store }),
-    // cycle-72 T-7207：闭环体检（注册↔生产↔消费）——治理证据簇之后回答
-    //「注册了的东西到底有没有被生产、被消费」（未消费清单 + 幽灵消费两表）。
-    createElement(ClosureSection, { store }),
-    // cycle-89：自举分区——「上次自举的结论是否还基于当前项目事实」。
-    // 排序紧随闭环体检（同样回答「白盒缺口」），在配置分区之前：观测面先于可写面。
-    createElement(BootstrapSection, { store }),
-    // cycle-82：配置与路径（唯一**可写**分区）。排序刻意放在最后：
-    // 面板的主叙事是"读"（图 → 调用 → 节奏 → 治理证据 → 缺口），配置是"改"，
-    // 越靠近底部越不容易挡住观测面；同时它默认展开，需要时滚到底一次可达。
-    createElement(ConfigSection, { store, panelId: configPanelId }),
-    renderNodeDetail(selectedNode, selectedNode === null ? undefined : { detailId: `${prefsPanelId}-node-detail`, onClose: closeNodeDetail }),
+    // 分区编排（旅程排序）已拆至 panelSectionOrder.ts（cycle-95 · 守 T3 ≤250 行）：
+    // 「先看到什么、后看到什么」属编排职责，与根组件的「数据从哪来、点了发生什么」
+    // 是两件事。排序理由（工作区徽标为何在图区之前、配置为何刻意最后）写在彼文件头注。
+    ...renderPanelSections({
+      store, gates: { stepTraceOn, diagnosticsOn, flowsViewOn, approvalsOn },
+      onNodeClick, onShowMore, autoRefreshOn, configPanelId, selectedNode, onCloseNodeDetail: closeNodeDetail,
+      // cycle-95：工作区分键视图态的分键键源。null = 尚未学到 ⇒ 图区不记忆
+      //（而不是拿 `__unknown__` 当键——两个都未识别的项目会共用一份视图，
+      // 那正是本功能要消灭的污染）。
+      workspace: learnedWorkspace ?? undefined,
+    }),
   );
 }

@@ -40,6 +40,16 @@ export interface BootstrapFactsJson {
   skillVersion?: string | null;
 }
 
+/** 活跃/归档分列（宿主 `activeVsArchived` 的宽松投影；字段全可选）。 */
+export interface BootstrapActiveVsArchivedJson {
+  /** 活跃循环目录名（升序）。 */
+  active?: string[];
+  archived?: number;
+  total?: number;
+  /** 评估/门禁/重启**只应看**这一份（= 活跃面）。 */
+  evaluationInput?: string[];
+}
+
 /** `GET /anic/self/status` 的响应（宿主 BootstrapState 的宽松投影）。 */
 export interface BootstrapJson {
   status?: string;
@@ -51,10 +61,22 @@ export interface BootstrapJson {
   lastFailure?: { reasons?: string[] } | null;
   facts?: BootstrapFactsJson | null;
   factsAt?: string | null;
+  /** 当前事实的短摘要（宿主 `factsDigest`，16 位十六进制；面板只显示前 8 位）。 */
+  factsDigest?: string | null;
   /** 布尔或 `{stale, changed}` 两形态（见文件头）。 */
   stale?: boolean | { stale?: boolean; changed?: string[] };
   staleReasons?: string[];
   restartCount?: number;
+  /** cycle-95：活跃/归档分列（旧宿主没有该字段 ⇒ 渲染层按 facts 计数降级）。 */
+  activeVsArchived?: BootstrapActiveVsArchivedJson | null;
+  /**
+   * cycle-95：宿主 `BOOTSTRAP_SETTLED` 的**权威裁决**（当前状态是否已结算）。
+   *
+   * 为什么需要它：`canRestart` 此前只认客户端自己抄的一份终态词表；终态集合的
+   * 权威在宿主状态机。两份词表一分叉就会出现「宿主认为是中间态、面板认为可重启」
+   * 的按钮——点下去会打断正在跑的评估。有这个字段时**以它为准**。
+   */
+  settled?: boolean | null;
 }
 
 /** 对象形（与 `features/live/fetchJson.isObjectLike` 同判据，独立实现避免跨域 import 环）。 */
@@ -90,7 +112,10 @@ export const SETTLED_STATUSES: readonly string[] = ['IDLE', 'CONVERGED', 'EXHAUS
 /** 是否处于可重启形态：终态 + （陈旧 或 轮次耗尽）。进行态不可重启。 */
 export function canRestart(v: BootstrapJson): boolean {
   const status = v.status ?? '';
-  if (!SETTLED_STATUSES.includes(status)) return false;
+  // 宿主权威优先：有 `settled` 就以它为准（中间态一律不可重启，即便 status 字符串
+  // 因宿主新增状态词而不在本地词表里）。旧宿主无该字段时回落到本地终态集合。
+  const settled = typeof v.settled === 'boolean' ? v.settled : SETTLED_STATUSES.includes(status);
+  if (!settled) return false;
   const round = v.round ?? 0;
   const max = v.maxRounds ?? 0;
   return staleOf(v).stale || status === 'IDLE' || (max > 0 && round >= max);

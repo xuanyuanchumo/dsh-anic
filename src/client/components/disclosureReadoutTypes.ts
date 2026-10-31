@@ -59,39 +59,23 @@ export function isDisclosureReadout(v: unknown): v is DisclosureReadoutJson {
   return typeof v['trackedAgents'] === 'number';
 }
 
-/** 已解锁工具总数（跨 agent 汇总；缺字段按 0）。 */
-export function unlockedTotal(r: DisclosureReadoutJson | null | undefined): number {
-  if (!r?.agents) return 0;
-  return r.agents.reduce((n, a) => n + (a.unlocked?.length ?? 0), 0);
-}
-
 /**
- * 读数是否显示**解锁通道在工作**。
+ * ## cycle-95 删除三条「壳导出」（为什么删，而不是留着等接线）
  *
- * ## 为什么不只是 `unlockedTotal > 0`
+ * 这里原先还有 `unlockedTotal()` 汇总、`UnlockChannelState` 类型 +
+ * `unlockChannelState()` 三态判定、`disclosureLine()` 一行摘要。全仓
+ * （**去注释后**）零消费 —— 判据不是"我以为没人用"，是
+ * `node scripts/audit-wiring.mjs` 的全仓零文本命中（前两条的唯二调用者就是
+ * 后两条被删的函数，所以它们一并失去消费面，留着就是三条新的死导出）。
  *
- * `full` 模式下**没有 agent 被遮蔽** ⇒ 解锁通道**不需要**工作 ⇒
- * `unlockedTotal === 0` 是**正确**的，不是"通道坏了"。
+ * 根因是**口径分叉**，不是"还没接线"：宿主侧已有权威摘要
+ * `runtime/disclosureReadout.ts` 的 `summarizeDisclosure()`（`disclosureRoute`
+ * 与 `selfCheckRoute` 都在用），而客户端面板**根本没有披露分区**
+ * （`panelState.disclosure` 只被 `setDisclosure` 写入、无渲染消费点）。
+ * 留着这几条，下一个人会以为客户端也在读披露 —— 那是两套摘要格式的雏形。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
  *
- * ⇒ 判据必须区分三态：
- * - 无 agent（full 模式）⇒ `'idle'`（不适用）；
- * - 有 agent 但无人解锁 ⇒ `'masked-only'`（遮蔽生效但还没人取 schema）；
- * - 有人解锁 ⇒ `'unlocking'`（通道工作）。
+ * 要恢复 UI 消费时应当**重新接线并同时决定唯一摘要口径**，而不是复活一份与
+ * 宿主分叉的字符串格式。本文件此刻只负责「形状 + 最宽准入守卫 + 端点常量」
+ * 三件真有人用的事（`isDisclosureReadout` / `DISCLOSURE_URL` / 两个 interface）。
  */
-export type UnlockChannelState = 'idle' | 'masked-only' | 'unlocking';
-
-/** 解锁通道的**三态**判定（见上）。 */
-export function unlockChannelState(r: DisclosureReadoutJson | null | undefined): UnlockChannelState {
-  if (!r || (r.trackedAgents ?? 0) === 0) return 'idle';
-  return unlockedTotal(r) > 0 ? 'unlocking' : 'masked-only';
-}
-
-/** 一行可读摘要（面板用；缺字段时给"未知"而非编数）。 */
-export function disclosureLine(r: DisclosureReadoutJson | null | undefined): string {
-  if (!r) return 'disclosure: unknown';
-  const agents = r.trackedAgents ?? 0;
-  if (agents === 0) return 'disclosure: mode=full (no masked agent)';
-  const unlocked = unlockedTotal(r);
-  const emits = r.toolsChangeEmits ?? 0;
-  return `disclosure: agents=${String(agents)} · unlocked=${String(unlocked)} · tools/change=${String(emits)}`;
-}

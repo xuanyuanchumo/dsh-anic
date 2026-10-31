@@ -14,7 +14,6 @@
  *   本模块只追加 crossProjectHistory 字段（向后兼容：旧文件无此字段时补 []）。
  */
 
-import { join } from 'node:path';
 import { loadBootstrapState, saveBootstrapState, type BootstrapState } from './selfBootstrap.ts';
 
 /** 跨项目调用历史条目（摘要形态，非全量 stdout）。 */
@@ -65,7 +64,16 @@ export function readCrossProjectHistory(cyclesDir: string): CrossProjectEntry[] 
   }
 }
 
-/** 从跨项目工作区根解析其 .cycles 目录（与路由层 cyclesDir 约定一致）。 */
-export function crossCyclesDirOf(workspaceRoot: string): string {
-  return join(workspaceRoot, '.cycles');
-}
+/**
+ * ## cycle-95 删除 `crossCyclesDirOf()`（为什么删）
+ *
+ * 它是 `join(workspaceRoot, '.cycles')` 的一层包装，注释自称「与路由层
+ * cyclesDir 约定一致」——但**没有任何路由用它**：跨项目调用的真实入口
+ * `routes/skillRoute.ts` 只 import 了 `appendCrossProjectHistory`，而
+ * `.cycles` 的拼接在各域是**显式内联**的（`evolution/*`、`flows/archiveEngine.ts`、
+ * `configEdit/pathRegistry.ts` 的 `cycles:` 登记项）。
+ *
+ * ⇒ 留着它反而制造「.cycles 有唯一构造器」的错觉，而这个仓库事实上是按域
+ * 显式拼接 + `pathRegistry` 登记。全仓去注释后零消费。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */

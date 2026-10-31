@@ -45,7 +45,7 @@
  * 归档的语义是「**移动**」（释放活跃面、避免同名冲突）。只复制不删 ⇒
  * 活跃面**没变小** ⇒ 归档目的落空 ⇒ `GET /anic/flows/status` 的活跃计数仍是错的。
  */
-import { existsSync, mkdirSync, renameSync, readdirSync, rmdirSync, statSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, readdirSync, rmdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** 目录移动的结果。 */
@@ -191,7 +191,23 @@ export function countFilesRecursive(dir: string): number {
   return n;
 }
 
-/** 复制文件（保留源）—— 供「复制而不删」的降级路径使用。 */
-export function copyFileSafe(from: string, to: string): void {
-  copyFileSync(from, to);
-}
+/**
+ * ## cycle-95 删除 `copyFileSafe()`（为什么删，而不是接线）
+ *
+ * 任务书原本建议「`copyFileSafe` 是原子移动原语 → 接线」。**实测证据否掉了这个前提**：
+ *
+ * ① **本文件头注已经明确裁定它不该被用**——「为什么归档**不能**退化为
+ *    『复制 + 不删源』：归档的语义是移动（释放活跃面、避免同名冲突）。只复制不删
+ *    ⇒ 活跃面没变小 ⇒ `GET /anic/flows/status` 的活跃计数仍是错的」。
+ *    而这个函数的注释恰是「供『复制而不删』的降级路径使用」——**语义与本书裁决相反**。
+ * ② 它不是"原子"原语：函数体就是 `copyFileSync(from, to)` 的一行转发，
+ *    没有任何临时名/rename/滚动校验，连 `moveDirectoryContents` 的 try/catch
+ *    与失败计数都没有。把它称作原子移动原语是**注释在撒谎**。
+ * ③ 全仓去注释后零消费（含 tests/ 与 scripts/），三个真实复制点
+ *    （`skillIntegrity.ts`、`skillInvoker.ts`）各自直接调 `fs.copyFileSync`。
+ *
+ * ⇒ 接线它等于**复活本文件刚刚明确拒绝的降级设计**，并把一行转发包装成
+ * "原语"让人误以为有保障。删除；真需要复制语义时用 `copyFileSync` 并在调用点
+ * 写明为何要"复制而不删"（那是调用方的业务裁决，不是本模块的默认）。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */

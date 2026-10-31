@@ -41,10 +41,22 @@ export interface TraceResult {
   down: ReadonlySet<string>;
   /** 是否因深度上限被截断（诚实标注，不伪造完整）。 */
   truncated: boolean;
+  /**
+   * 上游**距离**（cycle-95）：`id → 距 root 的跳数`（1..MAX_TRACE_DEPTH）。
+   *
+   * 为什么 Set 之外还要一份 Map（这不是冗余）：集合只能回答"在不在圈里"，
+   * 但它回答不了「炸了影响多远」——1 跳是直接受影响，3 跳是波及。渲染层的
+   * 实色 / 半透明 / 虚线三档与状态条的 blast radius 读数都由这份距离驱动。
+   * 键集合与 `up` 严格相等（同一趟 BFS 同时产出，不另跑一次避免漂移）。
+   */
+  upDepth: ReadonlyMap<string, number>;
+  /** 下游距离（语义同 upDepth，方向为出边）。 */
+  downDepth: ReadonlyMap<string, number>;
 }
 
 export const EMPTY_TRACE: TraceResult = {
   root: null, up: new Set<string>(), down: new Set<string>(), truncated: false,
+  upDepth: new Map<string, number>(), downDepth: new Map<string, number>(),
 };
 
 /** 邻接表：正向（出边）与反向（入边）各一份。 */
@@ -87,8 +99,10 @@ export function buildTrace(
 ): TraceResult {
   if (rootId === null || rootId === undefined || rootId === '') return EMPTY_TRACE;
   const depth = Math.max(1, Math.min(MAX_TRACE_DEPTH, Math.floor(maxDepth)));
-  const walk = (links: Map<string, string[]>): { set: Set<string>; truncated: boolean } => {
+  const walk = (links: Map<string, string[]>): { set: Set<string>; depth: Map<string, number>; truncated: boolean } => {
     const seen = new Set<string>();
+    /** 距离与集合同趟产出（见 TraceResult.upDepth 的"不是冗余"说明）。 */
+    const dist = new Map<string, number>();
     let frontier: string[] = [rootId];
     let truncated = false;
     for (let d = 0; d < depth; d += 1) {
@@ -97,6 +111,8 @@ export function buildTrace(
         for (const nb of links.get(id) ?? []) {
           if (nb === rootId || seen.has(nb)) continue;
           seen.add(nb);
+          // 按层迭代 ⇒ 首次入集合的层次就是**最短跳数**（BFS 的正确性来源）。
+          dist.set(nb, d + 1);
           next.push(nb);
         }
       }
@@ -109,7 +125,7 @@ export function buildTrace(
         }
       }
     }
-    return { set: seen, truncated };
+    return { set: seen, depth: dist, truncated };
   };
   const upWalk = walk(adjacency.reverse);
   const downWalk = walk(adjacency.forward);
@@ -118,6 +134,8 @@ export function buildTrace(
     up: upWalk.set,
     down: downWalk.set,
     truncated: upWalk.truncated || downWalk.truncated,
+    upDepth: upWalk.depth,
+    downDepth: downWalk.depth,
   };
 }
 
@@ -133,6 +151,63 @@ export function traceRoleOf(trace: TraceResult, id: string): TraceRole {
   if (up) return 'up';
   if (down) return 'down';
   return null;
+}
+
+/**
+ * 某节点在追溯里的**跳数**（cycle-95）；未入集合 → 0（0 = root 自身或圈外）。
+ *
+ * 为什么 up 与 down 都命中时取**较小值**：一个节点既可能是原因也可能是结果
+ * （环）。渲染的三档要回答"它离我多近"，取近的那一侧才符合直觉；取远的那侧
+ * 会让紧邻的节点被画成"波及很远"，反而是错的。
+ */
+export function traceDepthOf(trace: TraceResult, id: string): number {
+  if (trace.root === null) return 0;
+  if (trace.root === id) return 0;
+  const up = trace.upDepth.get(id);
+  const down = trace.downDepth.get(id);
+  if (up === undefined) return down ?? 0;
+  if (down === undefined) return up;
+  return Math.min(up, down);
+}
+
+/** 影响半径读数（blast radius）：1/2/3 跳各多少节点。 */
+export interface BlastRadius {
+  d1: number;
+  d2: number;
+  d3: number;
+  /** 落在 1..MAX_TRACE_DEPTH 内的总数（= 该方向的集合大小）。 */
+  total: number;
+}
+
+export interface BlastRadiusStats {
+  up: BlastRadius;
+  down: BlastRadius;
+}
+
+/** 单方向的分档计数（内部复用；不导出以免出现第二套口径）。 */
+function blastOf(depth: ReadonlyMap<string, number>): BlastRadius {
+  const out: BlastRadius = { d1: 0, d2: 0, d3: 0, total: 0 };
+  for (const d of depth.values()) {
+    if (d === 1) out.d1 += 1;
+    else if (d === 2) out.d2 += 1;
+    else if (d === 3) out.d3 += 1;
+    out.total += 1;
+  }
+  return out;
+}
+
+/**
+ * 影响半径分档（cycle-95）——「它炸了影响多远」。
+ *
+ * 为什么不返回单个数：总受影响节点数（= up/down 的 size）只说"波及多少"，
+ * 分档说"波及多深"。三跳上限下，1 跳（直接）与 3 跳（间接）在处理上完全不同
+ * （前者要立刻查，后者只是"留意"）。压成一个数就把这条信息丢了。
+ *
+ * `EMPTY_TRACE` → 全 0（不是 undefined）：面板上"没追溯"与"追溯了但影响为 0"
+ * 是两件事，但两者的**读数**都是 0——把前者写成 0 不撒谎，空态另由 root===null 表达。
+ */
+export function blastRadiusStats(trace: TraceResult): BlastRadiusStats {
+  return { up: blastOf(trace.upDepth), down: blastOf(trace.downDepth) };
 }
 
 /**

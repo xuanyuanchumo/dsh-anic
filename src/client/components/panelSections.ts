@@ -190,6 +190,13 @@ export { ClosureSection } from '../features/closure/ClosureSection.ts';
 // cycle-89 自举分区：答「上次自举的结论是否还基于当前项目事实」（默认收纳）。
 export { BootstrapSection } from '../features/bootstrap/BootstrapSection.ts';
 
+// cycle-95 WS-D：当前工作区徽标（项目名 + 跨项目标注）。
+// 为什么走本文件再导出而不是让装配层直接 import：`WorkflowGraphPanel.ts` 已 249 行、
+// T3 上限 250 —— 加一行 import 就顶线。本文件是"分区订阅薄层的聚合面"，
+// 徽标与各分区共用同一装配路径，从这里转出对装配层是**零行新增**（同款门面：
+// GraphSection / ClosureSection / FlowsSection / BootstrapSection）。
+export { WorkspaceBadge } from '../features/org/workspaceBadge.ts';
+
 // cycle-89：流程分区（状态机视图 + 归属量化条）已拆至 features/flows/FlowsSection.ts
 // ——本文件只做再导出（与 GraphSection / ClosureSection 同款门面，import 路径零变更）。
 export { FlowsSection } from '../features/flows/FlowsSection.ts';

@@ -12,7 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  EMPTY_TRACE, MAX_TRACE_DEPTH, buildTrace, buildTraceAdjacency, matchNodes, traceRoleOf,
+  EMPTY_TRACE, MAX_TRACE_DEPTH, blastRadiusStats, buildTrace, buildTraceAdjacency, matchNodes,
+  traceDepthOf, traceRoleOf,
 } from '../../src/client/features/graph/graphTrace.ts';
 import { IDENTITY, centerOnWorld, toScreen } from '../../src/client/features/graph/graphViewport.ts';
 import type { WorkflowEdge } from '../../src/client/workflowGraphData.ts';
@@ -93,6 +94,57 @@ describe('traceRoleOf：四态互斥', () => {
     // A 是上游；B 既是上游（B→C）又是下游（C→B）
     expect(traceRoleOf(t, 'A')).toBe('up');
     expect(traceRoleOf(t, 'B')).toBe('both');
+  });
+});
+
+describe('深度分档（cycle-95）：blast radius 与 jump 数', () => {
+  it('链 A→B→C→D：downDepth 逐跳 1/2/3，upDepth 反向同样', () => {
+    const t = buildTrace(buildTraceAdjacency(CHAIN), 'A');
+    expect(t.downDepth.get('B')).toBe(1);
+    expect(t.downDepth.get('C')).toBe(2);
+    expect(t.downDepth.get('D')).toBe(3);
+    // 距 root 自身不在 Map 里（0 由 traceDepthOf 单独表达）
+    expect(t.downDepth.has('A')).toBe(false);
+  });
+
+  it('Blast radius：每一跳各自计数，且三档之和 = 集合大小', () => {
+    const t = buildTrace(buildTraceAdjacency(CHAIN), 'A');
+    const b = blastRadiusStats(t).down;
+    expect(b.d1).toBe(1);
+    expect(b.d2).toBe(1);
+    expect(b.d3).toBe(1);
+    expect(b.total).toBe(3);
+    expect(b.d1 + b.d2 + b.d3).toBe(b.total); // 内部自洽
+    expect(b.total).toBe(t.down.size);          // 与集合口径一致
+  });
+
+  it('反向自检：**没有**深度信息时（EMPTY_TRACE）分档全 0，而不是 undefined/NaN', () => {
+    const b = blastRadiusStats(EMPTY_TRACE);
+    expect(b.up).toEqual({ d1: 0, d2: 0, d3: 0, total: 0 });
+    expect(b.down).toEqual({ d1: 0, d2: 0, d3: 0, total: 0 });
+  });
+
+  it('traceDepthOf：root → 0，圈外 → 0，圈内 → 真跳数（三种可区分）', () => {
+    const t = buildTrace(buildTraceAdjacency(CHAIN), 'C');
+    expect(traceDepthOf(t, 'C')).toBe(0);   // root
+    expect(traceDepthOf(t, 'Z')).toBe(0);   // 圈外（不存在的节点）
+    expect(traceDepthOf(t, 'D')).toBe(1);
+    expect(traceDepthOf(t, 'E')).toBe(2);
+    // 上游方向同样按跳数计：B 是 1 跳、A 是 2 跳（A→B→C，不是"上游都算 1 跳"）
+    expect(traceDepthOf(t, 'B')).toBe(1);
+    expect(traceDepthOf(t, 'A')).toBe(2);
+  });
+
+  it('既有消费方不破：up/down 集合与 truncated 语义逐字未变（depth 是**增量**字段）', () => {
+    const t = buildTrace(buildTraceAdjacency(CHAIN), 'C');
+    expect([...t.up].sort()).toEqual(['A', 'B']);
+    expect([...t.down].sort()).toEqual(['D', 'E']);
+    // Map 的键集合与 Set 严格相等（同一趟 BFS 产出，不漂移）
+    expect([...t.upDepth.keys()].sort()).toEqual([...t.up].sort());
+    expect([...t.downDepth.keys()].sort()).toEqual([...t.down].sort());
+    expect(t.truncated).toBe(false);
+    expect(EMPTY_TRACE.upDepth.size).toBe(0);
+    expect(EMPTY_TRACE.downDepth.size).toBe(0);
   });
 });
 

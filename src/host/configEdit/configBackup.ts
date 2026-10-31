@@ -25,7 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createScoped } from '../logger.ts';
 import { loadWorkspaceConfig } from '../config.ts';
-import { CONFIG_FIELDS, fieldById } from './configSchema.ts';
+import { CONFIG_FIELDS } from './configSchema.ts';
 import { readFieldValue } from './configRead.ts';
 import {
   BACKUP_PREFIX,
@@ -219,8 +219,18 @@ export function readbackAfterRollback(cyclesDir: string): { ok: boolean; error: 
   }
 }
 
-/** 字段的展示名（服务端不给词条文本——客户端用 labelKey 自己 t()）。 */
-export function backupFieldLabel(id: string): string {
-  const def = fieldById(id);
-  return def === undefined ? id : def.labelKey;
-}
+/**
+ * ## cycle-95 删除 `backupFieldLabel()`（为什么删）
+ *
+ * 它把字段 id 映射成 `labelKey`（查不到时回落成 id）。但**回滚摘要的展示
+ * 已经逐项处理**了：`configBackup` 产出的 `changedFields` 是**字段 id 数组**，
+ * 客户端 `features/config/configExtras.ts` 直接把它们 join 后渲染，并另以
+ * `cfgText('backupChanged')` 给出本地化标题。
+ *
+ * ⇒ 本函数返回 `labelKey`（一个**词表键**而非文案）却不经 `t()`，任何接线
+ * 都会把 `config.field.projectName` 这种键直接印在面板上，违反 i18n 纪律；
+ * 正确落点是客户端拿到 id 后用 `t(labelKey)`。全仓去注释后零消费。
+ *
+ * 保留 `fieldById` 的单一实现不动（在 `configSchema.ts`，`configCommit.ts`
+ * 的字段解析仍在用它）；本文件删掉的只是这个多余的映射包装 + 它的悬挂 import。
+ */

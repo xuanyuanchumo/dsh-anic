@@ -16,7 +16,43 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { safeReadFileSync } from '../../shared/fs-safe.ts';
-import type { EvalReportFacts } from './bootstrapFacts.ts';
+import type { EvalReportFacts, ProjectFacts } from './bootstrapFacts.ts';
+
+/**
+ * 存档事实的形状守卫 —— 状态文件里的 `facts` 是**跨模块共享载荷**
+ * （restart 写入、status 读回、面板渲染），不能相信它的形状：旧版本没有该键、
+ * 手工编辑可能写坏、别的模块也可能往状态文件里塞东西。
+ *
+ * 只校验"能安全参与比较的最少字段"：`activeCycleNames` 必须是数组、三个计数
+ * 必须是数字、`hasCyclesDir` 必须是布尔。任何一项不符 ⇒ 视为**没有存档事实**
+ * （调用方按 `diffFacts(null, …)` 判 stale:true）。方向很重要：把坏形状读成
+ * "有事实"会让陈旧判定拿半截字段比较，把变化静默放过；读成"未采集"则
+ * 至多多报一次陈旧——这是唯一能自我修复的方向。
+ */
+export function isProjectFacts(v: unknown): v is ProjectFacts {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const f = v as Record<string, unknown>;
+  return typeof f['hasCyclesDir'] === 'boolean'
+    && typeof f['ledgerEntries'] === 'number'
+    && typeof f['activeCycles'] === 'number'
+    && typeof f['archivedCycles'] === 'number'
+    && Array.isArray(f['activeCycleNames']);
+}
+
+/**
+ * 从自举状态（或任意 JSON）里取出**存档事实**；取不到 ⇒ `null`。
+ *
+ * 为什么参数是 `unknown` 而不是 `BootstrapState`：给状态机类型加可选字段会把
+ * `selfBootstrap.ts` 顶过 T3 的 250 行上限（该文件此刻正好 250 行），而 `facts`
+ * 并不属于状态机语义 —— 它是**装配层载荷**（restart 写入、status 读回）。
+ * 用形状守卫在这里收口，比在路由里 `as` 强转安全：坏形状会被判成"未采集"，
+ * 而不是带着半截字段参与陈旧判定。
+ */
+export function readStoredFacts(state: unknown): ProjectFacts | null {
+  if (state === null || typeof state !== 'object') return null;
+  const facts = (state as Record<string, unknown>)['facts'];
+  return isProjectFacts(facts) ? facts : null;
+}
 
 /** 读 JSON；缺失/坏形状 → null（不抛、不猜）。 */
 export function readJson(file: string): Record<string, unknown> | null {

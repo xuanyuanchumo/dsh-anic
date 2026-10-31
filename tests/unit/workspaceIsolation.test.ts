@@ -29,6 +29,11 @@ import {
   loadViewState,
   saveViewState,
 } from '../../src/client/components/workspaceViewState.ts';
+// cycle-95 WS-D：徽标纯函数（与守卫同源身份键）。
+import {
+  workspaceBadgeOf,
+  workspaceLabelOf,
+} from '../../src/client/features/org/workspaceBadge.ts';
 
 describe('normalizeWorkspace：路径归一', () => {
   it('反斜杠 → 正斜杠', () => {
@@ -139,6 +144,51 @@ describe('createEpochGuard：在途丢弃（防线二）', () => {
     expect(g.advance()).toBe(1);
     expect(g.advance()).toBe(2);
     expect(g.current).toBe(2);
+  });
+});
+
+describe('防线四：当前工作区**可见性**（cycle-95 WS-D）', () => {
+  /*
+   * 前三道防线都在数据层：串味被拦住了，但界面上没有任何东西告诉用户
+   * "你现在看的是哪个项目"。隔离在数据层成立、在视觉层不可见，等于用户
+   * 只能靠猜——这正是用户点名的「不能污染」在可观测性上的缺口。
+   *
+   * 本组的判据只有一条：**徽标的身份键必须就是守卫的身份键**。两处各算一份
+   * 归一化，"同一项目两种路径形态"会在徽标上显示为一个、在守卫里判成另一个。
+   */
+  it('**徽标身份键 ⇄ 守卫分键同源**（同一路径形态两种写法的 key 相等）', () => {
+        for (const [a, b] of [
+      ['D:\\Project-A', 'd:/project-a'],
+      ['D:\\Projects\\X', 'D:/projects/x/'],
+      ['/home/user/proj', '/home/user/proj'],
+    ] as const) {
+      expect(workspaceBadgeOf(a).key, `${a} vs ${b}`).toBe(workspaceKeyOf(b));
+    }
+  });
+
+  it('**未识别工作区 → 徽标与守卫都用同一个固定键**（不是各自编一个）', () => {
+        for (const v of [null, undefined, '', '   ']) {
+      expect(workspaceBadgeOf(v).key).toBe(UNKNOWN_WORKSPACE_KEY);
+      expect(workspaceBadgeOf(v).unknown).toBe(true);
+    }
+    // 反向自检：真实工作区不得被判成未识别（否则上面三条是恒真）。
+    expect(workspaceBadgeOf('D:/a').unknown).toBe(false);
+  });
+
+  it('徽标标签只含末两段（**绝对路径不进可见面**）', () => {
+        const label = workspaceLabelOf('D:\\Projects\\TraeProjects\\dsh-anic');
+    expect(label).toBe('TraeProjects/dsh-anic');
+    expect(label).not.toContain('D:');
+    expect(label).not.toContain(String.fromCharCode(92));
+  });
+
+  it('**同一 store 切片口径**：config.workspace 与快照头学得的工作区归一到同一个键', () => {
+    // config 响应里的 workspace 是原始路径，快照响应头学得的那份也是原始路径；
+    // 面板用其中任一个构造徽标，身份键必须相同（否则两拍之间标签会跳）。
+        const fromConfig = 'D:\\Projects\\TraeProjects\\dsh-anic';
+    const fromHeader = decodeURIComponent('D%3A%5CProjects%5CTraeProjects%5Cdsh-anic');
+    expect(workspaceBadgeOf(fromConfig).key).toBe(workspaceBadgeOf(fromHeader).key);
+    expect(workspaceBadgeOf(fromConfig).label).toBe(workspaceBadgeOf(fromHeader).label);
   });
 });
 

@@ -91,12 +91,19 @@ export function collectPaths(workspaceRoot: string, resolved?: PathResolveResult
   return { workspace: ctx.root, entries, warnings, overridesIgnored: overrides.ignored };
 }
 
-/** 生效的覆盖（`id → 相对路径`）——客户端据此显示「默认 / 自定义」。 */
-export function activeOverrides(resolved: PathResolveResult): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [id, v] of Object.entries(resolved.overrides)) out[id] = v.rel;
-  return out;
-}
+/**
+ * ## cycle-95 删除 `activeOverrides()`（为什么删）
+ *
+ * 它把 `resolved.overrides` 拍平成 `id → rel`，注释说「客户端据此显示
+ * 『默认 / 自定义』」。但客户端**并不消费宿主这个形状**：它读的是
+ * `config.pathOverrides.active`（`GET /anic/api/config/paths` 的覆盖响应，
+ * `configGuards.ts` 的 `isPathOverridesJson` 守卫它），并在
+ * `configPaths.ts` 里按 `entry.overridden` / `ov.editableIds` 逐项渲染。
+ *
+ * ⇒ 这是「宿主侧再拍平一份客户端契约」的重复投影；两组形状一旦分叉，
+ * 「默认/自定义」的判据就有两个真相源。全仓去注释后零消费。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */
 
 /** 可覆盖 id 的稳定顺序（客户端逐项渲染编辑入口；顺序 = 登记表顺序）。 */
 export const EDITABLE_PATH_IDS: readonly string[] = overridablePathIds();

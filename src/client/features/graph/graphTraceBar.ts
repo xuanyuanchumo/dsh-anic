@@ -18,8 +18,9 @@
  * 与 `renderBudget` / `renderClosure` 同纪律：调用方传状态与回调，本文件只出元素树。
  */
 import { createElement, type ReactElement } from 'react';
-import type { TraceResult } from './graphTrace.ts';
+import { blastRadiusStats, type TraceResult } from './graphTrace.ts';
 import { t } from '../../i18n.ts';
+import { gt } from './graphText.ts';
 
 export interface TraceBarInput {
   trace: TraceResult;
@@ -30,6 +31,16 @@ export interface TraceBarInput {
 export function renderTraceBar(input: TraceBarInput): ReactElement {
   const { trace, onExit } = input;
   const root = trace.root ?? '';
+  /**
+   * 影响半径分档（cycle-95）：1/2/3 跳各多少。
+   *
+   * 为什么状态条要显示它：`traceUp/traceDown` 只给总数（"上游 5"），用户接着
+   * 要问"这 5 个是直接原因还是三步之外的波及"——这正是 blast radius 的意义。
+   * 三档全 0 时**不显示**（还没追到东西），比显示三个 0 诚实。
+   */
+  const blast = blastRadiusStats(trace);
+  const upFilled = blast.up.total > 0;
+  const downFilled = blast.down.total > 0;
   return createElement(
     'div',
     {
@@ -38,6 +49,14 @@ export function renderTraceBar(input: TraceBarInput): ReactElement {
       'data-anic-graph-trace-up': String(trace.up.size),
       'data-anic-graph-trace-down': String(trace.down.size),
       'data-anic-graph-trace-truncated': trace.truncated ? 'true' : 'false',
+      // 分档读数进 DOM：三个数字是"影响多远"的唯一定量证据，视觉挤在一行里
+      // 读不准，必须能被断言（同 data-anic-trace 纪律）。
+      'data-anic-graph-trace-up-d1': String(blast.up.d1),
+      'data-anic-graph-trace-up-d2': String(blast.up.d2),
+      'data-anic-graph-trace-up-d3': String(blast.up.d3),
+      'data-anic-graph-trace-down-d1': String(blast.down.d1),
+      'data-anic-graph-trace-down-d2': String(blast.down.d2),
+      'data-anic-graph-trace-down-d3': String(blast.down.d3),
       // role=status：进入/退出追溯是异步交互结果，AT 需要听到。
       role: 'status',
       style: {
@@ -52,6 +71,20 @@ export function renderTraceBar(input: TraceBarInput): ReactElement {
       t('graph.traceDown', { count: String(trace.down.size) })),
     trace.truncated
       ? createElement('span', { key: 'trunc', 'data-anic-graph-trace-trunc': 'true' }, t('graph.traceTruncated'))
+      : null,
+    // 影响半径读数（cycle-95）：每侧一行，形如「1 跳 2 · 2 跳 1 · 3 跳 0」。
+    // 文案走 graph.traceDepth（"{depth} 跳"），与深度分档共用同一个词表键。
+    upFilled
+      ? createElement('span', { key: 'up-blast', 'data-anic-graph-trace-up-blast': 'true' },
+          [1, 2, 3]
+            .map((d) => `${gt('traceDepth', { depth: String(d) })} ${String(d === 1 ? blast.up.d1 : d === 2 ? blast.up.d2 : blast.up.d3)}`)
+            .join(' · '))
+      : null,
+    downFilled
+      ? createElement('span', { key: 'down-blast', 'data-anic-graph-trace-down-blast': 'true' },
+          [1, 2, 3]
+            .map((d) => `${gt('traceDepth', { depth: String(d) })} ${String(d === 1 ? blast.down.d1 : d === 2 ? blast.down.d2 : blast.down.d3)}`)
+            .join(' · '))
       : null,
     createElement('button', {
       key: 'exit', type: 'button', 'data-anic-graph-trace-exit': 'true',

@@ -176,7 +176,15 @@ export function probeEntry(
   }
 }
 
-/** 工作区相对路径探测（不套覆盖；供覆盖校验与默认表使用）。 */
-export function probeDefault(def: PathDef, ctx: PathContext): PathEntry {
-  return probeEntry(def, ctx, { path: defaultPathOf(def, ctx), overridden: false });
-}
+/**
+ * ## cycle-95 删除 `probeDefault()`（为什么删）
+ *
+ * 注释自称「供覆盖校验与默认表使用」，但**两处都不用它**：
+ * `paths.ts` 的 `resolvePathsFor` 对每一个登记项直接内联调用
+ * `probeEntry(def, ctx, { path: defaultPathOf(def, ctx), overridden: false })`，
+ * 与本函数**逐字节等价**；覆盖校验走的是 `probeEntry` + `pathOverrideRules`。
+ *
+ * ⇒ 这是同一判定的**第二份包装**，多一个入口就多一个「谁才是默认探测」的疑问。
+ * 全仓去注释后零消费（audit-wiring 全仓零文本命中），tests/ 也无引用。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */

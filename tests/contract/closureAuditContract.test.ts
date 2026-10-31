@@ -198,7 +198,24 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
    * 钉法：分区组件 + 它的 target 工厂必须**同时**被面板入口引用（缺任一即红）。
    */
   it('装配完整性：分区组件与其数据腿 target 必须同时被面板入口接线（有壳无表体即红）', () => {
-    const panelSrc = readFileSync(join(ROOT, 'src', 'client', 'WorkflowGraphPanel.ts'), 'utf8');
+    /*
+     * 扫描面：面板装配面 = `WorkflowGraphPanel.ts`（容器/数据腿/工具栏）+
+     * `panelSectionOrder.ts`（分区编排）。
+     *
+     * cycle-95 拆出编排层后，`ClosureSection` 的 `createElement` 落在编排层、
+     * 而 `closureTarget` 的数据腿仍在根组件——**这是一次正确的职责拆分**
+     * （编排层不该知道数据从哪来），但把本契约「同一文件里同时出现四件」的
+     * 判据从"钉住接线"变成了"钉住不许拆文件"。
+     *
+     * 正确形态：判据仍是四件齐备（组件 import / 组件装配 / 数据腿 import / 数据腿调用），
+     * 但允许它们分布在**装配面的任一文件**里；反向自检改为「删掉任一件即翻假」，
+     * 且变异施加在整个装配面上（不再只是单文件），证明判据不是被拆文件救了。
+     */
+    const ASSEMBLY_FILES = [
+      join(ROOT, 'src', 'client', 'WorkflowGraphPanel.ts'),
+      join(ROOT, 'src', 'client', 'panelSectionOrder.ts'),
+    ];
+    const assemblySrc = ASSEMBLY_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     const component = 'Closure' + 'Section';
     const targetFactory = 'closure' + 'Target';
     const importedComponent = 'import { ' + component + " } from './features/closure/ClosureSection.ts'";
@@ -216,16 +233,16 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
     const pinPasses = (src: string): boolean =>
       src.includes(importedComponent)
       && src.includes(importedTarget)
-      && src.includes('createElement(' + component + ', { store })')
+      && src.includes('createElement(' + component + ', {')
       && src.includes(dataLegCall);
-    // 前向：原始树必须通过
-    expect(pinPasses(panelSrc)).toBe(true);
-    // 反向：分别删掉「数据腿 import」与「数据腿调用」，判据都必须翻假（两条独立变异）
+    // 前向：原始装配面必须通过
+    expect(pinPasses(assemblySrc)).toBe(true);
+    // 反向：分别删掉「组件 import」「组件装配」「数据腿 import」「数据腿调用」，判据都必须翻假
     for (const mutant of [
-      panelSrc.replace(importedTarget, ''),
-      panelSrc.replace(dataLegCall, ''),
-      panelSrc.replace('createElement(' + component + ', { store })', ''),
-      panelSrc.replace(importedComponent, ''),
+      assemblySrc.replace(importedTarget, ''),
+      assemblySrc.replace(dataLegCall, ''),
+      assemblySrc.replace('createElement(' + component + ', {', 'createElement(Fake' + 'Section, {'),
+      assemblySrc.replace(importedComponent, ''),
     ]) {
       expect(pinPasses(mutant)).toBe(false);
     }

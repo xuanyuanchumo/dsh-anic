@@ -46,6 +46,12 @@ export type GraphTextSuffix =
   // cycle-94：两点最短路径（根因定位从「三次双击」降为「一次输入」）
   | 'pathFind' | 'pathFindPlaceholder' | 'pathFindHint'
   | 'pathFindNoPath' | 'pathFindResult' | 'pathFindInvalid'
+  // cycle-95（WS-C）：路径**选择模式**的状态条文案与退出键
+  //   消费点：graphExtras.renderPathBar / graphToolbarPath（模式必须可见、必须可退）
+  //   ⚠️ 这三个键**尚待 WS-D 合并进 locale/zh.json + en.json**（本文件只声明短名）。
+  //   复用既有键的场合：「找路径」按钮文案用 `graph.pathFind`、「节点角色」图例标题
+  //   用 `graph.nodeRoleLabel` —— 能复用就不新增（死键守卫按前缀认领，键越少越好）。
+  | 'pathPickStart' | 'pathPickEnd' | 'pathExit'
   // cycle-94：追溯深度分档（blast radius 的读数）
   | 'traceDepth'
   | 'filterAnomaly' | 'filterAnomalyHint'

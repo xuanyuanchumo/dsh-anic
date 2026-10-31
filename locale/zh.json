@@ -481,7 +481,10 @@
       "orphan": "孤立",
       "leaf": "末端",
       "entry": "入口"
-    }
+    },
+    "pathPickStart": "选起点：在节点上按 Enter",
+    "pathPickEnd": "选终点：再选一个节点",
+    "pathExit": "退出找路径"
   },
   "config": {
     "title": "配置与路径",
@@ -644,5 +647,13 @@
     "truncated": "⚠ 数据窗口已截断（丢弃 {n} 条最旧记录）",
     "insufficient": "样本不足（n={n} < {min}），不可判定",
     "sensitivityFloor": "3σ 规则在本口径下触不到（EWMA 距中心线最多 {n}σ）"
+  },
+  "workspace": {
+    "badge": "项目 · {label}",
+    "badgeAria": "当前工作区：{label}",
+    "unknown": "未识别项目",
+    "crossProject": "跨项目",
+    "crossProjectLine": " · {source} → {target}",
+    "crossProjectCount": " · {count} 次"
   }
 }

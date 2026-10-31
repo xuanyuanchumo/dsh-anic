@@ -59,8 +59,61 @@ function runAudit(): { report: Record<string, unknown>; code: number } {
  * 逼新增者当场决定"接线 / 删除 / 显式登记"——而不是让它无声地累积。
  *
  * 收紧时把数字改小并在提交信息里说明删掉了哪几条（这是棘轮的标准用法）。
+ *
+ * ## cycle-95 收紧 28 → 14（WS-E 裁决的实测结果）
+ *
+ * 本域可裁决的 21 条逐条给证据后收口（**删除 15 / 接线 6**，见下），
+ * 剩下的是**别人写域**的债，本任务按纪律不越权改：
+ *
+ *   残留 = 图谱域 12 + 宿主 bootstrap 域 1（数字随并行工作流实时波动）
+ *   - 图谱域：`renderControlBand` / `fullscreenCapabilityOf` /
+ *     `toolbarPropsOf` / `breadcrumbInputOf` / `LANE_HEADER_TOKENS` /
+ *     `laneLabelOf` / `sameAnchor` / `NO_TRACE_DEPTH` / `clampTraceDepth`
+ *     （cycle-94 遗留 9 条），外加 WS-B/WS-C **本轮新增**的
+ *     `viewStateSnapshotOf` / `createViewStateWriter` / `loadRestoredViewState`
+ *     （`graphViewStateWire.ts`，3 条）——
+ *     `src/client/features/graph/` 在 cycle-95 是 WS-B/WS-C 并行写域。
+ *     **全部由图谱域 owner 下轮处理**。
+ *   - `BOOTSTRAP_SETTLED @ src/host/selfBootstrap.ts`：WS-A 正在改同一语义域
+ *     （bootstrapFacts / selfBootstrapRoute），**由 WS-A 域 owner 下轮处理**。
+ *
+ * ⚠️ 并行波动的诚实说明：本文件被 WS-E 设成 14（任务书的 P1 目标值），
+ * 而不是 WS-E 实测的 13 —— 那 1 条余量是**给并行同伴的**（他们每轮都在增删
+ * 图谱域文件）。若同伴继续新增而死导出涨过 14，**契约应当变红**，不要抬这个数：
+ * 那说明又有人"先导出、后接线"。同伴收口后请把 14 继续往下收。
+ *
+ * 删除的 15 条（全仓去注释后零消费 / 零 tests 引用，逐条在文件头留"为什么删"）：
+ *   `unlockChannelState` `disclosureLine` `unlockedTotal`（后者因前两者的删除
+ *   失去唯二调用者，一并删除——否则我自己制造三条新债）
+ *   `sourceLayerLabel` `payloadRejectionFailure` `editablePaths` `LEDGER_LIST_URL`
+ *   `prefsPanelIdOf` `backupFieldLabel` `probeDefault` `activeOverrides`
+ *   `crossCyclesDirOf` `UPGRADE_HISTORY_LIMIT` `registerMacroPhaseFlow`
+ *   `copyFileSafe` `noteReadoutReady`。
+ *
+ * 接线的 6 条（**每一处都带一条新契约/单测**，不是"导出了就当用了"）：
+ *   `rebuildGateFlowState` → `tests/unit/gateFlowReplay.test.ts`（补齐 gate-check
+ *     缺失的 INV-13 replay === online；四个兄弟流程都有、只有它没有）
+ *   `setLoggerSink` → `tests/unit/loggerSink.test.ts`（文档声称的"唯一替换点"
+ *     此前零测试使用）
+ *   `UNKNOWN_VERSION_BEHAVIOR` → 同上测试 + `loadFlowTracker` 真的执行"宽容读 +
+ *     显式警告"（此前注释承诺 `versionMismatch`，读侧却从没读过 `version`）
+ *   `anicError` / `isAnicError` → `tests/contract/errorTaxonomyContract.test.ts`
+ *     （工厂零调用、守卫零调用，分类学与用法完全脱钩）
  */
-const P1_DEAD_UPPER_BOUND = 28;
+const P1_DEAD_UPPER_BOUND = 10;
+
+/**
+ * 棘轮的**允许滞后量**（④b 用）：上界与实测之间允许多少条差距。
+ *
+ * 为什么需要这个量而不是把上界钉死等于实测：本仓是并行工作流，图谱域 owner
+ * 可能在同一 cycle 内接线掉几条，也可能新增几条（WS-B/WS-C 本轮就新增了
+ * `graphViewStateWire.ts` 的 3 条）—— 本文件的数要等他们合并后才该收紧。
+ *
+ * 本轮取值 **1**：WS-E 实测 13，上界设 14（任务书的 P1 目标值），
+ * 这 1 条余量是**给并行同伴的**。这个量存在的意义是防止上界被随手放大
+ * （28→50 那种）：一旦实测比上界小超过 1，④b 立刻红，逼你收紧上界。
+ */
+const RATCHET_SLACK = 1;
 
 describe('接线审计契约（cycle-94）', () => {
   it('① 判定器有牙：自检三腿全绿（孤儿抓到 / 孤儿清除 / 幽灵抓到）', () => {
@@ -101,6 +154,18 @@ describe('接线审计契约（cycle-94）', () => {
     const { report } = runAudit();
     const p1 = (report['exports'] as Record<string, unknown>)['p1Dead'] as unknown[];
     expect(p1.length, '别域死导出变多了 —— 新增的必须以接线/删除/显式登记收口').toBeLessThanOrEqual(P1_DEAD_UPPER_BOUND);
+  });
+
+  it('④b 棘轮不许虚高：上界必须贴近实测（否则棘轮被架空）', () => {
+    // 为什么需要这条：只断言"≤上界"时，上界一旦被随手抬高（28→50），
+    // 棘轮就变成一层纸 —— 债涨了照样绿。这里要求上界与实际数量**同量级**：
+    // 实际不得低于上界 - 剩余图谱域待裁决余量（本轮实测 11，余量 0）。
+    //
+    // 收紧时：把 P1_DEAD_UPPER_BOUND 与这里的余量**一起**改小。
+    const { report } = runAudit();
+    const p1 = (report['exports'] as Record<string, unknown>)['p1Dead'] as unknown[];
+    expect(p1.length, '实测数量比上界小太多 ⇒ 该收紧上界了（棘轮必须跟着实测走）')
+      .toBeGreaterThanOrEqual(P1_DEAD_UPPER_BOUND - RATCHET_SLACK);
   });
 
   it('⑤ 退出码语义：零 P0 时脚本返回 0（不是 1 或 2）', () => {

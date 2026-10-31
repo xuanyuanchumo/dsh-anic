@@ -170,4 +170,58 @@ describe('自举分区契约（cycle-89）', () => {
     expect(out).toContain('flex-wrap:wrap');
     expect(out).not.toContain('<table');
   });
+
+  /* ── cycle-95 WS-A：事实摘要读数（"这条结论基于哪份事实"）── */
+
+  it('⑬ 摘要出前 8 位：`data-anic-bootstrap-digest` = digest 的前 8 个字符', () => {
+    const d = 'a1b2c3d4e5f60718';
+    const out = html({ ...STALE_EXHAUSTED, factsDigest: d });
+    // 锚点即读数：完整 16 位只在 title 里（窄屏不折行），可见值是前 8 位
+    expect(out).toContain(`data-anic-bootstrap-digest="${d.slice(0, 8)}"`);
+    expect(out).toContain(`title="${d}"`);
+    // 摘要行同时出现在**陈旧横幅**里（告警要给可核对的对象，不只说"变了"）
+    expect((out.match(/data-anic-bootstrap-digest=/g) ?? []).length).toBe(2);
+    expect(out).toContain('data-anic-bootstrap-fact="digest"');
+  });
+
+  it('⑭ 摘要缺失 ⇒ 如实显示「未取得」，锚点写 absent（不伪造 0 或留白）', () => {
+    for (const missing of [undefined, null, '']) {
+      const out = html({ ...STALE_EXHAUSTED, factsDigest: missing });
+      expect(out, `factsDigest=${String(missing)} 被当成"有摘要"`).toContain('data-anic-bootstrap-digest="absent"');
+      // 可见文本来自既有词条 live.notFetched（zh 缺省 = "未取得"）
+      expect(out).toContain('未取得');
+      // 没有摘要就不该有 title 悬停全文（否则悬停出一个空值）
+      expect(out).not.toMatch(/data-anic-bootstrap-digest="absent" title=/);
+    }
+  });
+
+  it('⑮ 活跃/归档分列优先用宿主 activeVsArchived（唯一口径），缺该字段才回落 facts', () => {
+    // 宿主口径：active 是目录名数组，archived 是计数
+    const out = html({
+      ...STALE_EXHAUSTED,
+      activeVsArchived: { active: ['cycle-88', 'cycle-89'], archived: 87, total: 89, evaluationInput: ['cycle-88', 'cycle-89'] },
+    });
+    const cyclesRow = /data-anic-bootstrap-fact="cycles"[^>]*>.*?<\/div>/s.exec(out)?.[0] ?? '';
+    expect(cyclesRow, '缺少 cycles 事实行').not.toBe('');
+    // active 由 activeVsArchived.active.length 决定 → 2（与 facts.activeCycles 同为 2）
+    expect(cyclesRow).toContain('2');
+    expect(cyclesRow).toContain('87');
+    // 旧宿主（无 activeVsArchived）仍分列，绝不把两个数合成一个
+    const legacy = html(STALE_EXHAUSTED);
+    const legacyRow = /data-anic-bootstrap-fact="cycles"[^>]*>.*?<\/div>/s.exec(legacy)?.[0] ?? '';
+    expect(legacyRow).toContain('87');
+  });
+
+  it('⑯ 宿主 `settled` 是权威：中间态即使 status 词不在本地表也不可重启', () => {
+    const withHandler = { onRestart: (): void => { /* noop */ } };
+    // 宿主说未结算 → 不可重启（即便本地终态表里没有这个新状态词）
+    expect(canRestart({ status: 'RECONCILING', settled: false, stale: true })).toBe(false);
+    expect(html({ status: 'RECONCILING', settled: false, stale: true }, withHandler))
+      .not.toContain('data-anic-bootstrap-restart');
+    // 宿主说已结算 + 陈旧 → 可重启（词表分叉也不影响裁决）
+    expect(canRestart({ status: 'RECONCILING', settled: true, stale: true })).toBe(true);
+    // 旧宿主没有 settled 字段 → 回落到本地终态集合（行为不回归）
+    expect(canRestart({ status: 'EVALUATING' })).toBe(false);
+    expect(canRestart({ status: 'EXHAUSTED', round: 3, maxRounds: 3 })).toBe(true);
+  });
 });

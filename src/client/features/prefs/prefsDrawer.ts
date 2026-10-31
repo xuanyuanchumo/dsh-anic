@@ -76,10 +76,21 @@ function sourceLabelOf(layer: FlowLayer | null): string {
  */
 export const PREFS_PANEL_ID_BASE = 'anic-prefs-drawer';
 
-/** 实例 id：基础名 + 面板实例序号（面板组件首渲染时生成一次）。 */
-export function prefsPanelIdOf(instanceSeq: number): string {
-  return `${PREFS_PANEL_ID_BASE}-${String(instanceSeq)}`;
-}
+/**
+ * ## cycle-95 删除 `prefsPanelIdOf()`（为什么删）
+ *
+ * 这是「基础名 + 序号」的**第二份实现**：全仓真实生成点在
+ * `components/sectionIds.ts` 的 `idOf(base, seq)`，`WorkflowGraphPanel.ts` 用它
+ * 分别生成 `prefsPanelId` 与 `configPanelId`。`prefsPanelIdOf(seq)` 与
+ * `idOf(PREFS_PANEL_ID_BASE, seq)` **逐字节等价**，却只覆盖 prefs 一个域。
+ *
+ * 它还被两处**注释**提到（`sectionIds.ts` 的用法示例与 `docs/agents/架构总览.md`
+ * 的模块表）——审计的「去注释」判据正是把这类注释引用剥掉之后才暴露出它零消费。
+ * 注意注释里那个用法示例是**会误导的**：照抄它会造出第二个 id 生成口径。
+ *
+ * ⇒ 删除，并把 `sectionIds.ts` 的示例改成 `idOf`（唯一实现）。
+ * `PREFS_PANEL_ID_BASE` 必须保留：`WorkflowGraphPanel.ts` 在 import 它。
+ */
 
 /** 纯渲染 + 回调：抽屉（smoke 可断言 data-anic-prefs 抽屉结构）。panelId 由面板实例生成（B5.1）。 */
 export function renderPrefsDrawer(input: FlowOverrideInput, onChange: (flows: Record<string, boolean>) => void, panelId: string): ReactElement {

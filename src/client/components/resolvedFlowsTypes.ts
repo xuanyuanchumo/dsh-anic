@@ -95,14 +95,20 @@ export function resolvedUserWritable(
 }
 
 /**
- * 来源层的**显示文案**（客户端本地化，不依赖服务端）。
+ * ## cycle-95 删除 `sourceLayerLabel()`（为什么删）
  *
- * 为什么在客户端做而不是服务端给：locale 是**客户端**的资源（服务端 i18n
- * 是另一套），把文案放服务端会迫使宿主知道客户端的 locale。
+ * 它把服务端来源层（`user`/`workspace`/`deployment`/null）映射成**一个词**，
+ * 但真实的显示路径根本不走它：`features/prefs/prefsDrawer.ts` 用
+ * `sourceLabelOf(layer)` → `t('prefs.sourceUser' / 'prefs.sourceWorkspace' / …)`
+ * 产出**本地化文案**，并连同 `layers` 一起渲染成
+ * `t('prefs.sourceLine', { source, layers })` 一整行。
+ *
+ * ⇒ 本函数若被接线，只会产出一个**绕过 t() 的硬编码英文词**，与本仓 i18n
+ * 纪律（所有用户面文本经 t()）直接冲突；而它返回的 `'default'` 也是
+ * **编造出的来源层**（服务端 `source` 为 null 的真实语义是「未定层 = 用默认值」，
+ * 不是「有一个叫 default 的层」）。
+ *
+ * 全仓去注释后零消费（audit-wiring 全仓零文本命中），且没有任何测试引用它，
+ * 所以删掉不损失表达能力：真要做这层映射时，正确落点是 `prefsDrawer` 的
+ * `sourceLabelOf`（它已经在做，而且带 i18n）。
  */
-export function sourceLayerLabel(source: string | null | undefined): 'default' | 'user' | 'workspace' | 'deployment' {
-  if (source === 'user') return 'user';
-  if (source === 'workspace') return 'workspace';
-  if (source === 'deployment') return 'deployment';
-  return 'default';
-}

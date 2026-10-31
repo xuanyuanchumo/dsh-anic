@@ -11,8 +11,12 @@
  * 首渲染同步求值，语义等价（实例唯一、稳定、可预测）。
  *
  * 用法（组件体内，首渲染求值一次）：
- *   const seq = usePanelInstanceSeq();      // useRef 惰性初始化
- *   const prefsId = prefsPanelIdOf(seq);
+ *   const seq = usePanelInstanceSeq();            // useRef 惰性初始化
+ *   const prefsId = idOf(PREFS_PANEL_ID_BASE, seq); // 与 configPanelId 同一工厂
+ *
+ * cycle-95：示例原写作 `prefsPanelIdOf(seq)` —— 那个函数是**第二份** id 生成
+ * 实现（只覆盖 prefs 域，与 `idOf` 逐字节等价），已删除。`idOf` 是全仓唯一
+ * 生成口径，照抄旧示例会造出两套 id 规则（那正是本文件要防的多实例错位）。
  */
 import { useRef } from 'react';
 

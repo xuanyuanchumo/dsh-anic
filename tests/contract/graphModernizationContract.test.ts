@@ -322,3 +322,253 @@ describe('④ CSS 侧兜底（cycle-90 新增样式在场）', () => {
     expect(broken.includes('[data-anic-graph-lane-header]')).toBe(false);
   });
 });
+
+describe('⑤ 路径模式（cycle-95 WS-C）：开关可达 + 状态机真的接到图上', () => {
+  it('工具栏有路径模式开关，且默认是 off', () => {
+    mount();
+    const btn = host.querySelector<HTMLButtonElement>('[data-anic-graph-path-mode]');
+    expect(btn).not.toBeNull();
+    expect(btn?.getAttribute('data-anic-graph-path-mode')).toBe('off');
+    expect(btn?.getAttribute('aria-pressed')).toBe('false');
+    // 它是真 button（键盘可达），且带可访问名。
+    expect(btn?.tagName.toLowerCase()).toBe('button');
+    expect((btn?.getAttribute('aria-label') ?? '').length).toBeGreaterThan(0);
+  });
+
+  it('点开关 → 进入模式并出现状态条（模式必须可见）', () => {
+    mount();
+    act(() => { host.querySelector<HTMLButtonElement>('[data-anic-graph-path-mode]')?.click(); });
+    expect(host.querySelector('[data-anic-graph-path-mode]')?.getAttribute('data-anic-graph-path-mode')).toBe('on');
+    const bar = host.querySelector('[data-anic-graph-path-bar]');
+    expect(bar).not.toBeNull();
+    // 第一句是"选起点"（状态机把下一步明确告诉用户）。
+    expect(bar?.getAttribute('data-anic-graph-path-status')).toBe('pickStart');
+    // role=status：AT 自动播报模式进入。
+    expect(bar?.getAttribute('role')).toBe('status');
+  });
+
+  it('进入模式后，Enter 在节点上设起点（键盘与鼠标走同一个转移）', () => {
+    mount();
+    act(() => { host.querySelector<HTMLButtonElement>('[data-anic-graph-path-mode]')?.click(); });
+    const node = host.querySelector('[data-anic-node]');
+    const id = node?.getAttribute('data-anic-node') ?? '';
+    expect(id).not.toBe('');
+    act(() => {
+      node?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    const bar = host.querySelector('[data-anic-graph-path-bar]');
+    expect(bar?.getAttribute('data-anic-graph-path-from')).toBe(id);
+    expect(bar?.getAttribute('data-anic-graph-path-status')).toBe('pickEnd');
+  });
+
+  it('选中节点（悬停/聚焦）后出现影响半径读数条（d1/d2/d3 分档进 DOM）', () => {
+    mount();
+    const node = host.querySelector('[data-anic-node]');
+    const id = node?.getAttribute('data-anic-node') ?? '';
+    // 悬停通道（pointerover 由舞台层的代理转发，与 focus 走同一个 onFocusNode）。
+    act(() => { node?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); });
+    const bar = host.querySelector('[data-anic-graph-blast]');
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute('data-anic-graph-blast-for')).toBe(id);
+    // 六个读数全在（up/down × d1/d2/d3）：分档是"影响多远"的唯一证据。
+    for (const attr of [
+      'data-anic-graph-blast-up-d1', 'data-anic-graph-blast-up-d2', 'data-anic-graph-blast-up-d3',
+      'data-anic-graph-blast-down-d1', 'data-anic-graph-blast-down-d2', 'data-anic-graph-blast-down-d3',
+    ]) {
+      expect(Number(bar?.getAttribute(attr))).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('没有选中节点时影响半径条**不渲染**（零占位，不改变既有布局）', () => {
+    mount();
+    expect(host.querySelector('[data-anic-graph-blast]')).toBeNull();
+    // 反向自检：悬停之后它确实会出现（证明上面那条不是"永远为 null"）。
+    act(() => {
+      host.querySelector('[data-anic-node]')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-anic-graph-blast]')).not.toBeNull();
+  });
+
+  it('退出按钮真的退出模式，且状态条消失（零占位）', () => {
+    mount();
+    act(() => { host.querySelector<HTMLButtonElement>('[data-anic-graph-path-mode]')?.click(); });
+    act(() => { host.querySelector<HTMLButtonElement>('[data-anic-graph-path-exit]')?.click(); });
+    expect(host.querySelector('[data-anic-graph-path-bar]')).toBeNull();
+    expect(host.querySelector('[data-anic-graph-path-mode]')?.getAttribute('data-anic-graph-path-mode')).toBe('off');
+  });
+
+  it('路径模式不改写"节点一个不少"（circle 数仍 == 节点数）', () => {
+    mount();
+    act(() => { host.querySelector<HTMLButtonElement>('[data-anic-graph-path-mode]')?.click(); });
+    expect(host.querySelectorAll('circle').length).toBe(NODES.length);
+    expect(host.querySelectorAll('svg').length).toBe(1);
+  });
+
+  it('反向自检：把路径模式实现成"永不置 on"，上面的进入断言会红', () => {
+    mount();
+    // 未点击时确实是 off（证明那条"点了变 on"不是恒真）。
+    expect(host.querySelector('[data-anic-graph-path-mode]')?.getAttribute('data-anic-graph-path-mode')).toBe('off');
+  });
+});
+
+describe('⑥ 角色图例（cycle-95 WS-C）：四种形状，形状通道非颜色', () => {
+  it('图例存在且四种角色齐全', () => {
+    mount();
+    const items = [...host.querySelectorAll('[data-anic-graph-role-legend-item]')];
+    expect(items.length).toBe(4);
+    const got = items.map((el) => el.getAttribute('data-anic-graph-role-legend-item')).sort();
+    expect(got).toEqual(['entry', 'hub', 'leaf', 'orphan']);
+  });
+
+  it('四种形状**两两不同**（第二通道成立 —— 只靠颜色不算 WCAG 1.4.1）', () => {
+    mount();
+    const shapes = [...host.querySelectorAll('[data-anic-graph-role-legend-item]')]
+      .map((el) => el.getAttribute('data-anic-graph-role-legend-shape') ?? '');
+    expect(shapes).toHaveLength(4);
+    expect(new Set(shapes).size).toBe(4);
+    // 每一档都必须非空（"未定义"也是一种形状，会让四档退化成三档）。
+    expect(shapes.filter((s) => s === '')).toEqual([]);
+  });
+
+  it('图例带计数（0 个的角色搜下去是白搜，用户需要知道）', () => {
+    mount();
+    const counts = [...host.querySelectorAll('[data-anic-graph-role-legend-count]')];
+    expect(counts.length).toBe(4);
+    for (const c of counts) expect(Number(c.getAttribute('data-anic-graph-role-legend-count'))).toBeGreaterThanOrEqual(0);
+  });
+
+  it('图例**零新增画布**：svg 仍恰好 1 个（不撞 smoke 的硬不变量）', () => {
+    mount();
+    expect(host.querySelectorAll('svg').length).toBe(1);
+  });
+
+  it('图例不进 Tab 序列（说明而非控件）', () => {
+    mount();
+    expect(host.querySelector('[data-anic-graph-role-legend]')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('反向自检：把两档形状写成同一个值，两两不同那条断言必须红', () => {
+    const fake = ['arrow|bold|outline', 'arrow|bold|outline', 'dot|thin|solid', 'ring|hairline|outline'];
+    expect(new Set(fake).size).not.toBe(fake.length);
+  });
+});
+
+describe('⑦ 分键视图态接线（cycle-95 WS-C · O-94-03）', () => {
+  it('未传 workspace 时仍能正常渲染（诚实退化成"不记忆"，不是崩）', () => {
+    mount(); // mount() 不传 workspace —— 与 GraphSection 缺省路径一致
+    expect(host.querySelector('[data-anic-graph-interactive]')).not.toBeNull();
+    expect(host.querySelectorAll('[data-anic-node]').length).toBe(NODES.length);
+  });
+
+  it('传 workspace 时渲染正常，且两项目互不共享视图态（分键承诺）', () => {
+    // 这里只验"接线层接受了 workspace 且不改变渲染面"；
+    // 真正的分键判等与节流在 tests/unit/workspaceViewStateWiring.test.ts（21 条）。
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(createElement(GraphInteractive, {
+        nodes: NODES, edges: EDGES, onNodeClick: () => {}, workspace: 'D:/proj-a',
+      }));
+    });
+    expect(host.querySelectorAll('[data-anic-node]').length).toBe(NODES.length);
+    expect(host.querySelectorAll('svg').length).toBe(1);
+  });
+
+  /**
+   * **端到端**：真的滚一下滚轮 → 真的落盘 → 真的重挂载恢复。
+   *
+   * 为什么必须有一条"真 DOM + 真 localStorage + 真定时器"的用例：
+   * `workspaceViewStateWiring.test.ts` 注入假时钟验的是**写入器**的判据，
+   * 但"组件挂上之后有没有人去调那个写入器"是另一回事 —— 那正是 O-94-03
+   * 的缺陷形态（库写好了、单测全绿、**零调用点**）。这条用例一旦断开接线
+   * 就红，而纯函数层全绿。
+   *
+   * 轮询周期 4s 与写入延迟 300ms 相差一个量级，所以这里等 450ms 是安全的：
+   * 不会有数据 tick 把刚落盘的视口重置掉（那是另一条判据，见 useGraphViewState 头注）。
+   */
+  it('端到端：滚轮缩放 → 300ms 后落盘到分键槽 → 重挂载按同一工作区恢复', async () => {
+    const KEY = 'anic.viewState.d:/proj-a';
+    const mountWith = (ws: string): void => {
+      host = document.createElement('div');
+      document.body.appendChild(host);
+      root = createRoot(host);
+      act(() => {
+        root?.render(createElement(GraphInteractive, {
+          nodes: NODES, edges: EDGES, onNodeClick: () => {}, workspace: ws,
+        }));
+      });
+    };
+    const svgOf = (): Element | null => host?.querySelector('svg[data-anic-graph]') ?? null;
+    const scaleOf = (): string => svgOf()?.getAttribute('data-anic-graph-scale') ?? '';
+    const unmount = (): void => {
+      if (root !== undefined) act(() => { root?.unmount(); });
+      if (host !== undefined) host.remove();
+      root = undefined; host = undefined;
+    };
+
+    localStorage.removeItem(KEY);
+    mountWith('D:/proj-a');
+    const before = scaleOf();
+    act(() => {
+      svgOf()?.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: 10, clientY: 10, bubbles: true }));
+    });
+    const after = scaleOf();
+    // 滚轮真的改了比例（否则后面"恢复了它"就是恒真）。
+    expect(after).not.toBe(before);
+    // 等过写入延迟（300ms 的 trailing 写），事件循环需要真的走一轮。
+    await new Promise((resolve) => { setTimeout(resolve, 450); });
+    const stored = localStorage.getItem(KEY);
+    expect(stored, '接线断了：组件挂载后没有人调用 saveViewState').not.toBeNull();
+    expect(JSON.parse(stored ?? '{}').zoom).toBeCloseTo(Number(after), 6);
+    unmount();
+
+    mountWith('D:/proj-a');
+    expect(scaleOf()).toBe(after); // 恢复的是**那一次**缩放，不是首屏适配
+    unmount();
+    localStorage.removeItem(KEY);
+  });
+
+  it('端到端：A 项目存下的视图态**不会**串到 B 项目', async () => {
+    const unmountNow = (): void => {
+      if (root !== undefined) act(() => { root?.unmount(); });
+      if (host !== undefined) host.remove();
+      root = undefined; host = undefined;
+    };
+    const mountWith = (ws: string): void => {
+      host = document.createElement('div');
+      document.body.appendChild(host);
+      root = createRoot(host);
+      act(() => {
+        root?.render(createElement(GraphInteractive, {
+          nodes: NODES, edges: EDGES, onNodeClick: () => {}, workspace: ws,
+        }));
+      });
+    };
+    const scaleOf = (): string => host?.querySelector('svg[data-anic-graph]')?.getAttribute('data-anic-graph-scale') ?? '';
+
+    localStorage.clear();
+    mountWith('D:/proj-a');
+    act(() => {
+      host?.querySelector('svg[data-anic-graph]')
+        ?.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: 10, clientY: 10, bubbles: true }));
+    });
+    const aScale = scaleOf();
+    await new Promise((resolve) => { setTimeout(resolve, 450); });
+    expect(localStorage.getItem('anic.viewState.d:/proj-a')).not.toBeNull();
+    unmountNow();
+
+    mountWith('D:/proj-b');
+   /*
+     * B 的首屏是"适配视图"（未缩放）的结果，**不应该**等于 A 存下的放大值 ——
+     * 这正是分键的核心承诺。断言"不等"而不是钉死某个数值：适配几何由布局
+     * 决定，钉死数字会让这条用例在布局算法调整时假红。
+     */
+    expect(scaleOf()).not.toBe(aScale);
+    expect(Number(scaleOf())).toBeLessThan(1); // A 是放大后的值（>1），B 落在适配档
+    expect(localStorage.getItem('anic.viewState.d:/proj-b')).toBeNull(); // B 没被写（没动过）
+    unmountNow();
+    localStorage.clear();
+  });
+});
+

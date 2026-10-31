@@ -20,7 +20,6 @@
 import { join } from 'node:path';
 import type { FlowDescriptor, FlowEvent, FlowTransition, GuardFn } from './contracts.ts';
 import { applyTransition, initRuntimeState, replayEvents } from './machine.ts';
-import { registerFlow } from './registry.ts';
 import { loadFlowProjection, saveFlowProjection } from './persistence.ts';
 import {
   PHASES, PHASE_IDS, loadMacroState, readGateResults, advanceMacro,
@@ -73,10 +72,19 @@ export const MACRO_PHASE_GUARDS: Record<string, GuardFn> = {
   },
 };
 
-/** 注册（插件 apply 期；返回 disposer）。 */
-export function registerMacroPhaseFlow(): (() => void) | null {
-  return registerFlow(MACRO_PHASE_FLOW);
-}
+/**
+ * ## cycle-95 删除 `registerMacroPhaseFlow()`（为什么删）
+ *
+ * 它是「注册 macro-phase 流程」的**第二份入口**，而注册的唯一权威聚合点是
+ * `flows/builtin.ts` 的 `registerBuiltinFlows()` —— 那里与 `GATE_CHECK_FLOW` /
+ * `ARCHIVE_FLOW` / `HITL_FLOW` / `AUTO_FIX_FLOW` **一起**注册，并统一返回
+ * 聚合 disposer（反向顺序释放）。全仓去注释后 `registerMacroPhaseFlow` 零消费。
+ *
+ * ⇒ 单独注册一个流程会**绕过聚合 disposer**：拿不到其余四个的释放函数，
+ * 卸载期留下悬挂注册器（`registry.ts` 的 disposer 语义是一次性、按序）。
+ * 一个流程的注册入口只能有一个，否则「注册了哪些」就没有单一事实源。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ */
 
 export type MacroFlowMode = 'script' | 'native';
 

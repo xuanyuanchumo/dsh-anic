@@ -40,7 +40,18 @@ export interface LedgerVerifyJson {
   reason: string | null;
 }
 
-export const LEDGER_LIST_URL = '/anic/api/ledger?limit=12';
+/**
+ * 分页 URL 工厂（cycle-24 P3 账本分页：服务端 ?limit&?offset 早已支持，本侧接线）。
+ *
+ * ## cycle-95 删除 `LEDGER_LIST_URL`（为什么删）
+ *
+ * 它写死了 `?limit=12`，而真实的取数路径**只**用本工厂：`governanceTargets.ts`
+ * 的 `ledgerListUrl(ledgerLimit)` 随「显示更多」抬高深度重拉。全仓去注释后
+ * `LEDGER_LIST_URL` 零消费（`LEDGER_VERIFY_URL` 才是被 governanceTargets 用的那个）。
+ *
+ * ⇒ 留着一条**固定深度的重复端点常量**，只会诱导下一个人绕过工厂直连 12 条，
+ * 让分页深度出现第二个真相源。本仓教训：没人用的兼容层是最贵的兼容层。
+ */
 export const LEDGER_VERIFY_URL = '/anic/api/ledger/verify';
 
 /** 分页 URL 工厂（cycle-24 P3 账本分页：服务端 ?limit&?offset 早已支持，本侧接线）。 */

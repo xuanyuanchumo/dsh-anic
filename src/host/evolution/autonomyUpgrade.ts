@@ -20,7 +20,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { areAdjacentBands, appendHistory, MAX_HISTORY_ENTRIES } from './autonomyHistory.ts';
+import { areAdjacentBands, appendHistory } from './autonomyHistory.ts';
 import { collectAutonomyEvidence, latestCycleNumber } from './autonomyEvidence.ts';
 import { parseConfiguredAutonomyLevel, rewriteAutonomyLevel } from './autonomyActions.ts';
 import { UPGRADE_THRESHOLDS, type AutonomyBand } from './trustModel.ts';
@@ -230,5 +230,14 @@ function observedOrNull(b: AutonomyBand | null): string {
   return b ?? 'none';
 }
 
-/** history 有界上限的再导出：工具响应里回显「保留策略」而不是假装全量。 */
-export const UPGRADE_HISTORY_LIMIT = MAX_HISTORY_ENTRIES;
+/**
+ * ## cycle-95 删除 `UPGRADE_HISTORY_LIMIT`（为什么删）
+ *
+ * 它是 `MAX_HISTORY_ENTRIES` 的**纯再导出**，注释说「工具响应里回显保留策略」
+ * —— 但真正回显的工具面走的是 `toolsEvolutionGateway.ts`：
+ * `historyLimit: MAX_HISTORY_ENTRIES`（**直接**从 `autonomyHistory.ts` import）。
+ *
+ * ⇒ 这个别名既不改变值也不改变语义，却制造「升级域有独立上限」的错觉，
+ * 而真实上限只有一处（`autonomyHistory.ts`）。全仓去注释后零消费。
+ * 再导出应删别名，直接消费单一事实源。本仓教训：没人用的兼容层是最贵的兼容层。
+ */

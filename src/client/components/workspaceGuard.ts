@@ -184,11 +184,23 @@ export function createEpochGuard(initial = 0): EpochGuard {
 }
 
 /**
- * 把守卫接进失败分类：载荷被拒时给出可读原因。
+ * ## cycle-95 删除 `payloadRejectionFailure()`（为什么删）
  *
- * 注意：返回的是 `{ kind: 'malformed', reason }` —— `reason` 是 cycle-89 给
- * `FetchFailure` 增的**可选**字段，既有 `{ kind: 'malformed' }` 消费者零改动。
+ * 它唯一的职责是把 `PayloadVerdict.reason` 包成 `{ kind: 'malformed', reason }`。
+ * 但真实的消费点 `components/usePanelFetch.ts` 是**逐项内联**判定的：
+ *
+ * ```
+ * if (!tgt.guard(json)) { tgt.onFail?.({ kind: 'malformed' }); return; }
+ * ... const verdict = acceptPayload(...);
+ * if (!verdict.accepted) { tgt.onFail?.({ kind: 'malformed', reason: verdict.reason }); return; }
+ * ```
+ *
+ * ⇒ 这是「聚合包装」，而调用方本就逐项处理（两处 malformed 语义不同：一处是
+ * 形状不符、一处是载荷被拒，后者才带 reason）。若接线，反而会**抹掉这个区分**
+ * （给形状不符也塞一个 reason）。全仓去注释后零消费，tests/ 也无引用。
+ * 本仓教训：没人用的兼容层是最贵的兼容层。
+ *
+ * 注意：本文件其余导出（`normalizeWorkspace` / `sameWorkspace` / `workspaceKeyOf` /
+ * `UNKNOWN_WORKSPACE_KEY` / `declaredWorkspaceOf` / `acceptPayload` /
+ * `createEpochGuard`）**全部保留并仍被消费**，本次只删这一个包装。
  */
-export function payloadRejectionFailure(verdict: PayloadVerdict): { kind: 'malformed'; reason?: string } {
-  return { kind: 'malformed', reason: verdict.reason };
-}

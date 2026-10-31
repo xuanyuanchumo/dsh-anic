@@ -455,10 +455,24 @@ describe('cycle-75 T5 词表计算键分支纪律（两条模板分支 + 调用�
      *                    登记理由与 config. 同源——新键在合并进 locale **之前**不得被
      *                    报成幽灵消费，合并**之后**不得被报成死键，前缀形态是唯一同时
      *                    满足两头的形状。逐键清单见 docs/anic/cycle-83-graph-i18n.md。
+     *   graph.nodeRole.   图区**节点角色名**（cycle-95 WS-B：`graphNodeCard.ts` 的
+     *                    `t('graph.nodeRole.' + role)`，role ∈ hub/orphan/leaf/entry）。
+     *                    来路与 graph.lane. / graph.edge. 同源：角色名是**数据驱动**的
+     *                    （`NodeRole` 联合），静态扫描器看不见具体键名，只能靠前缀族认领。
+     *                    ⚠️ 这 4 个键此前**只存在于 locale、没有消费点**（cycle-94 加键
+     *                    未接线）。本前缀的登记标志它们**已经接线**：`graphNodeCard`
+     *                    把角色写进节点 aria-label（形状标记是 AT 读不到的第二通道，
+     *                    只画形状不播报等于对屏幕阅读器用户不存在）。
+     *   workspace.        工作区徽标词族（cycle-95 WS-D：`features/org/workspaceBadge.ts`
+     *                    的 `wsText()` → `t('workspace.' + suffix)`；键 = badge / badgeAria /
+     *                    unknown / crossProject / crossProjectLine / crossProjectCount）。
+     *                    登记理由与 graph. 同源：「徽标六段文案」是**数据驱动**的短名族，
+     *                    静态扫描器看不见具体键名，只能靠前缀族认领；且这 6 个键在 locale
+     *                    与消费点**同轮新增**（不是先加键后接线的旧形态）。
      * 新增前缀必须同时在这里登记并说明来路，否则本断言红——这是设计意图。
      */
     expect(real, '生产代码前缀集变化：新增前缀须在此登记来路（认领 = 免死键通行证）')
-      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.edge.', 'graph.lane.', 'graph.verdict.']);
+      .toEqual(['budget.status_', 'config.', 'graph.', 'graph.edge.', 'graph.lane.', 'graph.nodeRole.', 'graph.verdict.', 'workspace.']);
     expect(endsWithSeparator('budget.status_')).toBe(true);
     expect(endsWithSeparator('a.')).toBe(true);
     expect(endsWithSeparator('a')).toBe(false);

@@ -34,7 +34,8 @@ import { renderArrowMarker, renderNode } from './graphNodeRender.ts';
 import { renderEdges } from './graphEdgeRenderAll.ts';
 import { renderCanvas } from './graphCanvas.ts';
 import { renderLaneHeaders } from './graphLaneHeader.ts';
-import { traceRoleOf, type TraceResult } from './graphTrace.ts';
+import { traceDepthOf, traceRoleOf, type TraceResult } from './graphTrace.ts';
+import { buildNodeRoles, roleOf, type NodeRole } from './graphNodeRole.ts';
 import { t } from '../../i18n.ts';
 
 export interface GraphData {
@@ -91,6 +92,14 @@ export interface GraphRenderOptions {
    * 挂在不可聚焦的外层容器上，屏幕阅读器用户永远听不到"+/−/0 能缩放"。
    */
   describedBy?: string;
+  /**
+   * 关闭节点角色标记（cycle-95）。缺省 false = 画角色。
+   *
+   * 为什么要留一个开关：角色标记是**新增视觉元素**，而 smoke / 导出 / 若干
+   * 元素树断言按元素计数比对（rect/circle 不变量）。开关让"零参调用仍是旧图"
+   * 这条既有纪律继续成立——需要角色时显式打开（交互态与面板默认打开）。
+   */
+  nodeRoles?: boolean;
 }
 
 /**
@@ -132,6 +141,16 @@ export function renderGraph(
   const onNodeTrace = opts?.onNodeTrace;
   const layout = opts?.layout ?? layoutGraph(nodes, edges);
   const bounds = layout.bounds;
+  /**
+   * 节点角色表（cycle-95）：按 edges + nodeIds 现算。
+   *
+   * 为什么在**这里**算而不是让调用方传：角色是纯数据事实（与追溯/筛选正交），
+   * 让每个调用点各自算一次，迟早就有一个忘了算（这正是 graphLayout 头注里
+   * "缺省时内部算一次"的同一条纪律）。O(E) 一次，169 节点可忽略。
+   */
+  const roles = opts?.nodeRoles === false
+    ? new Map<string, NodeRole>()
+    : buildNodeRoles(edges, nodes.map((n) => n.id));
 
   /** 布局后位置索引（边端点查表；不重新 find，避免 O(E·N)）。 */
   const positionOf = new Map<string, { x: number; y: number }>(
@@ -177,6 +196,9 @@ export function renderGraph(
         onNodeClick,
         ...(trace === undefined ? {} : { trace: traceRoleOf(trace, n.id) }),
         ...(onNodeTrace === undefined ? {} : { onNodeTrace }),
+        // 角色与追溯跳数（cycle-95）：角色是纯数据事实、跳数是追溯态读数。
+        role: roleOf(roles, n.id),
+        traceDepth: trace === undefined ? 0 : traceDepthOf(trace, n.id),
       }),
     );
   }

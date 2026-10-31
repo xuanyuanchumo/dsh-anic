@@ -6,26 +6,23 @@
  * ① **自举现在是什么状态**——状态 + 轮次 + 最近一次评估分/门禁裁决同排可见。
  *    此前这三项只存在于 `.cycles/self-bootstrap.json`，面板上完全看不到，
  *    于是「自举已收敛」与「自举早已炸掉」在 UI 上长得一模一样。
- * ② **这个结论还作数吗**——`stale` 横幅 + 点名「变了哪几项」。真实事故：
- *    10-28 的 `EXHAUSTED` 压住了 10-30 的全 PASS，人读到的结论比项目事实旧两天。
+ * ② **这个结论还作数吗**——`stale` 横幅 + 点名「变了哪几项」+ 当前事实摘要。
+ *    真实事故：10-28 的 `EXHAUSTED` 压住了 10-30 的全 PASS，人读到的结论比
+ *    项目事实旧两天。cycle-95 补的是第三条读数：只说"变了"而不给"现在是哪一份
+ *    事实"，人无法核对，告警就退化成噪声。
  * ③ **要怎么办**——可重启时给「重置事实基线」按钮（只在可重启形态出现；
  *    进行中被点重启会打断正在跑的评估）。
  *
- * ## 为什么事实基线用「三元组行」而不是表格
- *
- * 表格在 320px 宽的面板里会把 sha 折成两行且列错位（`table-layout` 默认 auto）。
- * 每项一行「标签 · 值 · 补充」在窄屏天然折行，且每行都有 `data-anic-bootstrap-fact`
- * 锚点——契约测试可以逐项断言，不必解析整块文本。
+ * ★cycle-95 T3 拆分：事实行 / 摘要读数 / 短哈希与时间格式化移到
+ *   `renderBootstrapFacts.ts`。拆分的界线是职责——把**一份事实基线读成人能核对的
+ *   数字**与**把四段装配成一个分区**是两件事，前者可被单独契约测试。
  */
 import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
-import { type BootstrapFactsJson, type BootstrapHistoryEntry, type BootstrapJson, canRestart, staleOf } from './bootstrapTypes.ts';
+import { type BootstrapHistoryEntry, type BootstrapJson, canRestart, staleOf } from './bootstrapTypes.ts';
+import { digestChip, renderFacts, ROW, shortAt } from './renderBootstrapFacts.ts';
 
-/** 窄屏可读的行式布局（每项一行；标签定宽，值可折行）。 */
-const ROW = { display: 'flex', flexWrap: 'wrap' as const, gap: '0 8px', alignItems: 'baseline', fontSize: 11, margin: '1px 0' } as const;
-const LABEL = { color: token('anic-text-faint'), minWidth: 62 } as const;
-const VALUE = { color: token('anic-text'), wordBreak: 'break-all' as const } as const;
 const H = { fontSize: 11, fontWeight: 600, color: token('anic-text'), margin: '4px 0 2px' } as const;
 
 /** 状态 → 语义色（收敛绿 / 耗尽红 / 进行中黄 / 空闲灰）。 */
@@ -34,53 +31,6 @@ function statusColor(status: string): string {
   if (status === 'EXHAUSTED') return token('anic-fail');
   if (status === 'IDLE') return token('anic-text-faint');
   return token('anic-doubt');
-}
-
-/** ISO → `MM-DD HH:mm`（跨年场景不缩写年份；非法串原样返回）。 */
-function shortAt(iso: string | null | undefined): string {
-  if (typeof iso !== 'string' || iso === '') return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
-  return m === null ? iso : `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
-}
-
-/** 短哈希（7 位足够人工核对；完整值在 title 里，悬停可见）。 */
-function shortSha(sha: string | null | undefined): string {
-  if (typeof sha !== 'string' || sha === '') return '—';
-  return sha.length > 9 ? sha.slice(0, 9) : sha;
-}
-
-/** 一条事实行（`data-anic-bootstrap-fact` 锚点 + 可选 title 全文）。 */
-function factRow(key: string, label: string, value: string, title?: string): ReactElement {
-  return createElement(
-    'div',
-    { key, 'data-anic-bootstrap-fact': key, style: ROW },
-    createElement('span', { style: LABEL }, label),
-    createElement('span', { style: VALUE, ...(title !== undefined ? { title } : {}) }, value),
-  );
-}
-
-/** 事实基线网格：缺字段显示 `—`（不隐藏——「没采到」本身就是信息）。 */
-function renderFacts(facts: BootstrapFactsJson): ReactElement {
-  const evalReport = facts.evalReport ?? null;
-  const evalText = evalReport === null
-    ? '—'
-    : `${evalReport.path ?? '?'} · ${shortSha(evalReport.sha256)}`;
-  const active = facts.activeCycles === undefined ? '—' : String(facts.activeCycles);
-  const archived = facts.archivedCycles === undefined ? '—' : String(facts.archivedCycles);
-  return createElement(
-    'section',
-    { 'data-anic-bootstrap-facts': 'true' },
-    createElement('h4', { style: H }, t('bootstrap.factsTitle')),
-    factRow('git', t('bootstrap.factGit'), `${shortSha(facts.gitHead)}${facts.gitDirty === true ? ' *' : ''}`,
-      facts.gitHead ?? undefined),
-    factRow('cycle', t('bootstrap.factCycle'), `${facts.currentCycle ?? '—'} / ${facts.currentPhase ?? '—'}`),
-    factRow('ledger', t('bootstrap.factLedger'), `${String(facts.ledgerEntries ?? '—')} · ${shortSha(facts.ledgerHead)}`,
-      facts.ledgerHead ?? undefined),
-    factRow('eval', t('bootstrap.factEval'), evalText, evalReport?.path ?? undefined),
-    // 活跃/归档**分列**是「归档只当历史」的呈现面：一个数会把 89 轮历史读成 89 份活性产物。
-    factRow('cycles', t('bootstrap.factCycles'), `${active} ${t('bootstrap.activeUnit')} / ${archived} ${t('bootstrap.archivedUnit')}`),
-    factRow('skill', t('bootstrap.factSkill'), facts.skillVersion ?? '—'),
-  );
 }
 
 /** 轮次历史迷你条：高度按 evalScore（0-100），颜色按门禁裁决。 */
@@ -170,7 +120,8 @@ export function renderBootstrap(v: BootstrapJson, handlers: BootstrapRenderHandl
             t('bootstrap.restartCount', { count: String(v.restartCount) }))
         : null,
     ),
-    // ② 陈旧横幅：点名变动项 + 存档时间 + 重启入口（这是「历史产物压过最新事实」的解法）。
+    // ② 陈旧横幅：点名变动项 + 当前事实摘要 + 存档时间 + 重启入口
+    //    （这是「历史产物压过最新事实」的解法）。
     stale.stale
       ? createElement(
           'div',
@@ -180,6 +131,8 @@ export function renderBootstrap(v: BootstrapJson, handlers: BootstrapRenderHandl
             stale.changed.length > 0
               ? t('bootstrap.staleChanged', { changed: stale.changed.join(', ') })
               : t('bootstrap.staleUnknown')),
+          // 摘要读数在**横幅里也出现**：陈旧告警的整个价值是"能不能核对"。
+          digestChip(v, 'stale-digest'),
           createElement('span', { style: { fontSize: 10, color: token('anic-text-faint') } },
             t('bootstrap.factsAt', { at: shortAt(v.factsAt) })),
           handlers.onRestart !== undefined && can
@@ -199,7 +152,7 @@ export function renderBootstrap(v: BootstrapJson, handlers: BootstrapRenderHandl
       : null,
     // ③ 事实基线（当前项目事实，不是存档）。没有 facts（旧宿主/未跑过）则如实说明。
     v.facts !== null && v.facts !== undefined
-      ? renderFacts(v.facts)
+      ? renderFacts(v)
       : createElement('p', { 'data-anic-bootstrap-nofacts': 'true', style: { fontSize: 10, color: token('anic-text-faint'), margin: '4px 0 0' } },
           t('bootstrap.noFacts')),
     renderHistory(v.history ?? []),

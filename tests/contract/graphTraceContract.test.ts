@@ -255,3 +255,69 @@ describe('cycle-85：双击空白适配视图（真实 DOM）', () => {
   });
 });
 
+describe('cycle-95：影响半径深度分档（真实 DOM）', () => {
+  /** 找一个至少有一条出边的节点（孤立节点追溯必空，不能拿它断言分档）。 */
+  function pickNodeWithOut(): string {
+    const withOut = new Set(EDGES.map((e) => e.from));
+    const hit = NODES.find((n) => withOut.has(n.id));
+    if (hit === undefined) throw new Error('fixture invariant: no node with out-edges');
+    return hit.id;
+  }
+
+  it('⑦ 追溯后每个节点都带 data-anic-trace-depth；root 为 0，圈内 ≥1', () => {
+    mount();
+    const id = pickNodeWithOut();
+    const el = nodeEl(id);
+    expect(el).not.toBeNull();
+    act(() => { el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+
+    // 全部节点都有该锚点（属性不是"只有圈内才有"）
+    const depths = [...host.querySelectorAll('[data-anic-node]')]
+      .map((n) => n.getAttribute('data-anic-trace-depth'));
+    expect(depths.length).toBe(NODES.length);
+    expect(depths.every((d) => d !== null && d !== undefined)).toBe(true);
+
+    // root 自己 = 0
+    expect(nodeEl(id)?.getAttribute('data-anic-trace-depth')).toBe('0');
+    // 追溯态下**至少**有一个节点的跳数 ≥1（否则分档根本没生效）
+    const numeric = depths.map((d) => Number(d));
+    expect(numeric.some((d) => d >= 1)).toBe(true);
+    // 且跳数不超过 BFS 上限 3（分档只有三档）
+    expect(numeric.every((d) => d >= 0 && d <= 3)).toBe(true);
+    unmount();
+  });
+
+  it('⑧ 反向自检：未追溯时全部节点的 depth 都是 0（不是恒为 1）', () => {
+    mount();
+    const depths = new Set(
+      [...host.querySelectorAll('[data-anic-node]')].map((n) => n.getAttribute('data-anic-trace-depth')),
+    );
+    expect([...depths]).toEqual(['0']);
+    unmount();
+  });
+
+  it('⑨ 状态条带 blast radius 分档读数，且与总数自洽', () => {
+    mount();
+    const id = pickNodeWithOut();
+    act(() => { nodeEl(id)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    const bar = host.querySelector('[data-anic-graph-trace-bar]');
+    expect(bar).not.toBeNull();
+
+    const read = (k: string): number => Number(bar?.getAttribute(k) ?? '-1');
+    const upTotal = read('data-anic-graph-trace-up');
+    const downTotal = read('data-anic-graph-trace-down');
+    const upSum = read('data-anic-graph-trace-up-d1') + read('data-anic-graph-trace-up-d2') + read('data-anic-graph-trace-up-d3');
+    const downSum = read('data-anic-graph-trace-down-d1') + read('data-anic-graph-trace-down-d2') + read('data-anic-graph-trace-down-d3');
+
+    // 分档和必须等于总数（同一趟 BFS 的两个视图，不许漂移）
+    expect(upSum).toBe(upTotal);
+    expect(downSum).toBe(downTotal);
+    // 该节点确有出边 ⇒ 下游至少 1（否则这条断言是空转）
+    expect(downTotal).toBeGreaterThan(0);
+
+    // 有下游时状态条显示 blast 文案（不是只有 data-* 没有可见文字）
+    expect(host.querySelector('[data-anic-graph-trace-down-blast]')).not.toBeNull();
+    unmount();
+  });
+});
+

@@ -11,7 +11,8 @@
  * | O-92-04 | `tools/change` 是否真的让宿主重装配 | 同上，且需观察宿主内部行为 |
  *
  * **根本问题不是"没做真机验证"，而是"披露状态没有任何出口"**：
- * - 状态存在内存 `WeakMap` / `Set` 里，只在 `log.info` 里出现过一次；
+ * - 状态存在内存 `WeakMap` / `Set` 里，当时只有一个从未被调用过的 `log.info` 出口
+ *   （cycle-95 已删：不触发的日志不是证据）；
  * - `P8-tool-disclosure-mode` 探针只查**静态可激活性**（deny 集合 + 加载器在场），
  *   不查**运行时发生了什么**（哪些 agent 被遮蔽、谁解锁了什么、`tools/change` 发了几次）；
  * - ⇒ 即便切到 indexed 并重启，**同样看不到**内部状态，只能靠"模型能不能调通"间接推断。
@@ -39,14 +40,11 @@
  * ⇒ 它把"完全不可查"提升为"我们这侧完全可查 + 宿主那侧仍待真机"——
  *   **不是**把未验证项变成已验证项，而是让验证有据可依。
  */
-import { createScoped } from '../logger.ts';
 import { disclosureOf, trackedAgentCount, listTrackedAgents } from './disclosureActivation.ts';
 import { toolsChangeEmitCount } from './toolsChangeCounter.ts';
 
 // 计数器已下沉到零依赖叶子（解环）；此处重导出保持既有 import 路径零变更。
 export { noteToolsChangeEmit, toolsChangeEmitCount, resetToolsChangeEmitCount } from './toolsChangeCounter.ts';
-
-const log = createScoped('anic:disclosure-readout');
 
 
 /** 一个 agent 的披露读数。 */
@@ -146,7 +144,16 @@ export function summarizeDisclosure(readout: DisclosureReadout): string {
     + `fullyMasked=${String(readout.fullyMaskedAgents)}, tools/change=${String(readout.toolsChangeEmits)}`;
 }
 
-/** 启动时记一条（证明读数模块被装载，便于排障认版本）。 */
-export function noteReadoutReady(): void {
-  log.info('disclosure readout module ready (cycle-93)');
-}
+/**
+ * ## cycle-95 删除 `noteReadoutReady()`（为什么删）
+ *
+ * 它只发一条「模块已装载」的 log，**从没被任何调用方调用**（全仓去注释后零
+ * 文本命中，含 `src/index.ts` 的 apply 路径）。而「这一版读数模块是活的」
+ * 已经有两个更硬的出口证明：
+ *
+ * - `GET /anic/api/disclosure` 的响应（`disclosureRoute` 用 `summarizeDisclosure`）；
+ * - `GET /anic/api/self-check` 的 runtime 行（`selfCheckRoute` 同源摘要）。
+ *
+ * ⇒ 一条没人触发的 log 不是排障证据，反而是「以为有启动自证」的假安心。
+ * 本仓纪律：守卫/自证必须真的会跑；不会跑的自证比没有更糟。
+ */
