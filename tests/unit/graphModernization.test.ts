@@ -98,6 +98,27 @@ describe('① 泳道表头：布局算出位置，渲染层只画', () => {
     expect(a.nodeShift).toEqual(b.nodeShift);
   });
 
+  it('cycle-101：重复 id 不再静默丢弃 —— droppedDuplicateIds 显式收集', () => {
+    const spec = specOf('lane');
+    const base = NODES.filter((n) => n.type === 'phase');
+    expect(base.length, '夹具需至少 1 个 phase 节点').toBeGreaterThan(0);
+    const first = base[0]!;
+    // 同一 id 重复三次：位置唯一性硬不变量 ⇒ 只画一次，其余必须被**记录**
+    const duped = [...NODES, first, first];
+    const plan = planColumns(duped, spec);
+    expect(plan.droppedDuplicateIds).toEqual([first.id, first.id]);
+    // 位置表里该 id 仍只出现一次（丢弃策略未变，只是不再无声）
+    const occurrences = [...plan.segments.values()]
+      .flat()
+      .reduce((n, seg) => n + seg.ids.filter((id) => id === first.id).length, 0);
+    expect(occurrences).toBe(1);
+  });
+
+  it('cycle-101：无重复时 droppedDuplicateIds 为空数组（正常态不制造噪声）', () => {
+    const plan = planColumns(NODES, specOf('lane'));
+    expect(plan.droppedDuplicateIds).toEqual([]);
+  });
+
   it('渲染出的表头带 a11y 名称（承载信息 ⇒ 不能是纯装饰）', () => {
     const counts = new Map(laid.lanes.map((l) => [l.type, l.count]));
     const els = renderLaneHeaders({ headers: laid.laneHeaders, counts });

@@ -110,4 +110,12 @@ export interface GraphLayout {
    * 肉眼判断不了 3 处交叉的差别，也挡不住下一次布局改动的退化。
    */
   crossings?: number;
+  /**
+   * 被折叠的重复 id 数量（cycle-101 · 白盒化「静默丢弃」，缺省 0）。
+   *
+   * 为什么只暴露**数量**不暴露 id 列表：工具栏是给读者看的读数条，一长串 id
+   * 会压垮布局；完整列表在 `ColumnPlan.droppedDuplicateIds`（诊断/测试用）。
+   * 0 = 无重复（正常态，不渲染任何 UI —— 不制造假警报）。
+   */
+  droppedDuplicates?: number;
 }

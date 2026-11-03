@@ -26,6 +26,7 @@ import { renderZoomGroup, renderAuxGroup } from './graphToolbarActions.ts';
 import { renderViewGroup } from './graphToolbarView.ts';
 import { renderPathGroup } from './graphToolbarPath.ts';
 import { renderLegendRow, type RoleLegendStats } from './graphToolbarLegendRow.ts';
+import { token } from '../../../shared/tokens.ts';
 
 /** 后半段装配的入参（全部显式 —— 本函数纯渲染，不读全局态）。 */
 export interface ToolbarTailInput {
@@ -40,6 +41,11 @@ export interface ToolbarTailInput {
   onToggleRole?: ((role: 'entry' | 'hub' | 'leaf' | 'orphan') => void) | undefined;
   view?: unknown;
   path?: unknown;
+  /**
+   * 布局质量读数（cycle-101）：交叉数 + 折叠的重复 id 数量。
+   * 缺省 `undefined` ⇒ 不渲染（零参调用 = 改造前工具栏，与 view/path 同纪律）。
+   */
+  layoutQuality?: { crossings: number; droppedDuplicates: number } | undefined;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
@@ -80,5 +86,56 @@ export function renderToolbarTail(input: ToolbarTailInput): Array<ReactElement |
     // 角色图例缺省不渲染：它要真实角色计数，纯渲染的零参调用没有这份数据。
     // cycle-100：带 onToggleRole 时升级为可点选的角色筛选（同一 DOM 锚点）。
     renderLegendRow(input.typeCounts, input.roles, input.activeRoles, input.onToggleRole),
+
+    // ── 布局质量读数（cycle-101）：交叉数 + 折叠重复 id ──
+    renderLayoutQuality(input.layoutQuality),
   ];
+}
+
+/**
+ * 布局质量读数徽章（cycle-101 · 白盒化的"静默丢弃"与"布局好坏"）。
+ *
+ * ## 为什么需要它
+ *
+ * 1. **交叉数**：`GraphLayout.crossings` 早就算出来了（cycle-94，同一把尺量三种
+ *    模式），但**没有任何 UI 显示它** —— 读者无法判断"切到 flow 模式后到底好没好",
+ *    只能凭肉眼。没有数字，"flow 更好读"就是一句无法验证的话。
+ * 2. **折叠的重复 id**：旧实现重复 id「首个胜出并静默 continue」（位置唯一性是
+ *    硬不变量，不能改），数据管道出问题时用户只看到"节点少了几个"。现在显式读出来。
+ *
+ * ## 渲染纪律
+ *
+ * - 缺省 `undefined` ⇒ **不渲染**（零参调用 = 改造前工具栏）；
+ * - `crossings === 0 && droppedDuplicates === 0` ⇒ 也**不渲染**（健康态不占位，
+ *   不制造"总有东西要看"的噪声 —— 与读数条 dropped>0 才显示同一条纪律）；
+ * - 折叠数用告警色（它是异常），交叉数用弱色（它是常态读数）。
+ */
+function renderLayoutQuality(
+  q: { crossings: number; droppedDuplicates: number } | undefined,
+): ReactElement | null {
+  if (!q) return null;
+  const zeroCross = q.crossings <= 0;
+  const zeroDrop = q.droppedDuplicates <= 0;
+  if (zeroCross && zeroDrop) return null;
+  const parts: ReactElement[] = [];
+  if (!zeroCross) {
+    parts.push(createElement('span', {
+      key: 'cross',
+      'data-anic-graph-crossings': String(q.crossings),
+      title: `交叉数 ${q.crossings}（同一把尺量三种布局模式，越小越好读）`,
+      style: { fontSize: 10, color: token('anic-text-faint') },
+    }, `交叉 ${q.crossings}`));
+  }
+  if (!zeroDrop) {
+    parts.push(createElement('span', {
+      key: 'drop',
+      'data-anic-graph-dropped-ids': String(q.droppedDuplicates),
+      title: `已折叠 ${q.droppedDuplicates} 个重复 id（位置唯一性硬不变量：同 id 只画一次，其余丢弃）`,
+      style: { fontSize: 10, color: token('anic-warn-text') },
+    }, `折叠 ${q.droppedDuplicates}`));
+  }
+  return createElement('span', {
+    'data-anic-graph-layout-quality': '1',
+    style: { display: 'inline-flex', gap: 8, alignItems: 'center', marginLeft: 4 },
+  }, ...parts);
 }

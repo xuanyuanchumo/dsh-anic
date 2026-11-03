@@ -61,6 +61,8 @@ interface RenderProps {
    * 这样老断言（"每组控件齐全"）不会因为新控件而误判，测试也能按需断言新控件。
    */
   view?: ViewGroupInput;
+  /** 布局质量读数（cycle-101）；可选且缺省不渲染（与 view/path 同纪律）。 */
+  layoutQuality?: { crossings: number; droppedDuplicates: number } | undefined;
   /**
    * 路径组（cycle-95 WS-C）：找路径的模式开关。
    *
@@ -232,11 +234,11 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     renderGroupSeparator('after-verdict'),
 
     // 组 4..7 + 图例行：动作语义与条件组，拆到 graphToolbarTail.ts（守 T3 ≤250 行）。
-    // 拆的是**职责**：「工具栏分成哪几组」留本文件；「后半段怎么装配」独立成文件。
     ...renderToolbarTail({
       viewport, adjacencyOn, filterActive, typeCounts, roles: props.roles,
       activeRoles: props.activeRoles, onToggleRole: props.onToggleRole,
       view: props.view, path: props.path,
+      layoutQuality: props.layoutQuality,
       onZoomIn: props.onZoomIn, onZoomOut: props.onZoomOut, onFit: props.onFit,
       onAdjacencyToggle: props.onAdjacencyToggle, onClear: props.onClear,
     }),

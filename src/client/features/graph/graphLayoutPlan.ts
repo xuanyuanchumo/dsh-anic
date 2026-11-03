@@ -59,6 +59,17 @@ export interface ColumnPlan {
   lanes: LaneLayout[];
   /** 总列数（0 = 空图）。 */
   columns: number;
+  /**
+   * 被跳过的重复 id（cycle-101 · 白盒化「静默丢弃」）。
+   *
+   * 旧实现：重复 id「首个胜出」，后续静默 `continue`。数据管道出问题（如快照
+   * 合并把同一节点资产录两次）时，用户只看到"节点少了几个"，没有任何信号。
+   * 现在把丢弃的 id 显式收进结果，工具栏可显示「已折叠 N 个重复 id」——
+   * 丢弃仍然是丢弃（位置唯一性是硬不变量，不能改），但**不再无声**。
+   *
+   * 空数组 = 无重复（正常态，不显示任何 UI）。
+   */
+  droppedDuplicateIds: string[];
 }
 
 /** lane 排序：已知类型按 LANE_ORDER，未知类型按字母序追加在尾部（确定性）。 */
@@ -107,6 +118,8 @@ export function planColumns(
   const lanes: LaneLayout[] = [];
   /** 全局已占用的 id（重复 id 首个胜出 —— 见文件头「重复 id」注释）。 */
   const taken = new Set<string>();
+  // cycle-101：重复 id 不再静默丢弃 —— 收进结果供工具栏读数（见 ColumnPlan 注释）。
+  const droppedDuplicateIds: string[] = [];
   let column = 0;
 
   for (const type of laneOrderOf([...buckets.keys()])) {
@@ -145,7 +158,7 @@ export function planColumns(
         // 重复 id：**首个胜出**并跳过后续。位置唯一性是本模块的硬不变量，
         // 若让两个同 id 项各占一格，它们会在位置表里互相覆盖而 DOM 里各留一份
         // ——两个点叠在同一坐标，其中一个永久不可见，而任何计数断言都看不出问题。
-        if (taken.has(node.id)) continue;
+        if (taken.has(node.id)) { droppedDuplicateIds.push(node.id); continue; }
         taken.add(node.id);
         seg.ids.push(node.id);
       }
@@ -156,5 +169,5 @@ export function planColumns(
     lanes.push({ type, count: list.length, columns: columnsOfLane });
   }
 
-  return { segments, lanes, columns: lanes.length === 0 ? 0 : column + 1 };
+  return { segments, lanes, columns: lanes.length === 0 ? 0 : column + 1, droppedDuplicateIds };
 }

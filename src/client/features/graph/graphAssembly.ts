@@ -114,11 +114,18 @@ export function assemblyToolbarBaseOf(input: ToolbarBaseInput): ToolbarWiring {
 /** 工具栏 props（既有字段 + 视图组 + 路径组/角色图例，cycle-95）。 */
 export function assemblyToolbarOf(
   input: RenderAssemblyInput,
-): ToolbarWiring & { view: ViewWiringInput; path: PathGroupInput; roles: RoleLegendStats } {
+): ToolbarWiring & { view: ViewWiringInput; path: PathGroupInput; roles: RoleLegendStats; layoutQuality: { crossings: number; droppedDuplicates: number } } {
   return {
     ...toolbarPropsWithView(input.toolbarBase, input.view),
     path: input.path,
     roles: input.roles,
+    // cycle-101：布局质量读数直接取自 layout（单一事实源——不在组件层重算）。
+    // crossings 是 cycle-94 就有的读数（同一把尺量三种模式），此前无 UI 出口；
+    // droppedDuplicates 是本轮新增的「静默丢弃白盒化」。两者都不改布局算法。
+    layoutQuality: {
+      crossings: input.layout.crossings ?? 0,
+      droppedDuplicates: input.layout.droppedDuplicates ?? 0,
+    },
   };
 }
 

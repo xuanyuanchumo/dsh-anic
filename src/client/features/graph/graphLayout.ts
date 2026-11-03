@@ -169,6 +169,8 @@ export function layoutGraph(
     // 同一把尺量所有模式（见 graphLayoutTypes.GraphLayout.crossings 注释）：
     // 在 lane 模式下它是折列布局的交叉数，flow 拿它做比较基线。
     crossings: crossingsFromPositions(edges, ordered),
+    // cycle-101：重复 id 折叠数量上浮（0 = 正常态，不渲染 UI）
+    droppedDuplicates: plan.droppedDuplicateIds.length,
   };
 }
 
