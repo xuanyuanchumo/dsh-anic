@@ -3,6 +3,7 @@
  * POST /anic/hitl-audit · GET /anic/band-detect · GET /anic/org-status
  * GET /anic/fact-base · GET /anic/plan-sync · POST /anic/multi-agent-gate · POST /anic/fix-loop
  */
+import { sendAnicError } from './envelope.ts';
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
 import { runHitlAudit } from '../governance/hitlAudit.ts';
@@ -49,7 +50,7 @@ export function registerNativeRoute(
   reg('POST', '/anic/hitl-audit', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const result = runHitlAudit(root);
     deps.send(res, 200, result, rid);
   });
@@ -58,7 +59,7 @@ export function registerNativeRoute(
   reg('GET', '/anic/band-detect', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const r = req as { url?: string };
     const scoreMatch = r?.url?.match(/score=([0-9.]+)/);
     const parsed = scoreMatch?.[1] ? parseFloat(scoreMatch[1]) : 1.0;
@@ -71,7 +72,7 @@ export function registerNativeRoute(
   reg('GET', '/anic/org-status', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req); // cycle-20 起带头；cycle-21 全域统一
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     // cycle-91：把工作区层的开关态喂进去 —— 否则 `agentsOrchestration` 的
     // `?? {true,true}` 兜底恒真 ⇒ 面板永远显示「启用」。
     const result = runOrgStatus(root, { flows: deps.loadFlows?.() ?? { selfInit: true, agentsOrchestration: true } });
@@ -82,7 +83,7 @@ export function registerNativeRoute(
   reg('GET', '/anic/fact-base', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const result = runFactBaseVerify(root);
     deps.send(res, 200, result, rid);
   });
@@ -91,7 +92,7 @@ export function registerNativeRoute(
   reg('GET', '/anic/plan-sync', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const result = runPlanSync(root);
     deps.send(res, 200, result, rid);
   });
@@ -114,7 +115,7 @@ export function registerNativeRoute(
   reg('POST', '/anic/multi-agent-gate', async (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const evidenceByGate = collectGateEvidence(root);
     const currentBand = loadWorkspaceConfig(join(root, '.cycles')).values.autonomyLevel;
     const { results, summary } = await runAllGatesWithLlm(ctx, deps.agentCards, evidenceByGate, { currentBand });
@@ -140,7 +141,7 @@ export function registerNativeRoute(
   reg('POST', '/anic/fix-loop', (req, res) => {
     const rid = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return deps.send(res, 404, { error: 'no workspace' }, rid);
+    if (!root) return sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
     const cyclesDir = join(root, '.cycles');
     const verifyFn = () => {
       const chain = verifyLedger(cyclesDir);

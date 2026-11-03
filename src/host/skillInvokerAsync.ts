@@ -16,6 +16,12 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+// cycle-99c：异步入口同样收口到全插件单一上限——被修缺陷：spawn 后把 timeoutMs
+// 原样交给 setTimeout，Infinity 会被 Node 视作 1ms（子进程立即被掐）、NaN 同理，
+// 而同步入口经 resolveSkillInvokeTimeout 收口（两路径语义不对称，cycle-78 曾收敛过
+// 一次同步侧，异步侧漏网）。注意：本文件注释不得出现带引号的相对 import 路径
+// （静态 import 图扫描器按文本匹配 from-字面量）。
+import { resolveSkillInvokeTimeout } from './runtime/bootstrapBudget.ts';
 
 /**
  * 调用结果形状（Q5 断环）：类型单一实现在此文件；同步版（skillInvoker.ts）
@@ -66,6 +72,9 @@ export async function invokeSkillScriptAsync(
     const child = spawn('node', [scriptPath, workspace, ...args], {
       cwd: scriptsDir,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // cycle-99b：与同步入口同纪律——异步技能调用（detached 语义的常驻子进程）
+      // 在 Windows 上缺 windowsHide 同样弹控制台窗口。
+      windowsHide: true,
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -76,7 +85,7 @@ export async function invokeSkillScriptAsync(
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
-    }, timeoutMs);
+    }, resolveSkillInvokeTimeout(timeoutMs));
 
     const onAbort = (): void => {
       aborted = true;

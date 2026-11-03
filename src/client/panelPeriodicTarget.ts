@@ -44,6 +44,7 @@ import type { FlowStatusJson } from './features/flows/renderFlows.ts';
 import { isFlowMatrix, type FlowMatrixJson } from './features/flows/flowMatrixTypes.ts';
 // cycle-90：生命周期指标。
 import { isLifecycleMetrics, LIFECYCLE_METRICS_URL, type LifecycleMetricsJson } from './features/flows/lifecycleTypes.ts';
+import { isFlowsViewResponse, FLOWS_VIEW_URL, type FlowsViewResponseJson } from './features/flows/flowViewTypes.ts';
 import { isResolvedFlows, RESOLVED_FLOWS_URL, type ResolvedFlowsJson } from './components/resolvedFlowsTypes.ts';
 import { isDisclosureReadout, DISCLOSURE_URL, type DisclosureReadoutJson } from './components/disclosureReadoutTypes.ts';
 import {
@@ -78,6 +79,8 @@ export function periodicTarget(s: PanelActions, ledgerLimit: number): PanelFetch
     { url: FLOW_MATRIX_URL, guard: isFlowMatrix, apply: (v) => { s.setFlowMatrix(v as FlowMatrixJson); }, onFail: fail('flowMatrix'), onRecover: recover('flowMatrix') },
     // cycle-90：生命周期指标（KM / EWMA / 分位数+Gini 的读数出口）。
     { url: LIFECYCLE_METRICS_URL, guard: isLifecycleMetrics, apply: (v) => { s.setLifecycleMetrics(v as LifecycleMetricsJson); }, onFail: fail('lifecycleMetrics'), onRecover: recover('lifecycleMetrics') },
+    // cycle-101：FlowTracker 有界视图读数（字段白名单 + floor 水位的消费端）。
+    { url: FLOWS_VIEW_URL, guard: isFlowsViewResponse, apply: (v) => { s.setFlowsView(v as FlowsViewResponseJson); }, onFail: fail('flowsView'), onRecover: recover('flowsView') },
     // cycle-91：开关解析态（服务端才知道的 workspace/deployment 层）。
     { url: RESOLVED_FLOWS_URL, guard: isResolvedFlows, apply: (v) => { s.setResolvedFlows(v as ResolvedFlowsJson); }, onFail: fail('resolvedFlows'), onRecover: recover('resolvedFlows') },
     // cycle-93：披露运行时读数（进程级，不需要工作区）。

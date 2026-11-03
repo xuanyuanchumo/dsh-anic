@@ -176,7 +176,9 @@ function spawnWithLog(command, argv, options, logFile) {
   let fd = -1;
   try {
     fd = openSync(logFile, 'a');
-    return spawn(command, argv, { ...options, stdio: ['ignore', fd, fd] });
+    // cycle-99c：测试宿主进程链（dsh/electron）同样不弹控制台窗口——
+    // 日志已重定向到文件，窗口纯噪声；windowsHide 只影响是否新建控制台。
+    return spawn(command, argv, { ...options, stdio: ['ignore', fd, fd], windowsHide: true });
   } finally {
     if (fd >= 0) { try { closeSync(fd); } catch { /* ignore */ } }
   }
@@ -591,7 +593,11 @@ async function startChrome(chromeUrl) {
     chromeUrl,
   ];
   dbg(`Chrome 参数:\n  ${chromeArgs.join('\n  ')}`);
-  const chromeProc = spawnWithLog(chromeExe, chromeArgs, { detached: true }, CHROME_LOG);
+  // cycle-101：windowsHide 补全 —— 原实现只 detached 不带 windowsHide，
+  // Chrome 在 Windows 下会闪一个控制台窗口（用户实证投诉项）。detached 与
+  // windowsHide 正交：前者脱离父进程组（要活得比本脚本久），后者只决定
+  // 是否分配控制台 —— 同时给才是正确组合（同文件 525/526 行 DSH 启动已是此写法）。
+  const chromeProc = spawnWithLog(chromeExe, chromeArgs, { detached: true, windowsHide: true }, CHROME_LOG);
   let spawnFailed = false;
   let spawnErr = null;
   chromeProc.once('error', (e) => { spawnFailed = true; spawnErr = e; warn(`Chrome spawn 失败: ${e.message}`); });

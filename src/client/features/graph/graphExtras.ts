@@ -30,6 +30,7 @@ import { MAX_PATH_HOPS } from './graphPathFind.ts';
 import type { PathModel } from './graphPathMode.ts';
 import { gt } from './graphText.ts';
 import { t } from '../../i18n.ts';
+import type { TimelineStep } from './graphTimeline.ts';
 
 /**
  * 选中节点的**双向**影响半径（null = 没有选中节点）。
@@ -142,19 +143,94 @@ export function renderBlastBar(input: { focusId: string; blast: BlastRadiusStats
 }
 
 /**
+ * 时间轴回放控制条（cycle-99 · 图谱交互增强 ④）——回放启用时才渲染（零占位）。
+ *
+ * 形态：⟨▶/⏸⟩ ⟨slider⟩ ⟨步读数⟩ ⟨当前步时间与裁决⟩ ⟨关闭⟩。
+ * slider 的 max = steps.length-1，value = 当前 index；步进语义全在
+ * useGraphTimeline（纯 hook）与 graphTimeline（纯函数）——本条只装配。
+ */
+export function renderTimelineBar(input: {
+  steps: readonly TimelineStep[];
+  index: number;
+  playing: boolean;
+  onSeek: (k: number) => void;
+  onTogglePlay: () => void;
+  onExit: () => void;
+}): ReactElement {
+  const { steps, index, playing } = input;
+  const step = index >= 0 && index < steps.length ? steps[index] : undefined;
+  return createElement(
+    'div',
+    {
+      key: 'timeline-bar',
+      'data-anic-graph-timeline': 'true',
+      'data-anic-graph-timeline-index': String(index),
+      'data-anic-graph-timeline-playing': playing ? 'true' : 'false',
+      role: 'status',
+      style: {
+        display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+        fontSize: 10.5, padding: '2px 8px',
+      },
+    },
+    // 播放/暂停：一个按钮双语义（aria-pressed 表达状态）。
+    createElement('button', {
+      key: 'play', type: 'button', 'data-anic-graph-timeline-play': 'true',
+      'aria-pressed': playing ? 'true' : 'false',
+      'aria-label': playing ? gt('timelinePause') : gt('timelinePlay'),
+      onClick: input.onTogglePlay,
+      style: { fontSize: 10, padding: '0 8px', borderRadius: 8, cursor: 'pointer', border: '1px solid currentColor', background: 'transparent' },
+    }, playing ? '⏸' : '▶'),
+    // 步进滑杆：range input（键盘 ←/→ 原生可步进——a11y 通道免费获得）。
+    createElement('input', {
+      key: 'slider', type: 'range', min: 0, max: Math.max(0, steps.length - 1),
+      value: String(index < 0 ? 0 : index),
+      'data-anic-graph-timeline-slider': 'true',
+      'aria-label': gt('timelineLabel'),
+      onInput: (ev: { target?: { value?: string } }) => {
+        const v = Number(ev.target?.value ?? '0');
+        if (Number.isFinite(v)) input.onSeek(v);
+      },
+      style: { flex: '1 1 120px', minWidth: 100, cursor: 'pointer' },
+    }),
+    // 步读数 + 当前步时间/裁决（detail 时间戳解析失败时只显示步号，不猜时间）。
+    createElement('span', { key: 'readout', 'data-anic-graph-timeline-readout': 'true' },
+      `${String(index + 1)}/${String(steps.length)}`
+      + (step?.at !== null && step?.at !== undefined ? ` · ${step.at.slice(0, 19)}` : '')
+      + (step?.result !== null && step?.result !== undefined ? ` · ${step.result}` : '')),
+    createElement('button', {
+      key: 'exit', type: 'button', 'data-anic-graph-timeline-exit': 'true',
+      'aria-label': gt('timelineExit'),
+      onClick: input.onExit,
+      style: { fontSize: 10, padding: '0 8px', borderRadius: 8, cursor: 'pointer', border: '1px solid currentColor', background: 'transparent' },
+    }, '✕'),
+  );
+}
+
+/**
  * 两条读数条的合并入口（组件只调一次 ⇒ 组件少两行，而 250 行是硬限）。
  *
- * 两者都为 null（未进入路径模式且没有选中节点）→ **整体不渲染**（零占位）。
+ * 三者都为 null/空（未进入路径模式、没有选中节点、未启用回放）→ **整体不渲染**
+ * （零占位）。时间轴条挂在路径条之后：两者同时活跃时时间轴在下方（回放是
+ * "又一层观察"，路径是"正在进行的动作"——动作条在上可读性更高）。
  */
 export function renderGraphExtras(input: {
   path: PathModel;
   focusId: string | null;
   blast: BlastRadiusStats | null;
   onPathExit: () => void;
+  /** cycle-99 时间轴回放（steps 空 = 无链，控件整条不出现）。 */
+  timeline?: {
+    steps: readonly TimelineStep[];
+    index: number;
+    playing: boolean;
+    onSeek: (k: number) => void;
+    onTogglePlay: () => void;
+    onExit: () => void;
+  };
 }): ReactElement[] | null {
   const items: ReactElement[] = [];
   /*
-   * 两条都带显式 key（各自元素的 props 里）：返回值是一个**数组**，调用方直接
+   * 每条都带显式 key（各自元素的 props 里）：返回值是一个**数组**，调用方直接
    * 塞进父元素的 children。数组元素缺 key 会让 React 每次重渲报
    * "unique key prop" 警告 —— 在真实宿主是控制台噪声，在测试里会污染每条
    * DOM 断言的 stderr（实测：本文件首次落地的 6 条用例全部出现了该警告）。
@@ -162,6 +238,9 @@ export function renderGraphExtras(input: {
   if (input.path.active) items.push(renderPathBar({ model: input.path, onExit: input.onPathExit }));
   if (input.focusId !== null && input.blast !== null) {
     items.push(renderBlastBar({ focusId: input.focusId, blast: input.blast }));
+  }
+  if (input.timeline !== undefined && input.timeline.steps.length > 0 && input.timeline.index >= 0) {
+    items.push(renderTimelineBar(input.timeline));
   }
   return items.length === 0 ? null : items;
 }

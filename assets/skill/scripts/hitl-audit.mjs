@@ -25,13 +25,13 @@ const getLatestCycle = getLatestCycleDir;
 function getGitChangedFiles(projectDir) {
   try {
     const output = execSync('git diff --name-only HEAD~1', {
-      cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8',
+      cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8', windowsHide: true,
     });
     return output.trim().split('\n').filter(Boolean);
   } catch {
     try {
       const output = execSync('git status --porcelain', {
-        cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8',
+        cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8', windowsHide: true,
       });
       return output.trim().split('\n').filter(Boolean).map(line => line.substring(3));
     } catch {
@@ -215,7 +215,7 @@ function attemptH2Fix(projectDir, result) {
   if (result.detail.includes('No git history')) {
     try {
       execSync('git init && git add -A && git commit -m "baseline for rollback"', {
-        cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+        cwd: projectDir, timeout: 10000, stdio: 'pipe', encoding: 'utf-8', windowsHide: true,
       });
       return { success: true, action: 'Initialized git repo with baseline commit' };
     } catch (e) {

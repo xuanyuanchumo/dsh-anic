@@ -79,13 +79,30 @@ describe('口径守卫：空扫描集必须响亮抛错（空集恒绿 = 假守�
     rmSync(empty, { recursive: true, force: true });
   });
 
-  it('模板在、循环目录空 ⇒ 抛错（矩阵没有行是无法判定的）', () => {
+  it('模板在、活跃区与归档区都无循环 ⇒ 抛错（矩阵没有行是无法判定的）', () => {
     const noCycles = mkdtempSync(join(tmpdir(), 'anic-nocycle-'));
     const tdir = join(noCycles, TEMPLATE_DIR_REL);
     mkdirSync(tdir, { recursive: true });
     for (const spec of TEMPLATE_SPECS) writeFileSync(join(tdir, spec.template), '# t\n', 'utf8');
-    expect(() => scanArtifacts(noCycles)).toThrow(/cycle scan empty/i);
+    // cycle-101：判据从「活跃区空即抛」放宽为「活跃区 + 归档区**都**空才抛」——
+    // 全部归档是 archive-cycle 的合法收口态（旧判据把正常状态报成故障）。
+    // 空集恒绿风险仍在：两处都空依然响亮抛错（本用例继续守这条）。
+    expect(() => scanArtifacts(noCycles)).toThrow(/no cycle dirs/i);
     rmSync(noCycles, { recursive: true, force: true });
+  });
+
+  it('②b 活跃区空但归档区有循环 ⇒ **不**抛（回退归档区扫描）', () => {
+    const archOnly = mkdtempSync(join(tmpdir(), 'anic-archonly-'));
+    const tdir = join(archOnly, TEMPLATE_DIR_REL);
+    mkdirSync(tdir, { recursive: true });
+    for (const spec of TEMPLATE_SPECS) writeFileSync(join(tdir, spec.template), '# t\n', 'utf8');
+    mkdirSync(join(archOnly, '.cycles', 'archive', 'cycle-1'), { recursive: true });
+    // consumer 扫描非空前置（真实仓形态：assets/skill/scripts 下的 .mjs 消费者）
+    const scripts = join(archOnly, 'assets', 'skill', 'scripts');
+    mkdirSync(scripts, { recursive: true });
+    writeFileSync(join(scripts, 'a.mjs'), '// consumer\n', 'utf8');
+    expect(() => scanArtifacts(archOnly)).not.toThrow();
+    rmSync(archOnly, { recursive: true, force: true });
   });
 
   it('反面对照：夹具齐备时**不**抛（证明上面的 throw 不是"逢调必抛"）', () => {

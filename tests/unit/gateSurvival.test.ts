@@ -127,9 +127,17 @@ describe('kaplanMeier：样本量门槛与数值稳定性', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('**中位数 CI：Brookmeyer-Crowley 点态反演**（真实数据：34 episodes ⇒ [189411, 381996]ms）', () => {
-    // 手算基线（研究阶段独立复算）：n=34 个 FAIL→PASS episode，
-    // 中位数 233641ms（3.89min），CI [189411, 381996]ms（3.16 ~ 6.37min）。
+  it('**中位数 CI：Brookmeyer-Crowley 点态反演**（真实账本数据 → 统计性质断言）', () => {
+    // cycle-97 根修：旧断言写死 cycle-96 时代的中位数 233641ms——但数据源是
+    // **活账本**（.cycles/gates/ledger.json，append-only 哈希链），每轮门禁
+    // PASS/FAIL 记录都会改变 episode 分布 ⇒ 写死数值的测试随账本演化恒红
+    // （本轮归档重启后 G1/G2 FAIL 记录入账 → 中位数 233641 → 288592 即复现）。
+    // 真实数据测试的正确断言形态是**统计性质**而非具体数值：
+    //   ① 样本量门槛（<20 跳过——独立于账本状态）；
+    //   ② 计算收敛（ok:true，无 NaN/Inf）；
+    //   ③ CI 包住中位数且非退化（反演逻辑正确性的数学不变量）；
+    //   ④ 中位数为正（修复时长语义）。
+    // 数值精度的回归防线由本文件其它用例承担（合成数据 + 手算基线）。
     const fs = require('node:fs');
     const path = require('node:path');
     const ledgerPath = path.join(process.cwd(), '.cycles', 'gates', 'ledger.json');
@@ -141,13 +149,17 @@ describe('kaplanMeier：样本量门槛与数值稳定性', () => {
     const r = kaplanMeier(samples);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.medianMs).toBe(233641);
+    // ① 收敛且数值有限（kaplanMeier 内部已保证，这里显式钉死）
+    expect(Number.isFinite(r.value.medianMs)).toBe(true);
     expect(r.value.degenerateCi).toBe(false);
     expect(r.value.medianCi95Ms).not.toBeNull();
-    // CI 必须**包住**中位数（否则反演逻辑错了）。
+    // ② CI 必须包住中位数（Brookmeyer-Crowley 反演正确性的不变量）
     const ci = r.value.medianCi95Ms as [number, number];
     expect(ci[0]).toBeLessThanOrEqual(r.value.medianMs as number);
     expect(ci[1]).toBeGreaterThanOrEqual(r.value.medianMs as number);
+    // ③ 修复时长语义：中位数为正且 CI 为正（时长不可能为负）
+    expect(r.value.medianMs as number).toBeGreaterThan(0);
+    expect(ci[0]).toBeGreaterThan(0);
   });
 
   it('**全样本读数无 NaN / Infinity**（数值稳定性总检）', () => {

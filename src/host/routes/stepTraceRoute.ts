@@ -4,6 +4,7 @@
  * snapshot（结构化声明图）+ workflow-state.json nodeStatus + ledger 裁决 + cycle 目录。
  * 纯读；404 当无 .cycles；INV-27 启发标注原样透传给客户端渲染。
  */
+import { sendAnicError, anicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildWorkflowSnapshot } from '../../shared/snapshotCore.ts';
@@ -25,14 +26,14 @@ export function registerStepTraceRoute(ctx: unknown): (() => void) | null {
         const root = resolveWorkspaceRoots(c, req);
         const cyclesDir = join(root, '.cycles');
         if (!existsSync(cyclesDir)) {
-          sendJson(res, 404, { error: 'no .cycles in current workspace', workspace: root });
+          sendJson(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no .cycles in current workspace (run anic_install first)'));
           return;
         }
         const snap = buildWorkflowSnapshot(cyclesDir);
         const trace = buildStepTrace(snap, { cyclesDir });
         sendJson(res, 200, trace);
       } catch (e) {
-        sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) });
+        sendJson(res, 500, anicError('ANIC_SKILL_EXEC_FAILED', e instanceof Error ? e.message : String(e), { effectState: 'unknown' }));
       }
     },
   });

@@ -9,6 +9,7 @@ import { makeToolOutput } from './toolsSlot.ts';
 import { inlineSkillRoot } from './skillInvoker.ts';
 import { skillIntegritySummary } from './skillIntegrity.ts';
 import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
+import { projectFlowTrackerView, renderFlowViewMarker, projectStatusDistribution } from './flowTrackerProjection.ts';
 import { analyzeSkillHealth, formatHealthSummary } from './runtime/continuousLearning.ts';
 import { statusPresentCall } from './presentation.ts';
 import { join } from 'node:path';
@@ -39,12 +40,28 @@ export function registerStatusTool(
       execute: async (args) => {
         const root = (args.workspace as string) ?? getRoot() ?? '';
         const flowLimit = Math.min(Math.max(typeof args.flowLimit === 'number' ? args.flowLimit : 10, 1), 50);
-        // M10-a/e：FlowTracker 最近记录 + 统计 + 持续学习健康报告
+        // M10-a/e：FlowTracker 有界视图 + 统计 + 持续学习健康报告
+        // cycle-101（dsh-context 模式）：旧实现 recentFlows 返回**完整 FlowRecord**
+        // （含 stdout≤8000/stderr≤4000 的原始大文本，默认 10 条最坏 120KB）——
+        // 改成 projectFlowTrackerView 的有界视图：字段白名单 + 保留钳制 +
+        // dropped/floorStartedAt 诚实读数。stdout 已由 presentationMeta 通道承载，
+        // 视图层重复传输只是 token 浪费（非信息增益）。
         const cyclesDir = join(root, '.cycles');
         let flows: unknown[] = []; let stats: Record<string, unknown> = {};
+        let flowView: unknown = null; let flowMarker = '';
+        let flowDistribution: unknown = null;
         let health: unknown = null; let healthSummary = '';
         if (existsSync(cyclesDir)) {
           const ts = loadFlowTracker(cyclesDir);
+          // cycle-101（dsh-context 模式）：新增**有界视图** flowView —— 字段白名单 +
+          // 保留钳制 + dropped/floorStartedAt 诚实读数，供面板/摘要消费（省 token）。
+          // 同时**保留** flows/flowStats（无损契约 toolOutputLosslessContract 钉死：
+          // 删除既有事实类别 = 消费方静默丢数据）。两者互补：全量事实 + 有界视图。
+          const view = projectFlowTrackerView(ts, { limit: flowLimit });
+          flowView = view;
+          flowMarker = renderFlowViewMarker(view);
+          // 状态分布读数（管理面板直接消费：状态计数 + 失败率 + 平均时长）
+          flowDistribution = projectStatusDistribution(view);
           flows = recentFlows(ts, flowLimit); stats = flowStats(ts);
           const report = analyzeSkillHealth(ts);
           health = report; healthSummary = formatHealthSummary(report);
@@ -57,7 +74,10 @@ export function registerStatusTool(
         return {
           statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`,
           desktopNote: 'URL routes are served by the dsh web host; desktop (Electron) reaches them via the dsh-app:// IPC bridge.',
-          flows, flowStats: stats, health, healthSummary, skillIntegrity,
+          // cycle-101：有界视图（flowsHead/stats/summary 计入）+ grep 友好 marker
+          flowView, flowMarker, flowDistribution,
+          flows, flowStats: stats,
+          health, healthSummary, skillIntegrity,
         };
       },
     }) ?? null,

@@ -41,12 +41,14 @@ export interface CanvasInput {
   nodeCount: number;
   edgeCount: number;
   focusId: string | null;
+  /** 节点裁决表（cycle-98：小地图缩略点按裁决色着色；缺省 = 灰点行为不变）。 */
+  verdicts?: ReadonlyMap<string, string>;
 }
 
 export function renderCanvas(input: CanvasInput): ReactElement {
   const {
     world, children, bounds, layout, viewport, size,
-    containerInteractive, describedBy, keyHandler, nodeCount, edgeCount, focusId,
+    containerInteractive, describedBy, keyHandler, nodeCount, edgeCount, focusId, verdicts,
   } = input;
 
   const canvas = size === undefined
@@ -57,7 +59,10 @@ export function renderCanvas(input: CanvasInput): ReactElement {
   // 不随缩放平移移动 —— 那正是地图控件的定义。
   const overlay = size === undefined
     ? null
-    : renderMiniMap({ nodes: layout.nodes, bounds, viewport, size, focusId });
+    : renderMiniMap({
+      nodes: layout.nodes, bounds, viewport, size, focusId,
+      ...(verdicts === undefined ? {} : { verdicts }),
+    });
 
   return createElement('svg', {
     width: canvas.width,

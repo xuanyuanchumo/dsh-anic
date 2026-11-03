@@ -39,6 +39,16 @@ interface SlotsApi {
   register(definition: SlotDefinition, render: () => ReactElement): (() => void) | void;
 }
 
+/**
+ * conversation.view 席位的**标准 session scope props**（slots.md:97——session
+ * scope 注入 `sessionId`/`useSession`/`useProjection`/`useAccess`）。
+ * cycle-99：`sessionId` 是「技能面板只看所属会话的工作区」的锚——面板把它
+ * 作为 `X-ANIC-Session` 请求头发出，服务端按 sessions 条目 id 精确映射工作区。
+ */
+interface SessionScopeProps {
+  sessionId?: string;
+}
+
 interface AnicTabTelemetry {
   registered: boolean;
   registerCount: number;
@@ -87,6 +97,11 @@ function hasSlotsApi(value: unknown): value is SlotsApi {
 }
 
 export function integrateWorkflowTab(ctx: unknown): void {
+  // cycle-99：window 守卫（与 i18n detectClientLang 同款 SSR/node 纪律）——
+  // 宿主 client 永在浏览器（window 恒有），但单测在 node 环境直接调 apply 时
+  // 本文件遥测/kill-switch 全部依赖 window，缺它就 ReferenceError。守卫降级为
+  // skipped（无 DOM = 无标签可注册），与 slots-absent 同形状。
+  if (typeof window === 'undefined') return;
   const telemetry: AnicTabTelemetry = {
     registered: false,
     registerCount: 0,
@@ -141,7 +156,17 @@ export function integrateWorkflowTab(ctx: unknown): void {
         order: 101,
         label: () => 'ANIC',
       };
-      const registration = api.register(definition, () => createElement(WorkflowGraphPanel));
+      const registration = api.register(definition, (props?: SessionScopeProps) => {
+        // cycle-99：sessionId 进 DOM 锚点——面板从 DOM 读它构造 X-ANIC-Session 头
+        // （props 只在渲染时可达，面板内部又需要按请求带出；DOM 是两者唯一交点）。
+        try {
+          const el = document.querySelector('[data-anic-graph-wrap]') as HTMLElement | null;
+          // 面板尚未挂载（首次渲染）时写在 body 数据属性上，面板挂载后自读。
+          const host = el ?? document.body;
+          host.dataset.anicSessionId = props?.sessionId ?? '';
+        } catch { /* 无 DOM（node 测试）静默——sessionId 通道降级为无头 */ }
+        return createElement(WorkflowGraphPanel);
+      });
       telemetry.lastTabDef = { name: definition.name, id: definition.id, order: definition.order };
       telemetry.registerCount += 1;
       telemetry.registered = true;

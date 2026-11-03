@@ -1,25 +1,15 @@
 /**
  * 面板动作层（cycle-46 T-4601）—— 写侧收口：actions 与 store 共置。
  *
- * 背景（ui-research 简报 ROI ③，zustand v5「actions live in the store」）：
- * ~20 个 setState 写点曾散布 4 文件（WorkflowGraphPanel 七个内联 setter +
- * 八个 apply 直写、useInvocations 三处、governanceTargets setter 下传），
- * 「先读后写」不变量（announce 回读、malformed 保 source）埋在各钩子内，
- * 新切片加入时无集中过渡点。
+ * 背景（zustand v5「actions live in the store」）：~20 个 setState 写点曾散布
+ * 4 文件，「先读后写」不变量埋在各钩子内，新切片加入时无集中过渡点。
+ * 本文件把写路径收口为具名动作：快照域 / 步骤自检域 / 实时调用域 / 4s 档静默域。
  *
- * 本文件把全部写路径收口为具名动作：
- *   - 快照域：setGraph / setFetchLine（复合 updater）/ markLive / degradeToEmbedded；
- *   - 步骤流程/自检域：setTrace / failTrace / setCheck / failCheck；
- *   - 实时调用域：applyInvocations（announce 回读不变量在此）/ failInvocations
- *     （三分类文案）/ recoverInvocations；
- *   - 4s 档静默域：setOrgStatus / setFlowsStatus / setCycleList / setCycleState /
- *     setSkillHealth / setBudget / setLedgerList / setLedgerVerify / setHitlAudit。
- *
- * 三分类降级文案规则（与 panelLiveTargets/useInvocations 历史行为逐字一致——
- * 回归红线）收敛为单一 classifier：http → routeUnavailable、malformed →
- * malformedNotUsed、network → message 原样。
+ * 三分类降级文案规则（与历史行为逐字一致——回归红线）收敛为单一 classifier：
+ * http → routeUnavailable、malformed → malformedNotUsed、network → message 原样。
  */
 import { t } from '../i18n.ts';
+import type { FlowsViewResponseJson } from '../features/flows/flowViewTypes.ts';
 import type { GraphData } from '../features/graph/renderGraph.ts';
 import type { StepTraceJson } from '../features/stepTrace/renderStepTrace.ts';
 import type { SelfCheckJson } from '../features/diagnostics/renderDiagnostics.ts';
@@ -80,6 +70,7 @@ export interface PanelActions {
   /** 流程归属矩阵落地（cycle-89 4s 档；量化条的数据源）。 */
   setFlowMatrix(v: FlowMatrixJson): void;
   setLifecycleMetrics(v: LifecycleMetricsJson): void; // cycle-90：生命周期指标（4s 档）
+  setFlowsView(v: FlowsViewResponseJson): void; // cycle-101：有界视图读数
   setResolvedFlows(v: ResolvedFlowsJson): void; // cycle-91：开关解析态（workspace/deployment 层）
   setDisclosure(v: DisclosureReadoutJson): void; // cycle-93：披露运行时读数
   setCycleList(v: CycleListJson): void;
@@ -172,6 +163,7 @@ export function bindPanelActions(store: PanelDataStore): PanelActions {
     setFlowsStatus: (v) => { store.setState({ flowsStatus: v }); },
     setFlowMatrix: (v) => { store.setState({ flowMatrix: v }); },
     setLifecycleMetrics: (v) => { store.setState({ lifecycleMetrics: v }); },
+    setFlowsView: (v) => { store.setState({ flowsView: v }); },
     setResolvedFlows: (v) => { store.setState({ resolvedFlows: v }); },
     setDisclosure: (v) => { store.setState({ disclosure: v }); },
     setCycleList: (v) => { store.setState({ cycleList: v }); },

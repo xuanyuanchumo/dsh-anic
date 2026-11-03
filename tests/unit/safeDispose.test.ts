@@ -70,6 +70,34 @@ describe('safeDisposeAll：失败隔离', () => {
     expect(report.ok).toBe(1);
     expect(report.failures).toHaveLength(0);
   });
+
+  it('cycle-98：异步 disposer（返回 Promise）拒绝被单独捕获，不静默、不阻断', async () => {
+    const failures: string[] = [];
+    const order: string[] = [];
+    const report = safeDisposeAll([
+      // 异步 disposer：拒绝 → 经 .catch 记录（改造前：静默丢失，dsh-ops #30 教训）。
+      (): Promise<void> => Promise.reject(new Error('async-boom')),
+      // 同步 disposer 在其后：异步拒绝不得影响它（隔离纪律覆盖异步路径）。
+      (): void => { order.push('sync-after'); },
+    ], (f) => { failures.push(f.message); }, 'test');
+    // 同步报告：两个都算 ok（异步拒绝发生在同步流程之外）。
+    expect(report.ok).toBe(2);
+    expect(order).toEqual(['sync-after']);
+    // 微任务排空后：异步拒绝被记录（onError + 前缀 async: 便于定位）。
+    await new Promise<void>((r) => { setTimeout(r, 0); });
+    expect(failures.some((m) => m.includes('async-boom'))).toBe(true);
+    expect(failures.some((m) => m.startsWith('async:'))).toBe(true);
+  });
+
+  it('cycle-98：异步 disposer 的 sink 抛错也被吞（与同步路径同纪律）', async () => {
+    const report = safeDisposeAll(
+      [(): Promise<void> => Promise.reject(new Error('e2'))],
+      () => { throw new Error('sink-failed'); },
+      'test',
+    );
+    expect(report.ok).toBe(1);
+    await new Promise<void>((r) => { setTimeout(r, 0); }); // 不抛 unhandled
+  });
 });
 
 describe('disposeErrorSink：默认错误回调', () => {

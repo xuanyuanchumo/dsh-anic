@@ -17,7 +17,7 @@ import { defineConfig } from 'vitest/config';
  *   - include 只含 src 下的 .ts 源码（被测面就是插件源码本身；dist/ 构建产物不计）；
  *   - reporter text-summary（人读）+ json-summary（机器读，契约测试真读 JSON）；
  *   - reportsDirectory 落**循环工件目录**，不污染仓库根（`coverage/` 不进 git）。
- * 注意：报告目录按循环滚动（cycle-86）。cycle-86 起 `coverageEvidenceContract` 已改为
+ * 注意：报告目录按循环滚动（cycle-100）。cycle-86 起 `coverageEvidenceContract` 已改为
  * **按语义解析**（活跃区 + 归档区找最新带摘要的轮），不再硬编码轮号——所以这里滚动
  * 只需改本行，契约侧不会再因此假红（此前"两处必须同轮改"的耦合已被移除）。
  */
@@ -32,7 +32,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       reporter: ['text-summary', 'json-summary'],
-      reportsDirectory: '.cycles/cycles/cycle-86/coverage',
+      reportsDirectory: '.cycles/cycles/cycle-101/coverage',
       // all 默认 true：未被任何测试导入的源码文件也计入分母（否则"没测到"会被隐藏）
       all: true,
       // 关键：vitest 默认 reportOnFailure=false —— 测试一红就**不生成任何覆盖率报告**，

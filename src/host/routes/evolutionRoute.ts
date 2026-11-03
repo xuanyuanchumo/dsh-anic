@@ -2,6 +2,7 @@
  * M5 进化引擎路由 — 信任度/自主级别/技术债务查询与操作。
  */
 
+import { anicError } from './envelope.ts';
 import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
@@ -102,7 +103,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     let root: string | null = null;
     try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
     if (!root) {
-      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'));
       return;
     }
     const listing = listTechDebt(join(root, '.cycles'));
@@ -138,7 +139,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     let root: string | null = null;
     try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
     if (!root) {
-      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'));
       return;
     }
     const cyclesDir = join(root, '.cycles');
@@ -174,7 +175,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     let root: string | null = null;
     try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
     if (!root) {
-      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } });
+      send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'));
       return;
     }
     const ids = Array.isArray(parsed.ids) ? parsed.ids.filter((v): v is string => typeof v === 'string') : [];
@@ -182,7 +183,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
       ? parsed.consumedBy.slice(0, 200)
       : 'unknown';
     if (ids.length === 0) {
-      send(res, 400, { error: { code: 'ANIC_ROUTE_BAD_REQUEST', message: 'ids[] required (proposal ids to mark consumed)' } });
+      send(res, 400, anicError('ANIC_ROUTE_BAD_REQUEST', 'ids[] required (proposal ids to mark consumed)'));
       return;
     }
     const result = markTechDebtConsumed(join(root, '.cycles'), ids, consumedBy);
@@ -200,7 +201,7 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     let root: string | null = null;
     try { root = resolveWorkspaceRoots(ctx, req); } catch { root = null; }
     if (!root) {
-      send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+      send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
       return;
     }
     const result = runAutonomyFallback(root);

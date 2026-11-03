@@ -1,12 +1,12 @@
 /**
  * DSH tool registration — exposes dsh-anic capabilities as DSH tools
- * that other sessions/agents can invoke (M8 G-TOOL).
- * INV-24: 'tools' in inject but we probe ctx.get('tools', false) for graceful degradation.
+ * (M8 G-TOOL). INV-24: 'tools' in inject; 但用 ctx.get('tools', false) 探测以优雅降级。
+ * cycle-89 T-12：拆卸隔离（单个 disposer 抛错不阻断其余）—— safeDisposeAll。
  */
-// cycle-89 T-12：拆卸隔离（单个 disposer 抛错不阻断其余）。
 import { safeDisposeAll, disposeErrorSink } from './runtime/safeDispose.ts';
 import { resolveWorkspaceRoots, type SnapshotCtx } from './snapshotRoute.ts';
 import { registerSkillGatewayTools } from './toolsSkillGateway.ts';
+import { registerSkillInstallTools } from './toolsSkillInstall.ts';
 import { registerBootstrapGatewayTools } from './toolsBootstrapGateway.ts';
 import { registerStatusTool } from './toolsStatusGateway.ts';
 import { registerIndexLoaderTools } from './toolsIndexLoaderGateway.ts';
@@ -23,6 +23,8 @@ import {
 } from './presentation.ts';
 import { t } from './i18n.ts';
 import { makeToolOutput } from './toolsSlot.ts';
+// cycle-99c：脚本执行预算同源 bootstrapBudget——eval-runner 实测 74–93s，60s 必 TIMEOUT。
+import { BOOTSTRAP_STEP_TIMEOUT_MS, resolveBootstrapStepTimeout } from './runtime/bootstrapBudget.ts';
 import { rootWithSessionFirst, setSessionWorkspaceCtx } from './runtime/sessionWorkspace.ts';
 import { registerPointerTools } from './toolsPointerGateway.ts';
 import { registerEvolutionTools } from './toolsEvolutionGateway.ts';
@@ -35,18 +37,14 @@ interface HostContext {
   tools?: ToolsSlot;
   get?: <T = unknown>(key: string, strict?: boolean) => T | undefined;
 }
-
 /** 注册 ANIC DSH 工具（evaluate/gate/skill 等）。 */
 export function registerAnicTools(ctx: unknown): (() => void) | null {
   const c = ctx as HostContext;
 
   // INV-24: probe tools slot, don't hard-fail if absent
   let tools: ToolsSlot | undefined;
-  if (c.tools) {
-    tools = c.tools;
-  } else if (typeof c.get === 'function') {
-    tools = c.get<ToolsSlot>('tools', false);
-  }
+  if (c.tools) tools = c.tools;
+  else if (typeof c.get === 'function') tools = c.get<ToolsSlot>('tools', false);
   if (!tools?.register) return null;
 
   const disposers: Array<(() => void) | null> = [];
@@ -84,9 +82,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     presentCall: evaluatePresentCall,
     // cycle-22：terminalResult 内置 normalizeToolResult 双形状归一化
     presentResult: (_args, result) => terminalResult(result, 'anic_evaluate ✓'),
-    // cycle-40（KB 吸收 #2）：脚本执行类超时预算——声明即断言 exec.signal 已
-    // 转发（下方 invokeSkillScriptAsync({ signal })），60s 与内部默认一致。
-    timeoutMs: 60000,
+    // cycle-40 → cycle-99c：声明即断言 exec.signal 已转发；内部预算同源自举每步预算
+    // （eval-runner 实测 74–93s，60s 必 TIMEOUT），宿主侧 5min 留报告写盘余量。
+    timeoutMs: 300000,
     // P1-EXEC-SIGNAL：execute 第二参 exec 携带宿主 AbortSignal（官方契约「遵守
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
@@ -95,7 +93,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
       const dimArgs = args.dimensions ? ['--dimensions', args.dimensions as string] : [];
-      const result = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', dimArgs, ws, 60000, { signal: exec?.signal });
+      const result = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', dimArgs, ws, resolveBootstrapStepTimeout(), { signal: exec?.signal });
       return {
         exitCode: result.exitCode,
         stdout: result.stdout.slice(0, 8000),
@@ -124,20 +122,18 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
     },
     presentCall: iteratePresentCall,
     presentResult: () => ({ card: 'generic' as const, title: 'anic_iterate ✓' }),
-    // cycle-40（KB 吸收 #2）：iterate 是 eval+gate 两段脚本——超时预算取内部
-    // 上限档 300s（每脚本 90s 默认 + 余量；防宿主侧先于内部预算掐断）。
-    timeoutMs: 300000,
+    // cycle-40 → cycle-99c：iterate 是 eval+gate 两段——内部每脚本 240s 同源预算，宿主侧 10min。
+    timeoutMs: 600000,
     execute: async (args, exec) => {
       const ws = (args.workspace as string) ?? getRoot() ?? '';
       const check = validateWorkspace(ws);
       if (!check.ok) return { error: check.error };
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
-      // cycle-40：超时可配（默认 90s；上限 10min 与 autoFixFlow 对齐——
-      // iterate 是"一轮完整评估+门禁"，不是常驻循环，10min 足够且防悬挂）。
+      // cycle-40 → cycle-99c：默认同源自举每步预算（旧 90s 对实测 74–93s 贴线即爆）；上限 10min。
       const timeout = typeof args.timeout === 'number' && args.timeout > 0
         ? Math.min(args.timeout, 600000)
-        : 90000;
+        : BOOTSTRAP_STEP_TIMEOUT_MS;
       const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], ws, timeout, { signal: exec?.signal });
       const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], ws, timeout, { signal: exec?.signal });
       return {
@@ -176,7 +172,7 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
       const scriptsDir = resolveSkillScriptsDir(ws);
       if (!scriptsDir) return { error: 'skill scripts not found' };
       const gate = (args.gate as string) ?? 'all';
-      const result = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', gate, '--quality', '--record'], ws, 60000, { signal: exec?.signal });
+      const result = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', gate, '--quality', '--record'], ws, resolveBootstrapStepTimeout(), { signal: exec?.signal });
       return {
         exitCode: result.exitCode,
         stdout: result.stdout.slice(0, 8000),
@@ -207,9 +203,9 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
       if (!root) return { error: 'no workspace' };
       const scriptsDir = resolveSkillScriptsDir(root);
       if (!scriptsDir) return { error: 'skill scripts not found' };
-      // Run eval + gate on dsh-anic's own workspace
-      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], root, 60000, { signal: exec?.signal });
-      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], root, 60000, { signal: exec?.signal });
+      // Run eval + gate on dsh-anic's own workspace（cycle-99c：预算同源 240s）。
+      const evalResult = await invokeSkillScriptAsync(scriptsDir, 'eval-runner', [], root, resolveBootstrapStepTimeout(), { signal: exec?.signal });
+      const gateResult = await invokeSkillScriptAsync(scriptsDir, 'gate-check', ['--gate', 'all', '--quality', '--record'], root, resolveBootstrapStepTimeout(), { signal: exec?.signal });
       return {
         selfBootstrap: true,
         eval: { exitCode: evalResult.exitCode, stdout: evalResult.stdout.slice(0, 4000) },
@@ -240,6 +236,8 @@ export function registerAnicTools(ctx: unknown): (() => void) | null {
   // cycle-74：加载器**注入**「已注册面」读取闭包（不自行 import 捕获模块——那会成真实环）。
   disposers.push(...registerIndexLoaderTools(reg, registeredFaces));
   disposers.push(...registerSkillGatewayTools(tools, { getRoot, register: reg }));
+  // cycle-101：安装/修复域独立成文件（一域一文件；与 gateway 同槽位注册）
+  disposers.push(...registerSkillInstallTools(tools, { getRoot, register: reg }));
   disposers.push(...registerBootstrapGatewayTools(tools, { getRoot, register: reg }));
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');

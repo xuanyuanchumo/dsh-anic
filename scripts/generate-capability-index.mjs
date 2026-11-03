@@ -30,7 +30,7 @@ const OUT_DIR = join(PLUGIN_ROOT, 'assets', 'index');
 /** 取 HEAD commit 短号（stale 判定用；git 不可用则记 'unknown'）。 */
 function headCommit() {
   try {
-    return String(execSync('git rev-parse --short HEAD', { cwd: PLUGIN_ROOT })).trim();
+    return String(execSync('git rev-parse --short HEAD', { cwd: PLUGIN_ROOT, windowsHide: true })).trim();
   } catch {
     return 'unknown';
   }

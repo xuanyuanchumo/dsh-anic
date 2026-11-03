@@ -110,7 +110,13 @@ function codeTruthRoutePaths(files: Map<string, string>): Set<string> {
       const verbArg = new RegExp('^' + BS + 's*' + Q + '(?:GET|POST|PUT|DELETE|PATCH)'
         + Q + BS + 's*,' + BS + 's*([A-Za-z_][A-Za-z0-9_]*)').exec(args);
       const viaVerb = verbArg && verbArg[1] ? consts.get(verbArg[1]) : undefined;
-      if (viaVerb) out.add(viaVerb);
+      if (viaVerb) { out.add(viaVerb); continue; }
+      // 形态 C（首位常量）：`reg(FLOWS_VIEW_ROUTE, handler)` —— 路径常量在**第一个**
+      // 实参位。cycle-101 新增此形态时本腿未跟上，于是资产腿多报 1 条 ⇒ 双向真值假红。
+      // 三条腿（资产扫描器 / mutation 真值腿 / 本真值腿）必须认同一种形态集合。
+      const leadingArg = new RegExp('^' + BS + 's*([A-Za-z_][A-Za-z0-9_]*)' + BS + 's*,').exec(args);
+      const viaLeading = leadingArg && leadingArg[1] ? consts.get(leadingArg[1]) : undefined;
+      if (viaLeading) out.add(viaLeading);
       // 形态 B（裸路径 + 处理器常量）：`reg('/anic/x', ...)` 由上方字面量分支覆盖。
     }
   }

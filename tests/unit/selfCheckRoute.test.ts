@@ -159,7 +159,7 @@ describe('registerSelfCheckRoute（HTTP 面）', () => {
     const cap = h.call({ method: 'GET' });
     expect(cap.status).toBe(404);
     const body = JSON.stringify(cap.body);
-    expect(body).toContain('ANIC_ROUTE_SELF_CHECK_NO_WORKSPACE');
+    expect(body).toContain('no workspace resolvable'); // cycle-101 归一
   });
 
   it('绿工作区 → 200 {checks:8, allOk:true, requestId}（探针失败不抛异常——诊断端点诚实形态）', () => {

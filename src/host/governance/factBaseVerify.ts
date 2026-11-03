@@ -21,25 +21,33 @@
  *   4. 源码根按候选序列解析（`<ws>/src` → `<ws>/dsh-anic/src` 兼容旧布局）；
  *      都不可读 → 全部声明 `unscannable`，而不是全部 missing。
  *
- * 分界（T3 结构守卫：单文件 ≤250 行）：
- *   - `factBaseAnchors.ts` = 抽取与定位（正则、扫描、符号导出点）。
- *   - 本文件 = 裁决与聚合（三态、config 命令核验、结果计数）。
- *
- * 向后兼容：`checks` / `verified` / `missing` / `total` 字段语义保留，
- * 新增 `unscannable` / `sourceRoot` / `scannedFiles`，`FactCheck.state` 为三态。
+ * 分界（T3 ≤250 行）：factBaseAnchors = 抽取与定位；本文件 = 裁决与聚合。
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   findSymbol,
   extractDeclarations,
-  resolveSourceRoot,
   scanFiles,
+  ARTIFACT_PREFIXES,
+  FILE_ANCHOR_DIRS,
   type Declaration,
 } from './factBaseAnchors.ts';
 
 /** 单条声明的核验状态（核不了不等于缺失）。 */
 export type FactState = 'verified' | 'absent' | 'unscannable';
+
+/** 扫描根：源码根（符号/路径核验）与工作区根（产物存在性核验）。 */
+export interface ScanContext {
+  /** 源码根候选（空 = 无法扫描，符号类锚点全部 unscannable）。 */
+  sourceRoots: readonly string[];
+  /** 工作区根（`.cycles/` 产物锚点的核验基准）。 */
+  workspaceRoot: string;
+  /** 已扫描的**绝对**路径清单（多根下相对路径会撞名）。 */
+  absFiles: readonly string[];
+  /** 工作区相对路径集（/ 分隔，路径锚点判定 O(1) 查询）。 */
+  relSet: ReadonlySet<string>;
+}
 
 export interface FactCheck {
   declaration: string;
@@ -63,38 +71,91 @@ export interface FactBaseResult {
   /** 无可核锚点 / 源码不可扫描的声明计数（核不了 ≠ 缺失）。 */
   unscannable: number;
   total: number;
-  /** 解析到的源码根（null = 无法扫描）。 */
+  /** 首个源码根（null = 无法扫描；多根时看 scannedFiles）。 */
   sourceRoot: string | null;
   /** 已扫描源码文件数（0 + sourceRoot=null 即「没核过」）。 */
   scannedFiles: number;
 }
 
-/** 单条声明核验 → 三态。 */
-function verifyDeclaration(
-  decl: Declaration,
-  sourceRoot: string | null,
-  files: readonly string[],
-  symbolCache: Map<string, string | null>,
-): FactCheck {
+/** 单条声明核验 → 三态（cycle-98：多根 + 产物/裸文件/否定式三通道）。 */
+function verifyDeclaration(decl: Declaration, scan: ScanContext, symbolCache: Map<string, string | null>): FactCheck {
   const base = { declaration: decl.id, source: decl.source, line: decl.line };
-  if (decl.pathAnchors.length === 0 && decl.symbolAnchors.length === 0) {
+  const hasAnyAnchor = decl.pathAnchors.length > 0 || decl.symbolAnchors.length > 0
+    || decl.fileAnchors.length > 0 || decl.invertedAnchors.length > 0;
+  if (!hasAnyAnchor) {
     return { ...base, found: false, state: 'unscannable', reason: 'no verifiable anchor (path or symbol in backticks)' };
   }
-  if (sourceRoot === null || files.length === 0) {
+  // cycle-98 修正：源码树不可扫描只应挡**符号/源码路径**通道——否定式（工作区
+  // 存在性）、产物（.cycles/）、裸文件名三类锚点不依赖源码扫描，必须照常核验。
+  // 实测踩中：无 src/ 的最小工作区里否定式声明被整体 unscannable。
+  const sourceScannable = scan.sourceRoots.length > 0 && scan.absFiles.length > 0;
+  // 否定式锚点（「无 `X`」）：X **缺席**才算 verified——存在反而记 absent 并点名。
+  // 核验完成且缺席 → 立即 verified 短路（缺席即事实成立，不落符号通道）。
+  let invertedChecked = false;
+  for (const anchor of decl.invertedAnchors) {
+    invertedChecked = true;
+    const present = scan.relSet.has(anchor)
+      || scan.absFiles.some((abs) => abs.replace(/\\/g, '/').endsWith(`/${anchor}`))
+      || existsSync(join(scan.workspaceRoot, anchor));
+    if (present) {
+      return { ...base, found: false, state: 'absent', reason: `inverted declaration violated: \`${anchor}\` exists but doc says it must not` };
+    }
+  }
+  if (invertedChecked) {
+    return { ...base, found: true, state: 'verified', evidence: decl.invertedAnchors.map((a) => `absent:${a}`).join(',') };
+  }
+  if (!sourceScannable) {
     return { ...base, found: false, state: 'unscannable', reason: 'source tree not scannable from this workspace' };
   }
+  // 产物锚点（`.cycles/` 前缀）：核验产物文件在工作区里是否真的存在——
+  // 账本 / 状态机这类运行时事实不该去源码里搜符号。
   for (const anchor of decl.pathAnchors) {
-    if (files.includes(anchor)) return { ...base, found: true, state: 'verified', evidence: anchor };
+    if (ARTIFACT_PREFIXES.some((p) => anchor.startsWith(p))) {
+      if (existsSync(join(scan.workspaceRoot, anchor))) {
+        return { ...base, found: true, state: 'verified', evidence: anchor };
+      }
+      continue;
+    }
+    // 目录形态锚点（`src/host/closureAudit/`，cycle-98）：目录存在且其下
+    // 有已扫描文件（空目录不算实现）。
+    if (anchor.endsWith('/')) {
+      const prefix = anchor.slice(0, -1) + '/';
+      if (scan.absFiles.some((abs) => abs.replace(/\\/g, '/').includes(`/${prefix}`))) {
+        return { ...base, found: true, state: 'verified', evidence: anchor };
+      }
+      continue;
+    }
+    if (scan.relSet.has(anchor)) return { ...base, found: true, state: 'verified', evidence: anchor };
+    // 仓库根一级子目录文件（`dsh-anic/package.json`）：直接核工作区相对存在性。
+    if (existsSync(join(scan.workspaceRoot, anchor))) {
+      return { ...base, found: true, state: 'verified', evidence: anchor };
+    }
   }
+  // 裸文件名锚点（`README.md`/`ledger.json`）：在候选目录里查存在性，
+  // 不进符号搜索（裸文件名不是标识符，搜导出点恒 miss → 假 absent）。
+  for (const anchor of decl.fileAnchors) {
+    for (const dir of FILE_ANCHOR_DIRS) {
+      if (existsSync(join(scan.workspaceRoot, dir, anchor))) {
+        return { ...base, found: true, state: 'verified', evidence: join(dir, anchor).replace(/\\/g, '/') };
+      }
+    }
+  }
+  // 符号锚点：在全部源码根候选中找导出点（src/ 之外还有 scripts/、assets/skill/）。
   for (const anchor of decl.symbolAnchors) {
-    const found = findSymbol(files, sourceRoot, anchor, symbolCache);
+    const found = findSymbol(scan.absFiles, anchor, symbolCache, scan.workspaceRoot);
     if (found !== null) return { ...base, found: true, state: 'verified', evidence: found };
   }
-  const tried = [...decl.pathAnchors.map((a) => `path:${a}`), ...decl.symbolAnchors.map((a) => `symbol:${a}`)];
+  const tried = [
+    ...decl.pathAnchors.map((a) => `path:${a}`),
+    ...decl.symbolAnchors.map((a) => `symbol:${a}`),
+    ...decl.fileAnchors.map((a) => `file:${a}`),
+    ...decl.invertedAnchors.map((a) => `inverted:${a}`),
+  ];
   return { ...base, found: false, state: 'absent', reason: `no anchor resolved (tried ${tried.join(', ')})` };
 }
 
-/** config.yml 声明的命令是否真的落在 package.json scripts 里（保留 v1 唯一正确的检查）。 */
+/** config.yml 声明的命令是否真的落在 package.json scripts 里（v1 唯一正确检查的保留）。
+ *  package.json 损坏/缺失 = 无 scripts，不猜（如实记 absent）。 */
 function verifyConfigCommands(workspaceRoot: string): FactCheck[] {
   const configPath = join(workspaceRoot, '.cycles', 'config.yml');
   if (!existsSync(configPath)) return [];
@@ -110,7 +171,7 @@ function verifyConfigCommands(workspaceRoot: string): FactCheck[] {
     try {
       pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { scripts?: Record<string, string> };
     } catch {
-      pkg = {}; // 损坏的 package.json = 无 scripts，不猜
+      pkg = {};
     }
   }
   const out: FactCheck[] = [];
@@ -132,17 +193,31 @@ function verifyConfigCommands(workspaceRoot: string): FactCheck[] {
 }
 
 /**
- * 运行事实基线验证（v2 证据接地）。
- *
- * @param workspaceRoot 工作区根（含 `.cycles/` 与源码树）
+ * 运行事实基线验证（v2 证据接地；cycle-98 多根 + 产物/裸文件/否定式/目录四通道）。
  */
 export function runFactBaseVerify(workspaceRoot: string): FactBaseResult {
   const checks: FactCheck[] = [...verifyConfigCommands(workspaceRoot)];
 
-  const sourceRoot = resolveSourceRoot(workspaceRoot);
-  const files: string[] = [];
-  if (sourceRoot !== null) scanFiles(sourceRoot, sourceRoot, files);
+  // cycle-98：源码根候选序列扩展——v2 只扫 `<ws>/src`，scripts/assets/tests
+  // 前缀锚点与其中符号必然假缺失（判据与扫描域脱钩）。收集绝对路径清单。
+  const sourceRoots: string[] = [];
+  for (const rel of ['src', 'dsh-anic/src', 'scripts', 'assets/skill/scripts', 'tests']) {
+    const candidate = join(workspaceRoot, rel);
+    if (existsSync(candidate)) sourceRoots.push(candidate);
+  }
+  const absFiles: string[] = [];
+  const relSet = new Set<string>();
+  for (const root of sourceRoots) {
+    const bucket: string[] = [];
+    scanFiles(root, root, bucket);
+    for (const rel of bucket) {
+      const abs = join(root, rel);
+      absFiles.push(abs);
+      relSet.add(abs.slice(workspaceRoot.length + 1).replace(/\\/g, '/'));
+    }
+  }
 
+  const scan: ScanContext = { sourceRoots, workspaceRoot, absFiles, relSet };
   const docsDir = join(workspaceRoot, 'docs', 'anic');
   if (existsSync(docsDir)) {
     const symbolCache = new Map<string, string | null>();
@@ -154,7 +229,7 @@ export function runFactBaseVerify(workspaceRoot: string): FactBaseResult {
     }
     for (const doc of docs) {
       for (const decl of extractDeclarations(join(docsDir, doc), doc)) {
-        checks.push(verifyDeclaration(decl, sourceRoot, files, symbolCache));
+        checks.push(verifyDeclaration(decl, scan, symbolCache));
       }
     }
   }
@@ -168,7 +243,7 @@ export function runFactBaseVerify(workspaceRoot: string): FactBaseResult {
     missing: absent,
     unscannable,
     total: checks.length,
-    sourceRoot,
-    scannedFiles: files.length,
+    sourceRoot: sourceRoots[0] ?? null,
+    scannedFiles: absFiles.length,
   };
 }

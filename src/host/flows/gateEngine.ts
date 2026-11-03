@@ -136,7 +136,8 @@ function distRevision8(ws: string): string {
 function gateG3(ws: string, cfg: string | null): GateCheckResult {
   const buildCmd = readYamlString(cfg, 'build_cmd');
   if (!buildCmd) return { pass: false, detail: 'No build command configured' };
-  const r = spawnSync(buildCmd, { cwd: ws, timeout: 120000, shell: true, encoding: 'utf-8' });
+  // cycle-99b：shell:true + 缺 windowsHide = G3 门禁每次跑 build 弹一个 cmd 窗口。
+  const r = spawnSync(buildCmd, { cwd: ws, timeout: 120000, shell: true, encoding: 'utf-8', windowsHide: true });
   return r.status === 0
     ? { pass: true, detail: `Build passed: ${buildCmd}` }
     : { pass: false, detail: `Build failed: ${buildCmd}` };

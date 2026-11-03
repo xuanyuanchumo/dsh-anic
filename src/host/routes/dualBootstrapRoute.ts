@@ -7,6 +7,7 @@
  * getWorkspaceRoot(req)（cycle-22）：X-ANIC-Workspace 头参与解析（多会话纠偏）——
  * dual-advance 是写侧路由（落 dual-bootstrap 状态）。
  */
+import { anicError } from './envelope.ts';
 import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { newRequestId } from '../logger.ts';
@@ -44,9 +45,9 @@ export function registerDualBootstrapRoute(deps: RouteDeps): Array<(() => void) 
   reg('POST', '/anic/self/dual-evaluate', (req, res) => {
     const requestId = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) { deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } }, requestId); return; }
+    if (!root) { deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace'), requestId); return; }
     // P0-DIR-ROOT：根未解析时响亮失败——evaluatePluginSelf('') 会审计 cwd（错误目录）
-    if (!deps.pluginDir) { deps.send(res, 500, { error: { code: 'ANIC_PLUGIN_ROOT_UNRESOLVED', message: 'dsh-anic plugin root not found' } }, requestId); return; }
+    if (!deps.pluginDir) { deps.send(res, 500, anicError('ANIC_SKILL_EXEC_FAILED', 'PLUGIN_ROOT_UNRESOLVED: dsh-anic plugin root not found'), requestId); return; }
     const cyclesDir = join(root, '.cycles');
     const pluginEval = evaluatePluginSelf(deps.pluginDir);
     const skillEval = evaluateSkillSelf(cyclesDir);
@@ -56,8 +57,8 @@ export function registerDualBootstrapRoute(deps: RouteDeps): Array<(() => void) 
   reg('POST', '/anic/self/dual-advance', (req, res) => {
     const requestId = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) { deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } }, requestId); return; }
-    if (!deps.pluginDir) { deps.send(res, 500, { error: { code: 'ANIC_PLUGIN_ROOT_UNRESOLVED', message: 'dsh-anic plugin root not found' } }, requestId); return; }
+    if (!root) { deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace'), requestId); return; }
+    if (!deps.pluginDir) { deps.send(res, 500, anicError('ANIC_SKILL_EXEC_FAILED', 'PLUGIN_ROOT_UNRESOLVED: dsh-anic plugin root not found'), requestId); return; }
     const cyclesDir = join(root, '.cycles');
     const state = loadDualBootstrapState(cyclesDir);
     const pluginEval = evaluatePluginSelf(deps.pluginDir);
@@ -72,7 +73,7 @@ export function registerDualBootstrapRoute(deps: RouteDeps): Array<(() => void) 
   reg('GET', '/anic/self/dual-status', (req, res) => {
     const requestId = newRequestId();
     const root = deps.getWorkspaceRoot(req);
-    if (!root) { deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } }, requestId); return; }
+    if (!root) { deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace'), requestId); return; }
     const cyclesDir = join(root, '.cycles');
     const state = loadDualBootstrapState(cyclesDir);
     deps.send(res, 200, state, requestId);

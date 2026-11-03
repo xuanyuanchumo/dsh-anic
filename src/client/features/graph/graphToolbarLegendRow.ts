@@ -45,8 +45,15 @@ export interface RoleLegendStats {
  *
  * @param typeCounts 节点类型计数（节点图例用）
  * @param roles 角色计数（缺省 = 不渲染角色图例）
+ * @param activeRoles 已选中的角色筛选（cycle-100；缺省 = 图例退化为纯展示）
+ * @param onToggleRole 角色筛选切换回调（缺省 = 图例退化为纯展示 + aria-hidden）
  */
-export function renderLegendRow(typeCounts: TypeCount[], roles?: RoleLegendStats): ReactElement {
+export function renderLegendRow(
+  typeCounts: TypeCount[],
+  roles?: RoleLegendStats,
+  activeRoles?: readonly string[],
+  onToggleRole?: (role: 'entry' | 'hub' | 'leaf' | 'orphan') => void,
+): ReactElement {
   return createElement(
     'div',
     {
@@ -59,6 +66,6 @@ export function renderLegendRow(typeCounts: TypeCount[], roles?: RoleLegendStats
     },
     renderLegend(typeCounts),
     renderEdgeLegend(),
-    roles === undefined ? null : renderRoleLegend(roles),
+    roles === undefined ? null : renderRoleLegend(roles, activeRoles, onToggleRole),
   );
 }

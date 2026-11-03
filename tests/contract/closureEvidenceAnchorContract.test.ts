@@ -88,7 +88,7 @@ describe('cycle-75 词表证据锚点（definedAt 不许误报）', () => {
     // locale 在当前键之前增删键时，本行必须同步（这也是本契约唯一的维护负担）。
     expect(lineOfKey(INDEX, 'trace.statusDone')).toBe(101);
     expect(lineOfKey(INDEX, 'state.loading')).toBe(50);
-    expect(lineOfKey(INDEX, 'gate.pending')).toBe(242);
+    expect(lineOfKey(INDEX, 'gate.pending')).toBe(251); // cycle-101：flows.readout.* 7 键在前，228→242→251
     // 且 keyAnchor 的对外形态与索引同源
     expect(keyAnchor(RAW, 'trace.statusDone')).toBe('locale/zh.json:101');
   });

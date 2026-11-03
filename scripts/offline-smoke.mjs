@@ -111,7 +111,8 @@ function check(name, ok, detail = '') {
 const run1 = loadBundle();
 const ex = run1.exports;
 check('exports.name === dsh-anic-client', ex?.name === 'dsh-anic-client', String(ex?.name));
-check('exports.inject === [slots]', Array.isArray(ex?.inject) && ex.inject.length === 1 && ex.inject[0] === 'slots');
+check('exports.inject === [slots, locale]（cycle-99：宿主语言联动，locale 为官方包服务）',
+  Array.isArray(ex?.inject) && ex.inject.length === 2 && ex.inject[0] === 'slots' && ex.inject[1] === 'locale');
 check('factory require 解析 react', run1.requires.includes('react'), JSON.stringify(run1.requires));
 check('exports.apply 是函数', typeof ex?.apply === 'function');
 

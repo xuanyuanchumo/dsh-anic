@@ -604,6 +604,7 @@ function attemptAutoFix(projectDir, diagnosis) {
           execSync('git init && git add -A && git commit -m "baseline for rollback"', {
             cwd: projectDir,
             timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+            windowsHide: true, // cycle-99c：CB4 自动修复的 git 子进程不弹窗
           });
           console.log(`  [FIXED] Git 仓库已初始化并创建基线提交`);
           return { success: true, action: 'Initialized git repo with baseline commit' };

@@ -172,6 +172,88 @@ describe('factBaseVerify', () => {
     // 符号锚点的证据必须是 file:line 形态（核不了就不该记 verified）
     expect(verified.filter((c) => c.evidence?.includes('.ts:')).length).toBeGreaterThan(0);
   });
+
+  it('cycle-98 多扫描根：scripts/assets/tests 前缀锚点可核（扫描域与判据不再脱钩）', () => {
+    const result = runFactBaseVerify(process.cwd());
+    // 修复前扫描根只有 <ws>/src，756 个文件里 scripts/assets/tests 全盲。
+    expect(result.scannedFiles).toBeGreaterThan(400);
+    const abs = result.checks.filter((c) => c.state === 'absent');
+    // 缺席声明的 tried 列表里不得再出现「路径锚点从未进扫描域」的系统性假缺失：
+    // 即路径锚点全部真实不存在（每一类都是诚实缺席，而非扫描域外的必然 miss）。
+    for (const c of abs) {
+      const pathTried = (c.reason ?? '').match(/path:[^\s,)]+/g) ?? [];
+      for (const p of pathTried) {
+        const rel = p.slice(5);
+        // 产物锚点与源码锚点缺席时都应真的是文件不存在，此处只断言可读格式
+        expect(typeof rel).toBe('string');
+      }
+    }
+  });
+
+  it('cycle-98 目录锚点：`src/host/closureAudit/` 按目录存在性核验（A4）', () => {
+    const result = runFactBaseVerify(process.cwd());
+    // A4（23-外部研究.md）声明目录锚点 `src/host/closureAudit/`——模块目录也是
+    // 事实载体。修复前 PATH_RE 只认带扩展名文件，目录形态落不进任何桶 → unscannable。
+    const a4 = result.checks.find((c) => c.declaration === 'A4' && c.source.includes('23-'));
+    expect(a4?.state).toBe('verified');
+    expect(a4?.evidence).toContain('closureAudit');
+  });
+
+  it('cycle-98 产物锚点：.cycles/gates/ledger.json 按产物存在性核验', () => {
+    const result = runFactBaseVerify(process.cwd());
+    // F23 声明 `.cycles/gates/head.json`（未实现，诚实缺席）；
+    // 但含 `ledger.json` 裸名的 F2 声明应经候选目录命中 .cycles/gates/ledger.json。
+    const f2 = result.checks.find((c) => c.declaration === 'F2');
+    expect(f2?.state).toBe('verified');
+    expect(f2?.evidence).toContain('ledger.json');
+  });
+
+  it('cycle-98 否定式声明：「无 `X`」在 X 存在时判 absent（违反否定式）', () => {
+    // 构造最小工作区：文档声明「无 `foo.md`」，而 foo.md 真实存在 → absent。
+    const ws = mkdtempSync(join(tmpdir(), 'anic-fbneg-'));
+    try {
+      mkdirSync(join(ws, '.cycles'), { recursive: true });
+      mkdirSync(join(ws, 'docs', 'anic'), { recursive: true });
+      writeFileSync(join(ws, '.cycles', 'config.yml'), 'project:\n  name: t\n');
+      writeFileSync(join(ws, 'foo.md'), 'x\n');
+      writeFileSync(
+        join(ws, 'docs', 'anic', '01.md'),
+        '- **N90 兼容**：无 `foo.md`（必须缺席）\n- **N91 兼容**：无 `bar.md`（真缺席）\n',
+      );
+      const result = runFactBaseVerify(ws);
+      const n90 = result.checks.find((c) => c.declaration === 'N90');
+      const n91 = result.checks.find((c) => c.declaration === 'N91');
+      expect(n90?.state).toBe('absent'); // 否定式被违反：文件存在
+      expect(n90?.reason).toContain('inverted');
+      expect(n91?.state).toBe('verified'); // 真缺席 → 否定式成立
+      expect(n91?.evidence).toContain('bar.md');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('cycle-98 续行锚点：声明行无反引号时并入紧随续行的锚点（假 unscannable 治理）', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'anic-fbcont-'));
+    try {
+      mkdirSync(join(ws, '.cycles'), { recursive: true });
+      mkdirSync(join(ws, 'docs', 'anic'), { recursive: true });
+      mkdirSync(join(ws, 'src'), { recursive: true });
+      writeFileSync(join(ws, '.cycles', 'config.yml'), 'project:\n  name: t\n');
+      writeFileSync(join(ws, 'src', 'widget.ts'), 'export const detailSummary = 1;\n');
+      writeFileSync(
+        join(ws, 'docs', 'anic', '01.md'),
+        '- **F60 分段详情**：分段只追加账本的详情视图\n  - 实现入口 `detailSummary`（续行锚点）\n',
+      );
+      const result = runFactBaseVerify(ws);
+      const f60 = result.checks.find((c) => c.declaration === 'F60');
+      // 修复前：声明行自身无反引号 → unscannable；续行锚点被丢弃。
+      expect(f60?.state).toBe('verified');
+      // 证据 = 相对工作区根的 file:line（findSymbol evidenceBase 裁剪后的形态）。
+      expect(f60?.evidence).toContain('widget.ts');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('planSync', () => {

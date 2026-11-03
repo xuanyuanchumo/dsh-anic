@@ -11,6 +11,7 @@
  * getWorkspaceRoot(req)：带 X-ANIC-Workspace 请求头解析（P2 桌面多会话错位
  * 的既定契约——面板学得工作区根后回带头，服务端据此选「本面板的工作区」）。
  */
+import { sendAnicError, anicError } from './envelope.ts';
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
 import { loadFlowTracker } from '../runtime/flowTracker.ts';
@@ -41,12 +42,12 @@ export function registerSkillHealthRoute(
       const requestId = newRequestId();
       const r = req as { method?: string };
       if ((r?.method ?? 'GET') !== 'GET') {
-        deps.send(res, 405, { error: 'GET only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'GET only', { requestId });
         return;
       }
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
         return;
       }
       // FlowTracker 不存在 → initialFlowTrackerState（空 flows）→ 报告如实为

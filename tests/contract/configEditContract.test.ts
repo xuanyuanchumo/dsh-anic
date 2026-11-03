@@ -373,7 +373,7 @@ describe('路由：GET 事实 / POST dryRun / POST 真写', () => {
   it('POST patch 不是对象：400 明确原因', async () => {
     const out = await callRoute(routes, { url: CONFIG_ROUTE, method: 'POST', body: { patch: 'nope' } } as RouteReq);
     expect(out.status).toBe(400);
-    expect((out.body as Record<string, unknown>)['error']).toBe('ANIC_CONFIG_BAD_PATCH');
+    expect(((out.body as { error: { code: string } }).error).code).toBe('ANIC_CONFIG_BAD_PATCH'); // cycle-101 信封
   });
 
   it('无工作区：404（不猜一个默认工作区写进去）', async () => {

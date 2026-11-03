@@ -3,6 +3,7 @@
  * M8: skill/invoke + skill/list + evaluate + iterate
  */
 
+import { sendAnicError, anicError } from './envelope.ts';
 import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
@@ -16,6 +17,7 @@ import {
 } from '../skillInvoker.ts';
 import { parseEvalScore, parseGateVerdict } from '../runtime/scriptParsers.ts';
 import { appendCrossProjectHistory } from '../crossProjectHistory.ts';
+import { resolveSkillInvokeTimeout, resolveBootstrapStepTimeout } from '../runtime/bootstrapBudget.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
 
@@ -69,24 +71,26 @@ export function registerSkillRoutes(
       const script = typeof body.script === 'string' ? body.script : '';
       const args: string[] = Array.isArray(body.args) ? (body.args as string[]) : [];
       const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
+      // cycle-99c：默认 30s 与上限同源 bootstrapBudget（旧字面量 120000 是第四份
+      // 分叉默认——工具网关 60s / bootstrap 240s / HTTP 120s 各说各话）。
+      // 同步入口 invokeSkillScript 内部还会再过 resolveSkillInvokeTimeout 收口。
       const timeout = typeof body.timeout === 'number' && body.timeout > 0
-        ? Math.min(body.timeout, 120000)
-        : 30000;
-
+        ? body.timeout
+        : resolveSkillInvokeTimeout(0);
       if (!script || !isAllowedScript(script)) {
-        send(res, 400, { error: `Unknown script: ${script}. Allowed: ${listSkillScripts().join(', ')}` });
+        sendAnicError(send, res, 'ANIC_SKILL_UNKNOWN_SCRIPT', `Unknown script: ${script}. Allowed: ${listSkillScripts().join(', ')}`);
         return;
       }
 
       const wsCheck = validateWorkspace(workspace);
       if (!wsCheck.ok) {
-        send(res, 400, { error: wsCheck.error });
+        sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', wsCheck.error ?? 'workspace validation failed');
         return;
       }
 
       const scriptsDir = resolveSkillScriptsDir(workspace);
       if (!scriptsDir) {
-        send(res, 404, { error: 'skill scripts not found in workspace' });
+        sendAnicError(send, res, 'ANIC_SKILL_UNKNOWN_SCRIPT', 'skill scripts not found in workspace (run anic_install first)');
         return;
       }
 
@@ -109,13 +113,14 @@ export function registerSkillRoutes(
       const dimensions = typeof body.dimensions === 'string' ? body.dimensions : undefined;
 
       const wsCheck = validateWorkspace(workspace);
-      if (!wsCheck.ok) { send(res, 400, { error: wsCheck.error }); return; }
+      if (!wsCheck.ok) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', wsCheck.error ?? 'workspace validation failed'); return; }
 
       const scriptsDir = resolveSkillScriptsDir(workspace);
-      if (!scriptsDir) { send(res, 404, { error: 'skill scripts not found' }); return; }
+      if (!scriptsDir) { sendAnicError(send, res, 'ANIC_SKILL_UNKNOWN_SCRIPT', 'skill scripts not found (run anic_install first)'); return; }
 
       const args = dimensions ? ['--dimensions', dimensions] : [];
-      const result = invokeSkillScript(scriptsDir, 'eval-runner', args, workspace, 60000);
+      // cycle-99c：跨项目 eval-runner 预算同源自举每步预算（旧 60000 实测必超时）。
+      const result = invokeSkillScript(scriptsDir, 'eval-runner', args, workspace, resolveBootstrapStepTimeout());
 
       // G-C5：跨项目评估摘要回写插件自身 self-bootstrap.json（增强非依赖）
       const sync = syncCrossProjectHistory(ctx, 'evaluate', workspace, parseEvalScore(result), null);
@@ -138,17 +143,17 @@ export function registerSkillRoutes(
       const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
 
       const wsCheck = validateWorkspace(workspace);
-      if (!wsCheck.ok) { send(res, 400, { error: wsCheck.error }); return; }
+      if (!wsCheck.ok) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', wsCheck.error ?? 'workspace validation failed'); return; }
 
       const scriptsDir = resolveSkillScriptsDir(workspace);
-      if (!scriptsDir) { send(res, 404, { error: 'skill scripts not found' }); return; }
+      if (!scriptsDir) { sendAnicError(send, res, 'ANIC_SKILL_UNKNOWN_SCRIPT', 'skill scripts not found (run anic_install first)'); return; }
 
-      // Run eval + gate
-      const evalResult = invokeSkillScript(scriptsDir, 'eval-runner', [], workspace, 60000);
+      // Run eval + gate（cycle-99c：两段预算同源自举每步预算）
+      const evalResult = invokeSkillScript(scriptsDir, 'eval-runner', [], workspace, resolveBootstrapStepTimeout());
       const gateResult = invokeSkillScript(
         scriptsDir, 'gate-check',
         ['--gate', 'all', '--quality', '--record'],
-        workspace, 60000,
+        workspace, resolveBootstrapStepTimeout(),
       );
 
       // G-C5：跨项目迭代摘要回写（eval 分数 + 门禁裁决）

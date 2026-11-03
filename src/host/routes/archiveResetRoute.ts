@@ -31,6 +31,7 @@
  * X-ANIC-Workspace 头 / `?workspace=` 与 registry 同一校验）。路径绝不来自请求体
  * ——那会把请求体变成任意路径写入口。响应体不含绝对路径。
  */
+import { sendAnicError } from './envelope.ts';
 import { join } from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
@@ -117,10 +118,10 @@ export function registerArchiveResetRoute(ctx: unknown, deps: ArchiveRouteDeps):
     handler: (req: unknown, res: unknown) => {
       void readBody(req as RouteReq).then((parsed) => {
         const root = getWorkspaceRoot(req);
-        if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+        if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
         // ★校验先于一切副作用（见文件头"参数校验必须先于副作用"）。
         const invalid = validateBaselineBody(parsed);
-        if (invalid !== null) { send(res, 400, { error: invalid }); return; }
+        if (invalid !== null) { sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', invalid); return; }
         const cyclesDir = join(root, '.cycles');
         const opts: BaselineOptions = {
           dryRun: boolOf(parsed.dryRun),
@@ -138,7 +139,7 @@ export function registerArchiveResetRoute(ctx: unknown, deps: ArchiveRouteDeps):
     path: ARCHIVE_INVENTORY_ROUTE,
     handler: (req: unknown, res: unknown) => {
       const root = getWorkspaceRoot(req);
-      if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+      if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
       send(res, 200, inventoryOf(join(root, '.cycles')));
     },
   });

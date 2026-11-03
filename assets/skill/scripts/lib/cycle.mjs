@@ -12,10 +12,16 @@ function cycleNumber(dirName) {
 
 export function getLatestCycleDir(projectDir) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
-  if (!existsSync(cyclesDir)) return null;
-  const entries = readdirSync(cyclesDir).filter(e => /^cycle-\d+$/.test(e));
-  if (entries.length === 0) return null;
-  return entries.sort((a, b) => cycleNumber(a) - cycleNumber(b)).pop();
+  const active = listCycleDirNames(cyclesDir);
+  if (active.length > 0) return active[active.length - 1];
+  // cycle-101（技能 v2.6.2）：活跃区空 → 回退归档区。
+  // 全部循环归档后活跃区**合法为空**（archive-cycle 的正常收口态）。旧实现直接
+  // 返回 null ⇒ 评估器把「刚归档完」判成 Q2/Q8 失败（"No test reports"），
+  // 而证据其实完好躺在 archive/cycle-N/ 里。与 coverageEvidenceContract /
+  // objectiveConformance ⑨ / artifactsClosure 同一条修法：证据还在，只是换了目录。
+  const archived = listCycleDirNames(join(projectDir, '.cycles', 'archive'));
+  if (archived.length === 0) return null;
+  return archived[archived.length - 1];
 }
 
 // v1.8.3：列表形态的同一实现（archive-cycle / workflow-state / org-status / auto-fix-loop /

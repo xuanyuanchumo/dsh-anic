@@ -5,6 +5,7 @@
  * POST /anic/api/ledger/append   追加条目（单写者，哈希链）
  * GET  /anic/api/ledger/verify   验证整链
  */
+import { sendAnicError } from './envelope.ts';
 import { sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { loadLedger, appendEntry, verifyLedger, isDuplicate } from '../runtime/ledger.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
@@ -38,7 +39,7 @@ export function registerLedgerRoute(ctx: unknown, deps: RouteDeps): (() => void)
 
   const d1 = c.webServer.register({ kind: 'exact', path: '/anic/api/ledger', handler: (req: unknown, res: unknown) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const entries = loadLedger(cyclesDir);
     const q = query(req);
@@ -50,14 +51,14 @@ export function registerLedgerRoute(ctx: unknown, deps: RouteDeps): (() => void)
   const d2 = c.webServer.register({ kind: 'exact', path: '/anic/api/ledger/append', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const { gate, gateName, result, detail } = parsed as { gate?: string; gateName?: string; result?: 'PASS' | 'FAIL'; detail?: string };
-    if (!gate || !result) { send(res, 400, { error: 'gate and result required' }); return; }
-    if (result !== 'PASS' && result !== 'FAIL') { send(res, 400, { error: 'result must be PASS or FAIL' }); return; }
+    if (!gate || !result) { sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'gate and result required'); return; }
+    if (result !== 'PASS' && result !== 'FAIL') { sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'result must be PASS or FAIL'); return; }
     // 幂等查重
     if (isDuplicate(cyclesDir, gate, result)) {
-      send(res, 409, { error: 'duplicate', message: `last entry is already ${gate}/${result}` });
+      sendAnicError(send, res, 'ANIC_GATE_FAILED', `last entry is already ${gate}/${result} (idempotent duplicate reject)`);
       return;
     }
     const entry = appendEntry(cyclesDir, { gate, gateName: gateName ?? gate, result, detail: detail ?? '' });
@@ -67,7 +68,7 @@ export function registerLedgerRoute(ctx: unknown, deps: RouteDeps): (() => void)
 
   const d3 = c.webServer.register({ kind: 'exact', path: '/anic/api/ledger/verify', handler: (req: unknown, res: unknown) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const result = verifyLedger(cyclesDir);
     send(res, 200, result);

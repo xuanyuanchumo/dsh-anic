@@ -406,8 +406,9 @@ describe('flowsRoute', () => {
     registerFlowsRoute(ctx, sendFn, { getWorkspaceRoot: () => ws });
     let { captured, res } = makeRes();
     routes.get('/anic/flows/state')!({ url: '/anic/flows/state?flow=bogus' }, res);
-    expect(captured.status).toBe(404);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_UNKNOWN_FLOW:bogus' });
+    // cycle-101：未知 flow 归入 BAD_REQUEST 族（400）；信封体为 {ok:false,error:{...}}
+    expect(captured.status).toBe(400);
+    expect(String((captured.body as { error: { message: string } }).error.message)).toContain('ANIC_ROUTE_UNKNOWN_FLOW:bogus');
     ({ captured, res } = makeRes());
     routes.get('/anic/flows/state')!({ url: '/anic/flows/state?flow=gate-check' }, res);
     expect(captured.status).toBe(200);
@@ -421,8 +422,9 @@ describe('flowsRoute', () => {
     let { captured, res } = makeRes();
     a.routes.get('/anic/flows/gate-check/run')!({ body: {} }, res);
     await flushMicrotasks();
-    expect(captured.status).toBe(500);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    // cycle-101：NO_WORKSPACE → 404（策略表 rejected/never）
+    expect(captured.status).toBe(404);
+    expect((captured.body as { error: { code: string } }).error.code).toBe('ANIC_ROUTE_NO_WORKSPACE');
     // 有工作区 + 非法 gate → 400
     const ws = mkTmp('anic-flows-gate');
     const b = makeCtx();
@@ -431,7 +433,7 @@ describe('flowsRoute', () => {
     b.routes.get('/anic/flows/gate-check/run')!({ body: { gate: 'G9' } }, res);
     await flushMicrotasks();
     expect(captured.status).toBe(400);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_BAD_GATE:G9' });
+    expect(String((captured.body as { error: { message: string } }).error.message)).toContain('ANIC_ROUTE_BAD_GATE:G9');
   });
 
   it('POST macro-phase/advance：非法 target 400 带 validPhases；dryRun+script 400', async () => {
@@ -442,13 +444,13 @@ describe('flowsRoute', () => {
     routes.get('/anic/flows/macro-phase/advance')!({ body: { target: 'bogus' } }, res);
     await flushMicrotasks();
     expect(captured.status).toBe(400);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_BAD_PHASE:bogus' });
-    expect((captured.body as { validPhases: string[] }).validPhases).toContain('deploy');
+    expect(String((captured.body as { error: { message: string } }).error.message)).toContain('ANIC_ROUTE_BAD_PHASE:bogus');
+    expect(String((captured.body as { error: { message: string } }).error.message)).toContain('deploy');
     ({ captured, res } = makeRes());
     routes.get('/anic/flows/macro-phase/advance')!({ body: { dryRun: true, mode: 'script' } }, res);
     await flushMicrotasks();
     expect(captured.status).toBe(400);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_DRYRUN_NATIVE_ONLY' });
+    expect((captured.body as { error: { code: string } }).error.code).toBe('ANIC_ROUTE_BAD_REQUEST');
   });
 
   it('POST hitl/run：非法 gate 400；auto-fix/run：无工作区 500', async () => {
@@ -459,14 +461,14 @@ describe('flowsRoute', () => {
     a.routes.get('/anic/flows/hitl/run')!({ body: { gate: 'H9' } }, res);
     await flushMicrotasks();
     expect(captured.status).toBe(400);
-    expect(captured.body).toMatchObject({ error: 'ANIC_ROUTE_BAD_HITL_GATE:H9' });
+    expect(String((captured.body as { error: { message: string } }).error.message)).toContain('ANIC_ROUTE_BAD_HITL_GATE:H9');
     // auto-fix 无工作区
     const b = makeCtx();
     registerFlowsRoute(b.ctx, sendFn, { getWorkspaceRoot: () => null });
     ({ captured, res } = makeRes());
     b.routes.get('/anic/flows/auto-fix/run')!({ body: {} }, res);
     await flushMicrotasks();
-    expect(captured.status).toBe(500);
+    expect(captured.status).toBe(404); // cycle-101：NO_WORKSPACE → 404
   });
 });
 

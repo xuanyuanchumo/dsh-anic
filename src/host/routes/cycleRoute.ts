@@ -15,6 +15,7 @@ import { sendJson, type SnapshotCtx } from '../snapshotRoute.ts';
 import { initCycle, advanceCycle, closeCycle, listCycles, nextCycleNumber } from '../runtime/cycleRunner.ts';
 import { loadWorkflowGraph, loadState, initState } from '../runtime/stateMachine.ts';
 import { type RouteReq, readBody } from './routeContext.ts';
+import { sendAnicError } from './envelope.ts';
 import { join } from 'node:path';
 
 type SendFn = (res: unknown, status: number, body: unknown, requestId?: string) => void;
@@ -34,7 +35,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
   const d1 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/init', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const projectName = typeof parsed.projectName === 'string' ? parsed.projectName : undefined;
     const info = initCycle(cyclesDir, projectName);
@@ -45,7 +46,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
   const d2 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/advance', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const cycleNumber = Number(parsed.cycleNumber);
     const nodeId = typeof parsed.nodeId === 'string' ? parsed.nodeId : '';
@@ -55,7 +56,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
     if (typeof parsed.gateName === 'string') record.gateName = parsed.gateName;
     if (parsed.result === 'PASS' || parsed.result === 'FAIL') record.result = parsed.result;
     if (typeof parsed.detail === 'string') record.detail = parsed.detail;
-    if (!cycleNumber || !nodeId || !Number.isInteger(cycleNumber) || cycleNumber < 1) { send(res, 400, { error: 'cycleNumber (positive integer) and nodeId required' }); return; }
+    if (!cycleNumber || !nodeId || !Number.isInteger(cycleNumber) || cycleNumber < 1) { sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'cycleNumber (positive integer) and nodeId required'); return; }
     const result = advanceCycle(cyclesDir, cycleNumber, nodeId, record);
     send(res, result.ok ? 200 : 409, result);
     });
@@ -64,10 +65,10 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
   const d3 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/close', handler: (req: unknown, res: unknown) => {
     void readBody(req as RouteReq).then((parsed) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const cycleNumber = Number(parsed.cycleNumber);
-    if (!cycleNumber || !Number.isInteger(cycleNumber) || cycleNumber < 1) { send(res, 400, { error: 'cycleNumber (positive integer) required' }); return; }
+    if (!cycleNumber || !Number.isInteger(cycleNumber) || cycleNumber < 1) { sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'cycleNumber (positive integer) required'); return; }
     const result = closeCycle(cyclesDir, cycleNumber);
     send(res, result.ok ? 200 : 409, result);
     });
@@ -75,7 +76,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
 
   const d4 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/state', handler: (req: unknown, res: unknown) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const graph = loadWorkflowGraph(cyclesDir);
     if (!graph) { send(res, 200, { nodes: [], state: {} }); return; }
@@ -86,7 +87,7 @@ export function registerCycleRoute(ctx: unknown, deps: RouteDeps): (() => void) 
 
   const d5 = c.webServer.register({ kind: 'exact', path: '/anic/cycle/list', handler: (req: unknown, res: unknown) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const cyclesDir = join(root, '.cycles');
     const cycles = listCycles(cyclesDir);
     const next = nextCycleNumber(cyclesDir);

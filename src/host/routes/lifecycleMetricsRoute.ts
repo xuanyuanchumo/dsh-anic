@@ -43,6 +43,7 @@
  * 这个差值**近似**"本工作区被淘汰了多少"（多项目共用一个 tracker 文件时是
  * **上界**，不是精确值）——因此读数里必须标注口径，不能当成精确淘汰数。
  */
+import { sendAnicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadAllFlowRecords, loadFlowTracker } from '../runtime/flowTracker.ts';
@@ -88,7 +89,7 @@ export function registerLifecycleMetricsRoute(
   };
   reg('/anic/api/flows/lifecycle', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = `${root}/.cycles`;
     // cycle-91：读**全量样本**（append-only 历史 ∪ 热窗口）⇒ 统计口径不再
     // 被"最近 200 条"的滚动淘汰截断（治本，见 flowTrackerStore 头注）。

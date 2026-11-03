@@ -42,7 +42,7 @@ function verifyReferences(projectDir, refs, count) {
       results.push({ ref, exists, detail: exists ? 'OK' : 'NOT FOUND' });
     } else if (ref.type === 'command') {
       try {
-        execSync(`${ref.value} --help`, { cwd: projectDir, timeout: 5000, stdio: 'pipe' });
+        execSync(`${ref.value} --help`, { cwd: projectDir, timeout: 5000, stdio: 'pipe', windowsHide: true });
         results.push({ ref, exists: true, detail: 'OK' });
       } catch {
         results.push({ ref, exists: false, detail: 'COMMAND FAILED' });

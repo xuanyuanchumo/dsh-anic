@@ -17,6 +17,36 @@ import type {
   ToolCallKind,
 } from './toolsSlot.ts';
 import { t } from './i18n.ts';
+import { buildPresentationMeta, mergePresentationMeta, renderMetaMarker } from './presentationMeta.ts';
+
+/**
+ * cycle-99c：终端输出显示净化（模型侧不清洗——清洗只发生在呈现层）。
+ *
+ * 官方契约（adding-a-tool.md:93）：presentResult 原样携带输出，UI 适配器负责
+ * 呈现格式。但宿主 TerminalResultView 直渲染 output 文本，vitest 等子进程在
+ * 非 TTY 下仍可能写 ANSI 转义码，终端卡片显示成乱码。本函数在**呈现视图
+ * 构造**处剥离 SGR/光标/OSC/DCS 序列与孤立回车。纯函数（正则替换，无 I/O）。
+ */
+const ESC = String.fromCharCode(0x1b);
+const CSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g'); // CSI … 终结（SGR/光标/滚动）
+const OSC_RE = new RegExp(`${ESC}\\].*?(?:${ESC}\\\\|${String.fromCharCode(7)})`, 'gs'); // OSC … ST/BEL
+const DCS_RE = new RegExp(`${ESC}[PX^_][\\s\\S]*?${ESC}\\\\`, 'g'); // DCS/SOS/PM/APC … ST
+const ESC1_RE = new RegExp(`${ESC}[=>NOMc78]`, 'g'); // 单字符 Esc 序列（Shift-In 等）
+
+export function stripAnsiEscapeSequences(text: string): string {
+  return text
+    .replace(CSI_RE, '')
+    .replace(OSC_RE, '')
+    .replace(DCS_RE, '')
+    .replace(ESC1_RE, '')
+    .replace(/\r(?!\n)/g, '');
+}
+
+/** 诚实截断（dsh-ops 模式）：截断时在尾部声明实情，不假装内容完整。 */
+export function truncateWithNotice(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n-- output truncated (${text.length - maxChars} chars omitted; full output in .cycles/flow-tracker.json flow records) --`;
+}
 
 /**
  * cycle-22：presentResult 第二参双形状归一化（官方契约对齐）。
@@ -43,8 +73,11 @@ export function normalizeToolResult(
       ? (result.meta as Record<string, unknown>)
       : {};
     const out: Record<string, unknown> = { ...meta, isError: result.isError === true };
-    // meta 无输出时从内容块兜底（text 块拼接）——结果文本不丢
-    if (typeof out.stdout !== 'string' && !('exitCode' in meta)) {
+    // meta 无 stdout 时从内容块兜底（text 块拼接）——结果文本不丢。
+    // cycle-101 修正：判据从「meta 无 exitCode」改为「meta 无 stdout」——
+    // presentationMeta 通道只持久化 exitCode/durationMs 等事实、不携带 stdout，
+    // 旧判据会把回放正文的兜底一起抑制（marker 有、正文丢）。
+    if (typeof out.stdout !== 'string' && !('stdout' in meta)) {
       const text = content
         .map((b) => (b && typeof b === 'object' && (b as { type?: string }).type === 'text'
           ? String((b as { text?: unknown }).text ?? '')
@@ -83,11 +116,22 @@ export function terminalResult(
   const r = normalizeToolResult(result);
   const stdout = typeof r.stdout === 'string' ? r.stdout : '';
   const stderr = typeof r.stderr === 'string' ? r.stderr : '';
-  const exitCode = typeof r.exitCode === 'number' ? r.exitCode : undefined;
-  // T-4209：信号终止时如实呈现（宿主官方 ToolResultView 的 signal 字段）——
-  // invokeSkillScript 的取消路径可带 signal；呈现层不吞掉它。
-  const signal = typeof r.signal === 'string' ? r.signal : undefined;
-  const output = stderr ? `${stdout}\n-- stderr --\n${stderr}` : stdout;
+  // cycle-101（presentationMeta 投影器）：meta 通道优先——官方契约规定 meta 由
+  // output.presentationMeta 派生并**持久化**，回放时原始 value 可能已不可得。
+  // 提取顺序：持久化 meta（回放重建路径）→ 现场返回值（直播路径）。两者互为兜底。
+  const meta = mergePresentationMeta(result.meta as Record<string, unknown> | undefined);
+  const exitCode = meta ? (meta.exitCode ?? undefined) : (typeof r.exitCode === 'number' ? r.exitCode : undefined);
+  const signal = meta ? meta.signal : (typeof r.signal === 'string' ? r.signal : undefined);
+  const raw = stderr ? `${stdout}\n-- stderr --\n${stderr}` : stdout;
+  // cycle-99c：显示净化——剥离 ANSI 转义码（vitest 等子进程在非 TTY 下仍可能写
+  // SGR 序列，flow 记录实证乱码）与孤立 \r（进度条回车重绘），再诚实截断。
+  // 只作用于呈现视图；execute 返回的 stdout/stderr（模型可见内容）保持原样。
+  let output = truncateWithNotice(stripAnsiEscapeSequences(raw), 12000);
+  // dsh-ops 信封双消费：output 尾部追加 meta marker（[exit 0 · 12.3s]）——
+  // grep 友好，回放时即使视图字段被宿主裁剪 marker 仍在文本里。
+  const marker = renderMetaMarker(meta);
+  if (marker && output) output = `${output}\n${marker}`;
+  else if (marker) output = marker;
   return { card: 'terminal', title, output: output || undefined, exitCode, signal };
 }
 
@@ -121,6 +165,7 @@ export function skillPresentCall(args: Record<string, unknown>): TerminalCallVie
 
 /**
  * anic_skill presentResult：终端结果卡片显示输出 + 退出码。
+ * cycle-101：result.meta（presentationMeta 通道）优先——回放重建路径。
  */
 export function skillPresentResult(
   _args: Record<string, unknown>,
@@ -128,6 +173,20 @@ export function skillPresentResult(
 ): TerminalResultView {
   const script = typeof _args.script === 'string' ? _args.script : '?';
   return terminalResult(result, `anic_skill: ${script} ✓`);
+}
+
+/**
+ * cycle-101：anic_skill execute 侧 meta 构造——把应持久化的呈现事实
+ * （exitCode/signal/durationMs/script）打进返回值的 meta 字段。
+ * 宿主把 output.presentationMeta 派生的 meta 持久化在 result.meta，
+ * 回放时 presentation.ts 的 meta 通道据此重建视图。
+ * 纯函数：startedAt 由调用方传入（handler 知道开始时刻，本函数不读时钟）。
+ */
+export function skillResultWithMeta(
+  result: Record<string, unknown>,
+  opts: { script: string; startedAt?: number },
+): Record<string, unknown> {
+  return { ...result, meta: buildPresentationMeta(result, opts) };
 }
 
 /**

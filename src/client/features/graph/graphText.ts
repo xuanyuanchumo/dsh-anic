@@ -58,7 +58,11 @@ export type GraphTextSuffix =
   | 'fitSelection' | 'fitSelectionHint'
   | 'exportSvg' | 'exportSvgHint'
   | 'fullscreen' | 'fullscreenExit' | 'fullscreenUnavailable'
-  | 'stageDragHint';
+  | 'stageDragHint'
+  // cycle-99（图谱增强 ④）：时间轴回放——状态条文案 / 播放暂停 / 关闭。
+  //   消费点：graphExtras.renderTimelineBar / useGraphTimeline。
+  //   ⚠️ 走 `graph.` 动态前缀认领（同 pathPickStart 纪律），键随后合并进 locale。
+  | 'timelineLabel' | 'timelinePlay' | 'timelinePause' | 'timelineExit';
 
 /** 取一条新键文案（唯一入口；见文件头「为什么不写整串字面量」）。 */
 export function gt(suffix: GraphTextSuffix, params?: Record<string, string | number>): string {

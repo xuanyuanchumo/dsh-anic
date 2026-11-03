@@ -178,7 +178,7 @@ describe('POST /anic/api/config/paths：dryRun 与真写同源', () => {
       url: CONFIG_PATHS_ROUTE, method: 'POST', body: { patch: 'nope' },
     } as RouteReq);
     expect(out.status).toBe(400);
-    expect(out.body['error']).toBe('ANIC_PATHS_BAD_PATCH');
+    expect((out.body['error'] as { code: string }).code).toBe('ANIC_CONFIG_BAD_PATCH'); // cycle-101 归一（PATHS 码并入 CONFIG 族）
   });
 
   it('无工作区 → 404（不猜一个默认工作区写进去）', async () => {

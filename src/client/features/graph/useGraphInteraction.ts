@@ -33,7 +33,7 @@
  * （但被 `GraphInteractive` 在 stub 下执行到，故间接调用的三个 hook 各自都只用
  * 允许集内的 API）。
  */
-import { useRef, type ReactElement } from 'react';
+import { useRef, useCallback, type ReactElement } from 'react';
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import type { GraphLayout } from './graphLayout.ts';
 import type { LayoutMode } from './graphLayoutSpec.ts';
@@ -44,8 +44,11 @@ import { useGraphView, type GraphViewState } from './useGraphView.ts';
 import { useGraphPathMode, type GraphPathMode } from './useGraphPathMode.ts';
 import { useGraphViewState } from './useGraphViewState.ts';
 import { withPathHighlight } from './graphPathMode.ts';
-import { buildNodeRoles, roleStatsOf, type RoleStats } from './graphNodeRole.ts';
+import { buildNodeRoles, roleStatsOf, type NodeRole, type RoleStats } from './graphNodeRole.ts';
 import { renderGraphExtras, focusBlastOf } from './graphExtras.ts';
+// cycle-99：时间轴回放（hook 状态壳 + 纯函数可见集）。
+import { buildTimeline, composeWithTimeline, visibleSetAtStep } from './graphTimeline.ts';
+import { useGraphTimeline } from './useGraphTimeline.ts';
 
 /** 组合层的入参（组件提供全部状态；本层不持有它们）。 */
 export interface GraphInteractionInput {
@@ -78,14 +81,20 @@ export interface GraphInteraction {
   view: GraphViewState;
   /** 路径模式（状态 + 读数 + 动作）。 */
   path: GraphPathMode;
-  /** 已并入路径高亮的筛选视图。 */
+  /** 已并入路径高亮与时间轴回放的筛选视图。 */
   filterView: FilterView;
+  /** 时间轴回放（cycle-99；steps 空 = 无链，控件不渲染）。 */
+  timeline: ReturnType<typeof useGraphTimeline>;
   /** 改写后的节点点击（路径模式 → 设端点；否则 → 原回调）。 */
   nodeClick: ((node: WorkflowNode) => void) | undefined;
   /** 两条读数条（未启用时 null ⇒ 零占位）。 */
   extras: ReactElement[] | null;
   /** 节点角色计数（工具栏角色图例的读数）。 */
   roleStats: RoleStats;
+  /** 已选中的角色筛选（透传 filter.roles；undefined = 未启用该维）。 */
+  activeRoles: readonly string[] | undefined;
+  /** 角色筛选切换（toggle 语义；undefined = 角色图例保持纯展示）。 */
+  onToggleRole: ((role: 'entry' | 'hub' | 'leaf' | 'orphan') => void) | undefined;
 }
 
 export function useGraphInteraction(input: GraphInteractionInput): GraphInteraction {
@@ -111,8 +120,33 @@ export function useGraphInteraction(input: GraphInteractionInput): GraphInteract
   // 邻居表按 nodes 引用缓存（缩放到选中要它）；与组件里预览用的那份同源实现。
   const adjRef = useRef<{ key: readonly WorkflowNode[]; map: Map<string, Set<string>> } | null>(null);
   const adjacency = adjacencyOf(nodes, edges, adjRef);
-  const baseView = buildFilterView(nodes, edges, input.filter, input.adjacencyOn ? input.focusId : null, input.verdicts);
-  const filterView = withPathHighlight(baseView, path.model.highlight);
+  // ── 节点角色表 + 计数（cycle-100 上移：角色筛选维要在 buildFilterView 之前就位）──
+  // nodes/edges 引用做键，O(E) 一次；工具栏图例读数与角色筛选共用同一份角色表。
+  const rolesRef = useRef<{ nodes: readonly WorkflowNode[]; edges: readonly WorkflowEdge[]; roles: Map<string, NodeRole>; stats: RoleStats } | null>(null);
+  const rolesHit = rolesRef.current;
+  if (rolesHit === null || rolesHit.nodes !== nodes || rolesHit.edges !== edges) {
+    const roles = buildNodeRoles(edges, nodes.map((n) => n.id));
+    rolesRef.current = { nodes, edges, roles, stats: roleStatsOf(roles) };
+  }
+  const roleHit = rolesRef.current as { nodes: readonly WorkflowNode[]; edges: readonly WorkflowEdge[]; roles: Map<string, NodeRole>; stats: RoleStats };
+  const roleStats = roleHit.stats;
+  // 角色查找函数（角色筛选维用；Map.get 封装，未判定 → null）。
+  const roleOfNodeId = useCallback((id: string): NodeRole | null => roleHit.roles.get(id) ?? null, [roleHit]);
+  const baseView = buildFilterView(nodes, edges, input.filter, input.adjacencyOn ? input.focusId : null, input.verdicts, roleOfNodeId);
+  const withPath = withPathHighlight(baseView, path.model.highlight);
+  // cycle-99：时间轴回放——steps 按 nodes 引用缓存（2s 轮询同数据零重算）；
+  // index=-1（未启用）时 composeWithTimeline 不参与（原视图原样透传）。
+  const timelineRef = useRef<{ key: readonly WorkflowNode[]; steps: ReturnType<typeof buildTimeline> } | null>(null);
+  const tlHit = timelineRef.current;
+  const timelineSteps = tlHit !== null && tlHit.key === nodes ? tlHit.steps : (() => {
+    const steps = buildTimeline(nodes);
+    timelineRef.current = { key: nodes, steps };
+    return steps;
+  })();
+  const timeline = useGraphTimeline(timelineSteps);
+  const filterView = timeline.index >= 0
+    ? composeWithTimeline(withPath, visibleSetAtStep(nodes, edges, timelineSteps, timeline.index))
+    : withPath;
   const view = useGraphView({
     edges, layout: input.layout, adjacency,
     filter: input.filter, filterView,
@@ -123,15 +157,6 @@ export function useGraphInteraction(input: GraphInteractionInput): GraphInteract
     onViewportChange: input.onViewportChange,
   });
 
-  // ── 节点角色计数（工具栏图例读数）：nodes/edges 引用做键，O(E) 一次 ──
-  const rolesRef = useRef<{ nodes: readonly WorkflowNode[]; edges: readonly WorkflowEdge[]; stats: RoleStats } | null>(null);
-  const hit = rolesRef.current;
-  if (hit === null || hit.nodes !== nodes || hit.edges !== edges) {
-    const roles = buildNodeRoles(edges, nodes.map((n) => n.id));
-    rolesRef.current = { nodes, edges, stats: roleStatsOf(roles) };
-  }
-  const roleStats = (rolesRef.current as { stats: RoleStats }).stats;
-
   // ── 点击改写（路径模式优先，见文件头裁决）────────────────────
   const nodeClick = input.onNodeClick === undefined && !path.model.active
     ? undefined
@@ -141,11 +166,25 @@ export function useGraphInteraction(input: GraphInteractionInput): GraphInteract
         input.onNodeClick?.(node);
       };
 
-  // ── 两条读数条 ──────────────────────────────────────────────
+  // ── 读数条 ──────────────────────────────────────────────────
   const blast = focusBlastOf(traceAdjacency, input.focusId);
   const extras = renderGraphExtras({
     path: path.model, focusId: input.focusId, blast, onPathExit: path.exit,
+    timeline: {
+      steps: timelineSteps, index: timeline.index, playing: timeline.playing,
+      onSeek: timeline.seek, onTogglePlay: timeline.togglePlay, onExit: timeline.exit,
+    },
   });
 
-  return { view, path, filterView, nodeClick: nodeClick ?? undefined, extras, roleStats };
+  return {
+    view, path, filterView, nodeClick: nodeClick ?? undefined, extras, roleStats, timeline,
+    // cycle-100：角色筛选维——roles 键在 filter 上时启用（旧字面量无该键 ⇒ undefined
+    // ⇒ 图例保持纯展示，零行为变化）。
+    activeRoles: input.filter.roles,
+    onToggleRole: input.filter.roles === undefined ? undefined : (role: 'entry' | 'hub' | 'leaf' | 'orphan'): void => {
+      const cur = input.filter.roles ?? [];
+      const next = cur.includes(role) ? cur.filter((r) => r !== role) : [...cur, role];
+      input.onFilterChange({ ...input.filter, roles: next });
+    },
+  };
 }

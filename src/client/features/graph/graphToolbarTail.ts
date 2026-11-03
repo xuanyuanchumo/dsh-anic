@@ -34,6 +34,10 @@ export interface ToolbarTailInput {
   filterActive: boolean;
   typeCounts: TypeCount[];
   roles?: RoleLegendStats | undefined;
+  /** 已选中的角色筛选（cycle-100；缺省 = 角色图例退化为纯展示）。 */
+  activeRoles?: readonly string[] | undefined;
+  /** 角色筛选切换（缺省 = 角色图例退化为纯展示 + aria-hidden）。 */
+  onToggleRole?: ((role: 'entry' | 'hub' | 'leaf' | 'orphan') => void) | undefined;
   view?: unknown;
   path?: unknown;
   onZoomIn: () => void;
@@ -74,6 +78,7 @@ export function renderToolbarTail(input: ToolbarTailInput): Array<ReactElement |
 
     // 图例行：由粗到细三通道（排序理由见 graphToolbarLegendRow.ts）。
     // 角色图例缺省不渲染：它要真实角色计数，纯渲染的零参调用没有这份数据。
-    renderLegendRow(input.typeCounts, input.roles),
+    // cycle-100：带 onToggleRole 时升级为可点选的角色筛选（同一 DOM 锚点）。
+    renderLegendRow(input.typeCounts, input.roles, input.activeRoles, input.onToggleRole),
   ];
 }

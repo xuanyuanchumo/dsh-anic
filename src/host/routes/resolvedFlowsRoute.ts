@@ -32,6 +32,7 @@
  *
  * 拿不到工作区 → 500，**绝不**返回全项目的开关状态。
  */
+import { sendAnicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveFlows, isUserWritable, FLOW_IDS } from '../../shared/flows.ts';
@@ -85,7 +86,7 @@ export function registerResolvedFlowsRoute(
   };
   reg('/anic/api/flows/resolved', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = join(root, '.cycles');
     // 工作区层：读 `.cycles/config.yml` 的 `anic.flow.*` 段（唯一入口 loadWorkspaceConfig）。
     const workspaceLayer = existsSync(cyclesDir)

@@ -45,6 +45,7 @@ function getGitChangedFiles(projectDir) {
       timeout: 5000,
       stdio: 'pipe',
       encoding: 'utf-8',
+      windowsHide: true, // cycle-99c：git 子进程不弹控制台窗口
     });
     return output.trim().split('\n').filter(Boolean);
   } catch {
@@ -54,6 +55,7 @@ function getGitChangedFiles(projectDir) {
         timeout: 5000,
         stdio: 'pipe',
         encoding: 'utf-8',
+        windowsHide: true,
       });
       return output.trim().split('\n').filter(Boolean).map(line => line.substring(3));
     } catch {
@@ -69,6 +71,7 @@ function getGitTrackedFiles(projectDir) {
       timeout: 5000,
       stdio: 'pipe',
       encoding: 'utf-8',
+      windowsHide: true, // cycle-99c：git 子进程不弹控制台窗口
     });
     return new Set(output.trim().split('\n').filter(Boolean));
   } catch {
@@ -128,7 +131,7 @@ function checkPlanSync(projectDir, verbose) {
       allReferencedCmds.add(cmd);
       const binary = cmd.split(' ')[0];
       try {
-        execSync(`${binary} --version`, { timeout: 3000, stdio: 'pipe' });
+        execSync(`${binary} --version`, { timeout: 3000, stdio: 'pipe', windowsHide: true }); // cycle-99c：探测子进程不弹窗
       } catch {
         issues.push({ type: 'missing_command', command: cmd, source: plan.path, severity: 'ERROR' });
       }

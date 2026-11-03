@@ -60,7 +60,7 @@ function mount(): { call: () => { code: number; body: Record<string, unknown> } 
 }
 
 describe('cycle-91：GET /anic/api/flows/resolved', () => {
-  it('拿不到工作区 ⇒ 500（fail-closed）', () => {
+  it('拿不到工作区 ⇒ 404（fail-closed；cycle-101 信封归一 NO_WORKSPACE→404）', () => {
     let handler: ((req: unknown, res: unknown) => void) | undefined;
     const ctx = { webServer: { register: (r: { handler: (q: unknown, s: unknown) => void }) => { handler = r.handler; return () => { /* d */ }; } } };
     let last = { code: 0, body: {} as Record<string, unknown> };
@@ -68,8 +68,9 @@ describe('cycle-91：GET /anic/api/flows/resolved', () => {
       getWorkspaceRoot: () => null,
     });
     handler?.({}, {});
-    expect(last.code).toBe(500);
-    expect(last.body).toEqual({ error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    expect(last.code).toBe(404);
+    expect((last.body as { ok: boolean; error: { code: string } }).ok).toBe(false);
+    expect((last.body as { error: { code: string } }).error.code).toBe('ANIC_ROUTE_NO_WORKSPACE');
   });
 
   it('工作区关闭 `flow.selfInit` ⇒ 端点如实返回 enabled=false + source=workspace', () => {

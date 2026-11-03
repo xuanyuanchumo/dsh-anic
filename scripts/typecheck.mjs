@@ -36,6 +36,7 @@ for (const cfg of configs) {
   const r = spawnSync(process.execPath, [tsc, '-p', cfg, '--noEmit'], {
     cwd: pluginDir,
     stdio: 'inherit',
+    windowsHide: true, // cycle-99b：typecheck 每配置一个 tsc 子进程，不弹窗
   });
   if (r.status !== 0) {
     failed = true;

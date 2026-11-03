@@ -44,6 +44,24 @@ export function detectClientLang(): ClientLang {
   return 'zh';
 }
 
+/**
+ * 宿主语言联动（cycle-99）：`locale` 服务快照写入本地覆盖层。
+ *
+ * 为什么写 localStorage 而不是直接改检测链：既有契约「localStorage['anic-lang'] 显式
+ * 覆盖最优先」是**用户手动选择**的语义。宿主联动属于**跟随**（用户没手动选过时跟随
+ * 宿主设置）——实现为「宿主 active 写入 anic-lang，用户此后手动切换仍能覆盖它」，
+ * 优先级链不变，只多了一个写入源。
+ *
+ * 宿主无 locale 服务（旧宿主/独立测试）→ 本函数不被调用，零行为变化。
+ */
+export function setLocaleFromHost(active: 'zh' | 'en'): void {
+  try {
+    // 用户已显式选择（anic-lang 已存在）→ 不覆盖（尊重手动选择）。
+    if (globalThis.localStorage?.getItem('anic-lang') !== null) return;
+    globalThis.localStorage?.setItem('anic-lang', active);
+  } catch { /* storage 不可用 → 本次不联动，不崩 */ }
+}
+
 /** 翻译 + `{param}` 插值（与 host 侧 t() 同一约定）。 */
 export function t(key: string, params?: Record<string, string | number>): string {
   const lang = detectClientLang();

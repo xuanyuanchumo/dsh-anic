@@ -16,6 +16,7 @@
  * 注意：本路由**不**决定重载成败——宿主替换实例后由新实例的 finalizeInFlight 落定，
  * 证据在 `.cycles/reload-history.json`；这也是 200 而非 202 的原因（请求已受理，不是排队）。
  */
+import { sendAnicError } from './envelope.ts';
 import { join } from 'node:path';
 import { readBody, type RouteReq, type SendFn } from './routeContext.ts';
 import { createScoped, newRequestId } from '../logger.ts';
@@ -62,7 +63,7 @@ export function registerHotReloadRoute(c: WebSlot, deps: HotReloadRouteDeps): Ar
       const run = async (): Promise<void> => {
         const root = deps.getWorkspaceRoot(req);
         if (!root) {
-          deps.send(res, 404, { error: 'no workspace' }, rid);
+          sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request', { requestId: rid });
           return;
         }
         const body = await readBody((req ?? {}) as RouteReq);
@@ -87,7 +88,7 @@ export function registerHotReloadRoute(c: WebSlot, deps: HotReloadRouteDeps): Ar
         // 编排层抛错：响亮失败（500），不返回"看起来成功了"的半截结论。
         const message = e instanceof Error ? e.message : String(e);
         log.warn('reload route failed: ' + message);
-        deps.send(res, 500, { error: 'RELOAD_FAILED', message, requestId: rid }, rid);
+        sendAnicError(deps.send, res, 'ANIC_SKILL_EXEC_FAILED', `RELOAD_FAILED: ${message}`, { requestId: rid });
       });
     },
   });

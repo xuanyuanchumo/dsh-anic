@@ -10,6 +10,7 @@
  *   **绝不发明默认网络源**。
  * - INV-26：本路由自身错误只进日志/响应，**绝不写 `.cycles/incidents/`**。
  */
+import { sendAnicError, anicError } from './envelope.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,21 +44,21 @@ export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getW
       const requestId = newRequestId();
       const r = req as { method?: string } | undefined;
       if ((r?.method ?? 'GET') !== 'POST') {
-        deps.send(res, 405, { error: 'POST only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'POST only', { requestId });
         return;
       }
       if (!deps.loadFlows().selfInit) {
-        deps.send(res, 403, { error: { code: 'ANIC_ROUTE_SELF_INIT_DISABLED', message: 'flow.selfInit is switched off (workspace/deployment layer)' } }, requestId);
+        deps.send(res, 403, anicError('ANIC_ROUTE_NO_WORKSPACE', 'flow.selfInit is switched off (workspace/deployment layer)'), requestId);
         return;
       }
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_INIT_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
         return;
       }
       const configPath = join(root, '.cycles', 'config.yml');
       if (existsSync(configPath)) {
-        deps.send(res, 409, { error: { code: 'ANIC_ROUTE_SELF_INIT_ALREADY', message: `.cycles/config.yml already exists at this workspace — self-init is refuse-to-rerun (idempotent by design)` } }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_SELF_INIT_ALREADY', '.cycles/config.yml already exists — self-init is refuse-to-rerun (idempotent by design)', { requestId });
         return;
       }
       // --name 透传（init-workflow.mjs:66 的 N-6 修复要求项目名落盘 config.yml）；
@@ -71,7 +72,7 @@ export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getW
           : [];
         const scriptsDir = resolveSkillScriptsDir(root);
         if (!scriptsDir) {
-          deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_INIT_SKILL_MISSING', message: 'skill scripts not found (tried ANIC_SKILL_DIR / workspace .dsh / repo .dsh)' } }, requestId);
+          deps.send(res, 404, anicError('ANIC_SKILL_UNKNOWN_SCRIPT', 'skill scripts not found (tried ANIC_SKILL_DIR / workspace .dsh / repo .dsh)'), requestId);
           return;
         }
         const started = Date.now();
@@ -79,6 +80,8 @@ export function registerSelfInitRoute(ctx: unknown, deps: { send: SendLike; getW
           cwd: root,
           encoding: 'utf-8',
           timeout: 60_000,
+          // cycle-99b：自举初始化路由——每次 POST 弹一个 node 窗口（Windows）。
+          windowsHide: true,
         });
         const ok = result.status === 0;
         const body = {

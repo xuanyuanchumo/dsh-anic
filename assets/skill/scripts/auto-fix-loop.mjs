@@ -20,6 +20,12 @@ import {
   isTimeoutError,
   isBufferOverflowError,
 } from './lib/budget.mjs';
+// 智能策略库（P0 cycle-97）：recommendFixStrategy 是超时/重复/级联失败的
+// 策略决策单一来源。analyzeFailurePattern 以 stat 前缀别名导入——本文件
+// :189 已有同名本地函数（历史口径，保留以避免破坏既有测试对它的直接断言），
+// 两套实现并存但职责不同：本地版产出循环内部判据（repeating/cascading），
+// 策略库版产出统计摘要（avgBudgetUtilization 等），供报告层引用。
+import { recommendFixStrategy, analyzeFailurePattern as analyzeFailureStats, recommendOptimalBudget, FIX_STRATEGIES } from './lib/auto-fix-strategy.mjs';
 
 function loadConfig(projectDir) {
   // v1.8.3：唯一配置入口。auto-fix-loop 是修复驱动器，允许无配置运行（--test-cmd 兜底），
@@ -52,6 +58,7 @@ function runCommand(cmd, projectDir, timeoutMs) {
   try {
     const output = execSync(cmd, {
       cwd: projectDir, timeout: timeoutMs, stdio: 'pipe', encoding: 'utf-8',
+      windowsHide: true, // cycle-99b：auto-fix 循环每次修复命令不弹 cmd 窗口
     });
     return { success: true, output, timedOut: false, timeoutMs, durationMs: Date.now() - started };
   } catch (e) {
@@ -482,6 +489,24 @@ if (!finalSuccess) {
     const incidentPath = recordCircuitBreaker(projectDir, `Repeating failure (${analysis.pattern}) — structural root cause requires deeper analysis: ${analysis.rootCauseHypothesis}`);
     console.error(`Incident recorded: ${incidentPath}`);
     console.error(`Run: node org-status.mjs <project-dir> auto-fallback`);
+
+    // ── P0 策略引擎接入（cycle-97）：统计摘要 + 贝叶斯预算推荐 ──
+    // analyzeFailureStats（策略库版）产出循环本地分析没有的量化读数：
+    // 平均预算利用率、失败分布、总尝试数。预算推荐基于 P95 时长——
+    // 比「拍脑袋 ×1.5」更可辩护（P95 覆盖 95% 历史实耗，再留 30% 边际）。
+    const stats = analyzeFailureStats(attempts);
+    console.log(`  [stats] avg budget utilization: ${Math.round(stats.avgBudgetUtilization * 100)}%`
+      + ` | failure types: ${Object.keys(stats.failureDistribution).length}`
+      + ` | attempts: ${stats.totalAttempts}`);
+    if (analysis.timeoutDominant && stats.avgBudgetUtilization > 0.9) {
+      const budgetRec = recommendOptimalBudget(testTimeoutMs, attempts.map(a => ({
+        success: a.success, durationMs: a.durationMs ?? 0,
+      })));
+      console.log(`  [budget] recommended: ${humanMs(budgetRec.recommendedMs)} — ${budgetRec.justification}`);
+      if (budgetRec.confidenceInterval) {
+        console.log(`  [budget] confidence interval: ${humanMs(budgetRec.confidenceInterval[0])} ~ ${humanMs(budgetRec.confidenceInterval[1])}`);
+      }
+    }
   } else if (analysis.pattern === 'cascading') {
     console.log(`Cascading failure detected — attempting isolated fix of primary failure...`);
     console.log(`  (In L4 autonomous mode, AI should fix the root cause that cascades to secondary failures)`);

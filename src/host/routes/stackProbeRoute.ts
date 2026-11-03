@@ -3,6 +3,7 @@
  *
  * GET /anic/api/stack-probe  探测工作区技术栈并返回建议配置
  */
+import { sendAnicError } from './envelope.ts';
 import { type SnapshotCtx } from '../snapshotRoute.ts';
 import { probeStack, configToYaml } from '../runtime/stackProbe.ts';
 
@@ -22,7 +23,7 @@ export function registerStackProbeRoute(ctx: unknown, deps: RouteDeps): (() => v
 
   const d = c.webServer.register({ kind: 'exact', path: '/anic/api/stack-probe', handler: (req: unknown, res: unknown) => {
     const root = getWorkspaceRoot(req);
-    if (!root) { send(res, 404, { error: 'no workspace' }); return; }
+    if (!root) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request'); return; }
     const result = probeStack(root);
     send(res, 200, { ...result, configYaml: configToYaml(result.config) });
   }});

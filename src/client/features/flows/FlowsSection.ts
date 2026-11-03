@@ -28,6 +28,8 @@ import { renderFlows } from './renderFlows.ts';
 import { renderFlowMatrix } from './renderFlowMatrix.ts';
 // cycle-90：生命周期指标读数。
 import { renderLifecycleMetrics } from './renderLifecycleMetrics.ts';
+// cycle-101：有界视图读数（dsh-context 模式的消费端）。
+import { renderFlowViewReadout } from './renderFlowViewReadout.ts';
 
 interface FlowsSectionProps {
   store: PanelDataStore;
@@ -39,16 +41,20 @@ interface FlowsSectionProps {
 const selFlowsStatus = (s: PanelState) => s.flowsStatus;
 const selFlowMatrix = (s: PanelState) => s.flowMatrix;
 const selLifecycle = (s: PanelState) => s.lifecycleMetrics;
+// cycle-101：有界视图读数（模块级 selector，引用稳定）。
+const selFlowsView = (s: PanelState) => s.flowsView;
 
 /** 流程分区实现。 */
 function FlowsSectionImpl({ store, enabled }: FlowsSectionProps): ReactElement {
   const flowsStatus = usePanelSlice(store, selFlowsStatus);
   const flowMatrix = usePanelSlice(store, selFlowMatrix);
   const lifecycle = usePanelSlice(store, selLifecycle);
+  const flowsView = usePanelSlice(store, selFlowsView);
   // hooks 规则：订阅必须**无条件**调用（启停门控只影响 body 组装——下方三元）。
   const failure = useSectionFailure(store, 'flowsStatus');
   const matrixFailure = useSectionFailure(store, 'flowMatrix');
   const lifecycleFailure = useSectionFailure(store, 'lifecycleMetrics');
+  const flowsViewFailure = useSectionFailure(store, 'flowsView');
   // 关闭形态（renderSectionDisabled）优先于失败行——「关了什么」比「取不到」更根本。
   const body = enabled
     ? bodyOrFailure(renderFlows(flowsStatus), 'flows', failure)
@@ -61,7 +67,11 @@ function FlowsSectionImpl({ store, enabled }: FlowsSectionProps): ReactElement {
   const lifecycleBody = enabled
     ? bodyOrFailure(renderLifecycleMetrics(lifecycle), 'lifecycleMetrics', lifecycleFailure)
     : null;
-  const extras = [matrix, lifecycleBody].filter((x): x is ReactElement => x !== null);
+  // cycle-101：有界视图读数条挂在最顶部（先答「这是全部还是窗口」，再看明细）。
+  const viewReadout = enabled
+    ? bodyOrFailure(renderFlowViewReadout(flowsView?.view, flowsView?.distribution), 'flowsView', flowsViewFailure)
+    : null;
+  const extras = [viewReadout, matrix, lifecycleBody].filter((x): x is ReactElement => x !== null);
   const children = extras.length === 0
     ? body
     : Array.isArray(body)

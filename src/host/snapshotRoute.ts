@@ -13,11 +13,9 @@
  * 安全面：只读；路径来自宿主服务（registry/sessions）或**经校验的客户端选择器**
  * （X-ANIC-Workspace 头 / ?workspace= 查询参数），不接受任意路径；响应带 no-store。
  *
- * Q-1（cycle-77 修复，连接性缺陷）：工具面（toolsStatusGateway/toolsPointerGateway）
- * 宣传 `?workspace=<abs>` 形态的 URL，而本文件解析器只读 `X-ANIC-Workspace` 头——查询
- * 参数被完全忽略，后果不是报错而是**静默读错工作区**（curl `?workspace=dsh-anic` 得
- * `cycles.total=0 / band=L2`，换成请求头才 73）。修法：查询参数成为与头**同等级**的
- * 选择器（共用 acceptClaim 校验），优先级 头 > 查询 > registry > sessions > cwd。
+ * Q-1（cycle-77 修复）：查询参数与头同等级（共用 acceptClaim），优先级
+ * 头 > 查询 > registry > sessions > cwd。cycle-99：0.5 层会话证据链
+ * （X-ANIC-Session 头按 sessions 条目 id 精确映射，见 sessionWorkspaceClaim.ts）。
  *
  * CORS（P0-8 修订）：原文写「CORS（桌面/远程 UI 跨源可见）」并据此发了
  * `Access-Control-Allow-Origin: '*'` —— 该推理是错的。**桌面端不走本服务器**
@@ -30,6 +28,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { buildWorkflowSnapshot } from '../shared/snapshotCore.ts';
 import { corsHeaders, originFromRes } from './cors.ts';
+import { sessionOfReq, workspaceOfSessionClaim } from './runtime/sessionWorkspaceClaim.ts';
 
 export const SNAPSHOT_ROUTE = '/anic/api/workflow-snapshot';
 
@@ -55,11 +54,9 @@ export interface SnapshotCtx {
  * 导出供 routes/index.ts 复用（工作区解析全插件唯一实现，C 域一致性）。
  *
  * P2（桌面多会话错位）：sessions.list() 首条 cwd 与"当前查看面板的会话"无关——
- * 桌面宿主多会话并开时，面板可能显示的是会话 B，路由却按首条会话 A 的 cwd 取数
- * （实测桌面端 404 body 报 Studying 工作区而用户在 dsh-anic 会话）。客户端为此
- * 可在请求头带 X-ANIC-Workspace（面板从首个成功响应的 X-ANIC-Workspace 头学到
- * 的根路径）；请求头值必须仍然存在于宿主已知的合法工作区集合（registry/sessions）
- * 或含 .cycles 目录，才被采信——头是"选择器"不是"任意路径入口"（安全面不变）。
+ * 桌面多会话并开时会静默读错工作区。修法：客户端请求头 X-ANIC-Workspace（学头
+ * 回带）+ cycle-99 会话证据链 X-ANIC-Session（见 sessionWorkspaceClaim.ts）；
+ * 头是"选择器"不是"任意路径入口"（安全面不变）。
  */
 export function resolveWorkspaceRoots(ctx: SnapshotCtx, req?: unknown): string {
   // 0) 客户端声明的工作区：两个选择器、同一校验、严格优先级 头 > 查询 > registry >
@@ -69,6 +66,12 @@ export function resolveWorkspaceRoots(ctx: SnapshotCtx, req?: unknown): string {
     const accepted = acceptClaim(ctx, claim);
     if (accepted !== null) return accepted;
   }
+  // 0.5) 会话证据链（cycle-99）：sessionId 精确映射（详见 sessionWorkspaceClaim）。
+  const bySession = workspaceOfSessionClaim(
+    { sessions: ctx.sessions, acceptWorkspace: acceptClaim.bind(null, ctx) },
+    sessionOfReq(req),
+  );
+  if (bySession !== null) return bySession;
   try {
     const wsr = ctx.workspaceRegistry;
     if (wsr?.list) {

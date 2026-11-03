@@ -171,8 +171,11 @@ describe('cycle-38 T-3805：跨项目调用人体工学（args 首位绝对路�
     const r = await skill.execute({ script: 'quick-validate', workspace: WS_B, args: ['assets/skill'] });
     expect(r.exitCode).toBe(0);
     expect(String(r.stdout)).toContain('Skill Package Validation');
-    // 已装副本 = 技能根全部文件（含根 README.md，比 integrity 清单的 65 多 1）
-    expect(String(r.stdout)).toMatch(/Total files: 6[56]/);
+    // 已装副本 = 技能根全部文件（含根 README.md，比 integrity 清单的 65 多 1）。
+    // cycle-97：新增 lib/merkle-hash.mjs + lib/auto-fix-strategy.mjs ⇒ 68；
+    // 断言放开为区间（≥66 且 ≤99），技能包合理增长不再脆断——精确计数由
+    // 契约「白名单 ⇄ 底座集合恰好相等」守卫，此处只验证「全部文件被数到」。
+    expect(String(r.stdout)).toMatch(/Total files: (6[6-9]|[7-9]\d)\b/);
   });
 
   it('cycle-39 T-3902：quick-validate 绝对 skill-dir 形态不重写（原样透传，flow #17 成功形态回归）', async () => {

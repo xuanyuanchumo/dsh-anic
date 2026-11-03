@@ -108,6 +108,7 @@ function runScript(scriptName, scriptArgs = []) {
   const r = spawnSync('node', [scriptPath, projectDir, ...toArgvTokens(scriptArgs)], {
     timeout: 120000,
     encoding: 'utf-8',
+    windowsHide: true, // cycle-98：MCP 调用链每次 spawn 不弹控制台窗口
     maxBuffer: 16 * 1024 * 1024, // 大工作区 stderr 超 1MB 默认上限会 ENOBUFS
   });
   // 超时/无法启动（ENOENT）走 r.error；非零退出码是脚本的裁决，与启动失败区分

@@ -8,3 +8,9 @@ test-results/
 .codegraph-visualizer/
 
 .preview/
+
+# cycle-101：agent worktree 产物必须隔离在项目事实之外。
+# 实证：一次 create_worktree 把 766 个文件塞进 .agents/worktrees/，eval-runner 的
+# 源码扫描把它们当成项目源码（"1570 个文件 51.2% 变化"），评估基线被产物污染 ——
+# 用户明确要求「避免过度的产物影响判断」。gitignore 之外还要清目录（见本轮记录）。
+.agents/

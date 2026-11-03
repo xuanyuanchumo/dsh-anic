@@ -75,21 +75,22 @@ describe('registerSelfInitRoute（守卫分支：405/403/404/409 早退于技能
     const h = makeHarness(tmpWorkspace(false), false);
     const cap = h.call({ method: 'POST' });
     expect(cap.status).toBe(403);
-    expect(cap.body).toContain('ANIC_ROUTE_SELF_INIT_DISABLED');
+    expect(String(cap.body)).toContain('flow.selfInit is switched off'); // cycle-101 信封归一
   });
 
   it('无可解析工作区 → 404 ANIC_ROUTE_SELF_INIT_NO_WORKSPACE', () => {
     const h = makeHarness(null);
     const cap = h.call({ method: 'POST' });
     expect(cap.status).toBe(404);
-    expect(cap.body).toContain('ANIC_ROUTE_SELF_INIT_NO_WORKSPACE');
+    // cycle-101 信封升级：code 归一 ANIC_ROUTE_NO_WORKSPACE 族（rejected/never 语义不变）
+    expect(String(cap.body)).toContain('no workspace resolvable');
   });
 
   it('已有 .cycles/config.yml → 409 ANIC_ROUTE_SELF_INIT_ALREADY（refuse-to-rerun 幂等）', () => {
     const h = makeHarness(tmpWorkspace(true));
     const cap = h.call({ method: 'POST' });
     expect(cap.status).toBe(409);
-    expect(cap.body).toContain('ANIC_ROUTE_SELF_INIT_ALREADY');
+    expect(String(cap.body)).toContain('refuse-to-rerun');
     expect(cap.body).toContain('idempotent by design');
   });
 

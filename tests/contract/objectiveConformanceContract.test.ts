@@ -144,19 +144,31 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
      * 为什么这里**不**改成从 README 读回来：本断言的价值就是"两条独立计数器对同一个
      * 真相"；改成读 README 就退化成同义反复，README 写错时两边一起错（假绿）。
      */
-    expect(defs.length).toBe(76);
-    expect(defs.filter((d) => d.producedAt !== null).length).toBe(76);
+    expect(defs.length).toBe(77); // cycle-101 净增 GET /anic/api/flows/view
+    // 每条路由都必须有真注册点（producedAt 非空）—— 新路由同样得有，不留「只声明不生产」的洞。
+    expect(defs.filter((d) => d.producedAt !== null).length).toBe(77);
   });
 
   /* ── 以下四条对应 objective 的**扩展限定**（质量属性与全生命周期评审体系）── */
 
   it('⑨ 质量产物：测试报告 / 非功能验证报告 / 交付清单 三项证据齐备（Q2+Q8 的可判形式）', () => {
     const cycles = join(ROOT, '.cycles', 'cycles');
-    const dirs = readdirSync(cycles).filter((d) => /^cycle-\d+$/.test(d))
-      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6)));
-    expect(dirs.length, '无循环工作区').toBeGreaterThan(0);
-    // 取**最新**循环（本轮产物所在）——旧循环不必回溯补齐
-    const latest = join(cycles, dirs[dirs.length - 1] as string);
+    const archive = join(ROOT, '.cycles', 'archive');
+    // cycle-101：证据面覆盖「活跃区 + 归档区」——循环归档后活跃区**合法为空**
+    // （archive-cycle 的正常收口态）。只认活跃区会让「刚归档完」这个最该被
+    // 验证的时刻反而假红（与 coverageEvidenceContract 同一条修法：证据还在，
+    // 只是换了目录）。取两区并集里编号最大的循环作为致证对象。
+    const collect = (base: string): string[] => {
+      if (!existsSync(base)) return [];
+      return readdirSync(base).filter((d) => /^cycle-\d+$/.test(d));
+    };
+    const all = [
+      ...collect(cycles).map((d) => ({ name: d, dir: join(cycles, d) })),
+      ...collect(archive).map((d) => ({ name: d, dir: join(archive, d) })),
+    ].sort((a, b) => Number(a.name.slice(6)) - Number(b.name.slice(6)));
+    expect(all.length, '无循环工作区（活跃区与归档区都空）').toBeGreaterThan(0);
+    // 取**最新**循环（本轮产物所在；已归档的最新循环同样是有效致证）
+    const latest = all[all.length - 1]!.dir;
     const reports = join(latest, 'test-reports');
     expect(existsSync(reports), '缺 test-reports 目录（Q2 判据）').toBe(true);
     expect(readdirSync(reports).filter((f) => f.endsWith('.md')).length, 'Q2：测试报告为空').toBeGreaterThan(0);

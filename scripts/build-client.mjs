@@ -63,7 +63,8 @@ const CLIENT_ARGS = [
 
 /** 跑一次 tsdown；返回是否成功（**不在内部 exit**——调用方要先决定 dist/ 命运）。 */
 function run(args) {
-  const r = spawnSync(findTsdown(), args, { cwd: pluginDir, stdio: 'inherit', shell: true });
+  // windowsHide：shell:true 的 spawnSync 在 Windows 上同样会弹控制台窗口。
+  const r = spawnSync(findTsdown(), args, { cwd: pluginDir, stdio: 'inherit', shell: true, windowsHide: true });
   if (r.status !== 0) {
     console.error(`[build-client] tsdown failed: ${args.join(' ')}`);
     return false;
@@ -84,7 +85,7 @@ function wrapOnce(fromDir = cjsDir, toFile = join(distDir, 'client.js')) {
     join(fromDir, cjsFile),
     toFile,
     'dsh-anic',
-  ], { stdio: 'inherit' });
+  ], { stdio: 'inherit', windowsHide: true });
   return r.status === 0;
 }
 
@@ -155,7 +156,7 @@ function runNonWatchBuild() {
 
 if (watchMode) {
   rmSync(distDir, { recursive: true, force: true });
-  const child = spawn(findTsdown(), [...CLIENT_ARGS, '--watch'], { cwd: pluginDir, stdio: 'inherit', shell: true });
+  const child = spawn(findTsdown(), [...CLIENT_ARGS, '--watch'], { cwd: pluginDir, stdio: 'inherit', shell: true, windowsHide: true });
   let timer = null;
   let watcherAttached = false;
   const attachWatcher = () => {

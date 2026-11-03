@@ -1,25 +1,21 @@
 /**
  * Runtime INV Probes（docs/anic/12 §2.1 的 M1 落地切片）：GET /anic/api/self-check
  *
- * 六项探针（全部只读，绝不修改工作区）：
- *  P1 INV-13 确定性：同一 .cycles 两次 buildWorkflowSnapshot digest 必须全等。
- *  P2 INV-21 结构化身份：快照节点 id 全部来自结构化字段（`an-` 前缀契约），
- *     不含从自由文本解析的 id。
- *  P3 配置单入口：loadWorkspaceConfig 成功加载且 source != legacy
- *     （legacy=降级可用但响亮告警，missing=ok:false）。
- *  P4 agent 卡装载：loadAgentCards 无错误（15 张出厂卡）。
- *  P5 投影可重算（INV-18）：stepTrace(workflowGraph) 两次构建结果 JSON 全等。
- *  P6 诊断域隔离（INV-26 源码形态）：本探针自身仅读，不写 `.cycles/`。
- *  P7 能力索引 ⇄ 注册面（cycle-73）；P8 工具披露模式（cycle-74）。
- *  P9 双轨漂移（cycle-77 F-07）：`.dsh/skills` live 副本 vs `assets/skill` 发行源——
- *     台账 §7 的「live 被优先消费、发行源落后」缺口只报告不判，本探针给出可断言结论。
- *     适用面：仅当 live 副本已装（存在 SKILL.md）才探；未装时**省略**本项（双轨不成立，
- *     未安装由 skillIntegritySummary.installed=false 表达）；发行源缺失时明确 SKIP
- *     并置 skipped:true —— 不判红、也不假绿（allOk 不计 skipped 项）。
+ * 九项只读探针（绝不修改工作区）：
+ *  P1 INV-13 确定性：同一 .cycles 两次快照 digest 全等。
+ *  P2 INV-21 结构化身份：节点 id 全来自结构化字段（`an-` 前缀契约）。
+ *  P3 配置单入口：loadWorkspaceConfig 成功且 source != legacy。
+ *  P4 agent 卡装载：loadAgentCards 无错误。
+ *  P5 投影可重算（INV-18）：stepTrace 两次构建 JSON 全等。
+ *  P6 诊断域隔离（INV-26 源码形态）：本探针自身仅读不写 `.cycles/`。
+ *  P7 能力索引 ⇄ 注册面；P8 工具披露模式。
+ *  P9 双轨漂移：`.dsh/skills` live 副本 vs `assets/skill` 发行源——只报告不判红；
+ *     未装时省略本项（双轨不成立），发行源缺失时 SKIP 并置 skipped:true。
  *
  * 失败不抛异常：逐项 ok:false + detail，整体 200（诊断端点的诚实形态——
  * 探针本身不可用才是 500）。
  */
+import { sendAnicError, anicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -228,7 +224,7 @@ export function registerSelfCheckRoute(
     handler: (req: unknown, res: unknown) => {
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SELF_CHECK_NO_WORKSPACE', message: 'no workspace resolvable' } });
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'));
         return;
       }
       try {
@@ -241,7 +237,7 @@ export function registerSelfCheckRoute(
         });
         deps.send(res, 200, result, result.requestId);
       } catch (e) {
-        deps.send(res, 500, { error: e instanceof Error ? e.message : String(e) });
+        sendAnicError(deps.send, res, 'ANIC_SKILL_EXEC_FAILED', e instanceof Error ? e.message : String(e), { effectState: 'unknown' });
       }
     },
   });

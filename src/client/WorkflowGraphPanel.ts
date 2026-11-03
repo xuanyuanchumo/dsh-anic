@@ -76,13 +76,31 @@ export function WorkflowGraphPanel(): ReactElement {
   // sessions.list() 首条。服务端只把它当选择器（必须命中宿主已知工作区集或
   // 含 .cycles 才采信），不是任意路径入口。
   const workspaceRef = useRef<string | null>(null);
+  // cycle-99（工作区隔离）：所属会话 id——从 document 锚点读（integration 渲染
+  // 时写入），随每个请求带 `X-ANIC-Session` 头；服务端按 sessions 条目 id 精确
+  // 映射工作区（多会话并开时唯一无歧义的归属通道；头缺失回落既有链）。
+  const sessionRef = useRef<string | null>(null);
+  const sessionOfEnv = useCallback((): string | null => {
+    if (sessionRef.current !== null) return sessionRef.current;
+    try {
+      const v = document.body.dataset.anicSessionId;
+      if (typeof v === 'string' && v !== '') {
+        sessionRef.current = v;
+        return v;
+      }
+    } catch { /* 无 DOM（测试/沙盒）→ 无会话锚 */ }
+    return null;
+  }, []);
   // cycle-89：工作区世代号 —— 工作区**真的换了**才推进（`reloadKey` 变化不算）。
   const workspaceEpochRef = useRef<string | null>(null);
   const wsHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { Accept: 'application/json' };
     if (workspaceRef.current) h['X-ANIC-Workspace'] = workspaceRef.current;
+    // cycle-99：会话锚——服务端按 sessionId 精确映射工作区（头 > 查询 > sessionId > …）。
+    const sid = sessionOfEnv();
+    if (sid) h['X-ANIC-Session'] = sid;
     return h;
-  }, []);
+  }, [sessionOfEnv]);
   // 隔离选项（cycle-89）：载荷守卫 + 在途丢弃。
   const isolationOptions = useCallback((): PanelFetchOptions => ({
     expectedWorkspace: workspaceRef.current,

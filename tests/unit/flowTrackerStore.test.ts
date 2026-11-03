@@ -225,7 +225,7 @@ describe('生命周期指标路由：counter 口径（cycle-91 实测缺陷的�
     expect(win.truncated).toBe(false);
   });
 
-  it('拿不到工作区 ⇒ 500（fail-closed，绝不返回全项目流）', async () => {
+  it('拿不到工作区 ⇒ 404（fail-closed，绝不返回全项目流；cycle-101 信封归一）', async () => {
     const ctx = {
       webServer: {
         register: (route: { kind: 'exact' | 'prefix'; path: string; handler: (req: unknown, res: unknown) => void }) => {
@@ -251,7 +251,7 @@ describe('生命周期指标路由：counter 口径（cycle-91 实测缺陷的�
       getWorkspaceRoot: () => null,
     });
     captured?.({}, {});
-    expect(lastResponse.code, '拿不到工作区必须 500').toBe(500);
-    expect(lastResponse.body).toEqual({ error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    expect(lastResponse.code, '拿不到工作区必须 404（fail-closed）').toBe(404);
+    expect((lastResponse.body as { error: { code: string } }).error.code).toBe('ANIC_ROUTE_NO_WORKSPACE'); // cycle-101 信封
   });
 });

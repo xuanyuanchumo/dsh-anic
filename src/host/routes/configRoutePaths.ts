@@ -11,6 +11,7 @@
  * - 无工作区 → 404（绝不猜一个默认工作区写进去）；
  * - 真写的回读断言在 applyPathOverrides 内部（写后重新解析整份表）。
  */
+import { sendAnicError } from './envelope.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import { buildPathPostBody } from './configRouteEdits.ts';
 import type { ConfigRouteDeps, WsLike } from './configRoute.ts';
@@ -32,7 +33,7 @@ export function registerConfigRoutePaths(ctx: unknown, deps: ConfigRouteDeps): A
       const method = (req as { method?: string }).method ?? 'GET';
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable', { requestId });
         return;
       }
       // GET：只回覆盖视图（路径表本身在 /anic/api/config 的 paths 里——
@@ -43,12 +44,12 @@ export function registerConfigRoutePaths(ctx: unknown, deps: ConfigRouteDeps): A
           deps.send(res, 200, { ...(out.payload as Record<string, unknown>), readonly: true }, requestId);
         } catch (e) {
           log.error(`paths GET failed: ${e instanceof Error ? e.message : String(e)}`, requestId);
-          deps.send(res, 500, { error: { code: 'ANIC_PATHS_READ_FAILED', message: e instanceof Error ? e.message : String(e) } }, requestId);
+          sendAnicError(deps.send, res, 'ANIC_PATHS_READ_FAILED', e instanceof Error ? e.message : String(e), { requestId });
         }
         return;
       }
       if (method !== 'POST') {
-        deps.send(res, 405, { error: 'GET or POST only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'GET or POST only', { requestId });
         return;
       }
       void readBody(req as RouteReq).then((body) => {
@@ -58,7 +59,7 @@ export function registerConfigRoutePaths(ctx: unknown, deps: ConfigRouteDeps): A
           deps.send(res, out.status, out.payload, requestId);
         } catch (e) {
           log.error(`paths POST failed: ${e instanceof Error ? e.message : String(e)}`, requestId);
-          deps.send(res, 500, { error: { code: 'ANIC_PATHS_WRITE_FAILED', message: e instanceof Error ? e.message : String(e) } }, requestId);
+          sendAnicError(deps.send, res, 'ANIC_PATHS_WRITE_FAILED', e instanceof Error ? e.message : String(e), { requestId });
         }
       });
     },

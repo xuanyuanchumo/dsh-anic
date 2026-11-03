@@ -23,8 +23,18 @@
 import { createElement, type ReactElement } from 'react';
 import type { WorkflowEdge } from '../../workflowGraphData.ts';
 import { OPACITY, visibilityOf, type FilterView } from './graphFilter.ts';
-import { renderEdge } from './graphNodeRender.ts';
+import { renderEdge, edgePath, edgeStyleOf } from './graphNodeRender.ts';
 import { traceRoleOf, type TraceResult } from './graphTrace.ts';
+import { renderEdgeHit } from './graphEdgeHit.ts';
+
+/** 命中层几何便捷式（与 renderEdge 内部同一 edgePath，保证逐字节一致）。 */
+function edgePathOf(
+  pa: { x: number; y: number },
+  pb: { x: number; y: number },
+  type: string,
+): string {
+  return edgePath(pa, pb, edgeStyleOf(type).curve).d;
+}
 
 /** 边产出入参。 */
 export interface EdgeRenderInput {
@@ -33,6 +43,11 @@ export interface EdgeRenderInput {
   positionOf: ReadonlyMap<string, { x: number; y: number }>;
   filterView: FilterView | undefined;
   trace: TraceResult | undefined;
+  /**
+   * 是否渲染边命中层（cycle-98）。缺省 false = 零参调用仍是改造前的元素树
+   * （smoke / 纯渲染契约零变化）；交互态显式打开。
+   */
+  edgeHits?: boolean | undefined;
 }
 
 /** 边的追溯方向（'down' | 'up' | undefined）。 */
@@ -51,9 +66,10 @@ export function edgeTraceOf(trace: TraceResult | undefined, e: WorkflowEdge): Ed
   return undefined;
 }
 
-/** 产出全部边的元素（顺序 = 输入顺序，与边原样保留的不变量一致）。 */
+/** 产出全部边的元素（顺序 = 输入顺序，与边原样保留的不变量一致）。
+ *  cycle-98：`edgeHits` 打开时每条可见边后**紧随**其命中层 overlay（同几何）。 */
 export function renderEdges(input: EdgeRenderInput): ReactElement[] {
-  const { edges, positionOf, filterView, trace } = input;
+  const { edges, positionOf, filterView, trace, edgeHits } = input;
   const out: ReactElement[] = [];
   // 边流量编码（cycle-91）：预计算每个**目标节点**被多少条同类边支撑（O(E) 单遍）。
   // 只对「证据类」边有意义（cycle-seq 是时序，支撑数无意义）⇒ 其余类型不启用。
@@ -88,6 +104,15 @@ export function renderEdges(input: EdgeRenderInput): ReactElement[] {
         ? {}
         : { trace: edgeTraceOf(trace, e) as 'down' | 'up' | undefined }),
     }));
+    // 命中层（cycle-98）：overlay 与可见边**同几何**——路径 d 已在上面算好，
+    // 从 renderEdge 拿不到（它内聚）⇒ 在这里用同一对端点重算一次 d。
+    // 几何函数是同一个 `edgePath`，两处调用输入相同 ⇒ 输出逐字节一致（可单测钉死）。
+    if (edgeHits === true) {
+      out.push(renderEdgeHit({
+        from: e.from, to: e.to, type: e.type,
+        d: edgePathOf(pa, pb, e.type),
+      }));
+    }
   }
   return out;
 }

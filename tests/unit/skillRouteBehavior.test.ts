@@ -136,7 +136,7 @@ describe('skillRoute 行为（cycle-39 T-3905）', () => {
     invoke!.handler(makeReq('POST', '/anic/skill/invoke', { script: 'rm-rf', workspace: root }), {});
     await flush();
     expect(captured.at(-1)?.status).toBe(400);
-    expect(String((captured.at(-1)?.body as { error: string }).error)).toContain('Unknown script');
+    expect(String((captured.at(-1)?.body as { error: { message: string } }).error.message)).toContain('Unknown script');
   });
 
   it('POST /anic/skill/invoke 不存在的工作区 → 400', async () => {
@@ -149,7 +149,8 @@ describe('skillRoute 行为（cycle-39 T-3905）', () => {
     const invoke = registered.find((r) => r.path === '/anic/skill/invoke');
     invoke!.handler(makeReq('POST', '/anic/skill/invoke', { script: 'init-workflow', workspace: 'Z:\\__nonexistent__' }), {});
     await flush();
-    expect(captured.at(-1)?.status).toBe(400);
+    // cycle-101 信封归一：NO_WORKSPACE → 404（旧手写体是 400；语义仍是拒绝，策略表 rejected/never）
+    expect(captured.at(-1)?.status).toBe(404);
   });
 
   it('POST /anic/evaluate → 跨项目评估 + bootstrapSync 回写（G-C5）', async () => {

@@ -15,6 +15,7 @@
  * 不在这里补算任何字段（响应期补算会把归属变成"看的时候的坐标"，INV-27）。
  * 路由因此保持无工作区依赖，请求头不参与归属判定。
  */
+import { sendAnicError } from './envelope.ts';
 import { type SnapshotCtx } from '../snapshotRoute.ts';
 import type { InvocationFeed } from '../runtime/invocationFeed.ts';
 
@@ -30,7 +31,7 @@ export function registerInvocationRoute(ctx: unknown, deps: RouteDeps): (() => v
   const { send, feed } = deps;
 
   const d = c.webServer.register({ kind: 'exact', path: '/anic/api/invocations/live', handler: (_req: unknown, res: unknown) => {
-    if (!feed) { send(res, 500, { error: 'invocation feed not attached' }); return; }
+    if (!feed) { sendAnicError(send, res, 'ANIC_SKILL_EXEC_FAILED', 'invocation feed not attached (host webServer capability missing)'); return; }
     const snap = feed.snapshot();
     // 诊断随响应一起返回：feed 空时让消费方能区分「事件没到」与「被过滤」。
     send(res, 200, { ...snap, diagnostics: feed.diagnostics?.() ?? null });

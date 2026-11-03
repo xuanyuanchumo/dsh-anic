@@ -173,11 +173,11 @@ export function evaluateH4(
 /** 变更文件清单：git diff HEAD~1 优先，失败回退 git status --porcelain（技能同款回退链）。 */
 function getGitChangedFiles(workspaceRoot: string): string[] {
   try {
-    const out = execSync('git diff --name-only HEAD~1', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+    const out = execSync('git diff --name-only HEAD~1', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe', windowsHide: true });
     return out.trim().split('\n').filter(Boolean);
   } catch {
     try {
-      const out = execSync('git status --porcelain', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+      const out = execSync('git status --porcelain', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe', windowsHide: true });
       return out.trim().split('\n').filter(Boolean).map((line) => line.substring(3));
     } catch { return []; }
   }
@@ -196,7 +196,7 @@ export function checkH2(workspaceRoot: string): HitlResult {
   const hasGitHistory = existsSync(join(workspaceRoot, '.git'));
   let destructiveCommandLines: string[] = [];
   try {
-    const diff = execSync('git diff HEAD~1', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+    const diff = execSync('git diff HEAD~1', { cwd: workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: 'pipe', windowsHide: true });
     destructiveCommandLines = diff.split('\n')
       .filter((line) => line.startsWith('+') && isDestructiveCommandLine(line.slice(1).trim()))
       .map((line) => line.slice(1).trim());

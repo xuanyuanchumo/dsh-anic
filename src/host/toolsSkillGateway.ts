@@ -1,9 +1,9 @@
 /**
- * Skill-domain DSH tools — anic_install（原生安装引导）+ anic_skill（全白名单通用网关）。
+ * Skill 调用网关 DSH 工具——anic_skill（全白名单通用网关）。
  *
  * 拆分自 tools.ts（T3 ≤250 行模块化纪律，truthAudit T3 结构守卫实测拦截 320 行）。
- * 工具域拆分与「路由按端点拆」同构：eval/gate 命名工具留 tools.ts，
- * 技能调用域（安装 + 通用网关）独立成文件。
+ * cycle-101：安装/修复域（anic_install/anic_skill_repair）再拆至 toolsSkillInstall.ts
+ * （一域一文件；本文件只留「脚本调用网关」单一职责，touch 256→186 行）。
  *
  * 用户需求契约：**所有 15 个功能业务内容脚本必须能在 DSH 里原生调用** ——
  * anic_skill 的 script 枚举在运行时取自 listSkillScripts()（单一事实源），
@@ -22,102 +22,22 @@ import {
   validateWorkspace,
   isAllowedScript,
   listSkillScripts,
-  autoInstallSkill,
-  isSkillInstalled,
-  inlineSkillRoot,
   resolveQuickValidateSkillDir,
 } from './skillInvoker.ts';
-import { verifySkillInstall, repairSkillInstall } from './skillIntegrity.ts';
-import {
-  loadFlowTracker,
-  startFlow,
-  markRunning,
-  finishFlow,
-} from './runtime/flowTracker.ts';
-import {
-  skillPresentCall,
-  skillPresentResult,
-  terminalResult,
-  genericCall,
-} from './presentation.ts';
+import { loadFlowTracker, startFlow, markRunning, finishFlow } from './runtime/flowTracker.ts';
+// cycle-99c：anic_skill 超时预算接单一事实源 bootstrapBudget——旧自写 `?? 60000`
+// 对实测 74–93s 的 eval-runner 必 TIMEOUT（flow #158/#159），且 Infinity/NaN 无收口
+// （Node 把 Infinity 视为 1ms → 子进程秒杀）。
+import { BOOTSTRAP_STEP_TIMEOUT_MS, resolveSkillInvokeTimeout } from './runtime/bootstrapBudget.ts';
+import { skillPresentCall, skillPresentResult, terminalResult, genericCall, skillResultWithMeta } from './presentation.ts';
 
-/** 注册技能域 DSH 工具（anic_install/anic_skill）。 */
+/** 注册技能域 DSH 工具（anic_skill 网关；安装域在 toolsSkillInstall.ts）。 */
 export function registerSkillGatewayTools(
   tools: ToolsSlot,
   deps: { getRoot: () => string | null; register: (tool: ToolRegistration) => (() => void) | null | undefined },
 ): Array<(() => void) | null> {
   const disposers: Array<(() => void) | null> = [];
   const register = deps.register; // 调用方已在槽位守卫后收窄（tools.ts `!tools?.register`）
-
-  // Tool: anic_install — install/update the bundled skill into workspace
-  // （原生执行 autoInstallSkill，不再只回 URL——「所有内容脚本能原生调用」的
-  //   前置：先把技能装进工作区；installUrl 保留作浏览器入口兼容。
-  //   eco P0：安装即建锚——返回 integrity（inline 直比 + 清单兜底）。）
-  disposers.push(register({
-    name: 'anic_install',
-    description: 'Use when a workspace lacks the ai-native-iteration-cycle skill or has an outdated version — '
-      + 'before first use in a fresh project, or when skill scripts are not found. '
-      + 'Triggers: 安装技能 / install skill / 初始化 anic / skill not found / 技能版本.',
-    output: makeToolOutput(),
-    parameters: {
-      type: 'object',
-      properties: {
-        workspace: { type: 'string', description: 'Target project directory' },
-      },
-    },
-    presentCall: (args) => genericCall('anic_install', 'edit', { workspace: args.workspace }),
-    presentResult: () => ({ card: 'generic' as const, title: 'anic_install ✓' }),
-    execute: safeHandler(async (args) => {
-      const root = (args.workspace as string) ?? deps.getRoot() ?? '';
-      if (!root) return { error: 'no workspace' };
-      // 只做形状校验（拒绝路径遍历），不要求目录已存在——安装本身就是
-      // 把技能装进（可能尚不存在的）全新工作区的引导动作，autoInstallSkill
-      // 会 mkdirSync recursive；先跑 validateWorkspace 会让安装永远无法
-      // bootstrap 新目录（vitest 实测 installed=undefined）。
-      if (root.includes('..')) return { error: 'path traversal not allowed' };
-      const r = autoInstallSkill(root);
-      return {
-        installed: r.installed,
-        path: r.path,
-        error: r.error ?? null,
-        skillInstalled: isSkillInstalled(root),
-        // eco P0：安装后立即校验（inline 权威直比），漂移当场暴露而非潜伏到评估期
-        integrity: r.installed ? verifySkillInstall(r.path, inlineSkillRoot()) : null,
-        installUrl: `/anic/skill/install?workspace=${encodeURIComponent(root)}`,
-      };
-    }),
-  }) ?? null);
-
-  // Tool: anic_skill_repair — eco P0 repair 语义（doctor 见 anic_status/skill status）。
-  // 只重装差异文件（缺失/尺寸/哈希不对），清单随修复重写；extras 只报告不删除。
-  disposers.push(register({
-    name: 'anic_skill_repair',
-    description: 'Use when the installed ai-native-iteration-cycle skill copy is corrupted or drifted from the '
-      + 'bundled original — after anic_status or skill status reports integrity mismatches, or skill scripts '
-      + 'behave unexpectedly after manual edits. Triggers: 修复技能 / repair skill / 技能损坏 / 技能副本 / 完整性.',
-    output: makeToolOutput(),
-    parameters: {
-      type: 'object',
-      properties: {
-        workspace: { type: 'string', description: 'Target project directory (default: current workspace)' },
-      },
-    },
-    presentCall: (args) => genericCall('anic_skill_repair', 'edit', { workspace: args.workspace }),
-    presentResult: () => ({ card: 'generic' as const, title: 'anic_skill_repair ✓' }),
-    execute: safeHandler(async (args) => {
-      const root = (args.workspace as string) ?? deps.getRoot() ?? '';
-      if (!root) return { error: 'no workspace' };
-      if (root.includes('..')) return { error: 'path traversal not allowed' };
-      const installedDir = join(root, '.dsh', 'skills', 'ai-native-iteration-cycle');
-      if (!isSkillInstalled(root)) return { error: 'skill not installed (run anic_install first)' };
-      const r = repairSkillInstall(installedDir, inlineSkillRoot());
-      return {
-        repairedCount: r.repaired.length,
-        repaired: r.repaired,
-        integrity: r.verify,
-      };
-    }),
-  }) ?? null);
 
   // Tool: anic_skill — 全部 15 个白名单业务脚本的原生 DSH 调用网关。
   // 覆盖性契约：脚本枚举在运行时取自 listSkillScripts()（单一事实源，
@@ -147,7 +67,7 @@ export function registerSkillGatewayTools(
             + 'NOTICE: quick-validate is the one script whose first positional is the SKILL DIR '
             + '(e.g. "assets/skill" — the gateway resolves it to the installed copy), not the project dir.',
         },
-        timeout: { type: 'number', description: 'Timeout ms (default 60000, hard cap 120000)' },
+        timeout: { type: 'number', description: `Timeout ms (default ${BOOTSTRAP_STEP_TIMEOUT_MS}; cap = self-bootstrap step budget)` },
       },
       required: ['script'],
     },
@@ -189,7 +109,10 @@ export function registerSkillGatewayTools(
           // 非法路径（不存在/不是目录）→ 不吞，让脚本侧的数量守卫报错（更精确的失败信息）。
         }
       }
-      const timeout = typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : 60000;
+      // cycle-99c：默认与上限同源 bootstrapBudget（与同步/异步入口、bootstrap 网关一致）。
+      const timeout = resolveSkillInvokeTimeout(
+        typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : BOOTSTRAP_STEP_TIMEOUT_MS,
+      );
 
       // cycle-39 T-3902（flow #29 实证）：quick-validate 的 skill-dir 相对形态
       // （"assets/skill"——工具描述与 SKILL.md 教的正是这个形态）在 spawn
@@ -207,6 +130,8 @@ export function registerSkillGatewayTools(
       // 注意：重定向后流程记账落在**目标工作区**（调用作用域在哪，证据就落哪）。
       const cyclesDir = join(effectiveWs, '.cycles');
       if (!existsSync(cyclesDir)) mkdirSync(cyclesDir, { recursive: true });
+      // cycle-101：startedAt 锚定 meta.durationMs——完成瞬间才存在的耗时事实。
+      const startedAtMs = Date.now();
       let trackerState = loadFlowTracker(cyclesDir);
       const { state: startedState, flowId } = startFlow(cyclesDir, trackerState, script, effectiveWs, extraArgs);
       trackerState = startedState;
@@ -221,7 +146,13 @@ export function registerSkillGatewayTools(
 
       trackerState = finishFlow(cyclesDir, trackerState, flowId, result);
 
-      return {
+      // cycle-101（presentationMeta 投影器）：应持久化的呈现事实打进 meta——
+      // 宿主把它持久化到 result.meta，回放时 terminalResult 的 meta 通道重建
+      // exitCode/durationMs（直播/回放双路径，marker 尾巴 grep 友好）。
+      // aborted 语义映射 cancelled（工具级取消是事实，回放必须可见）。
+      // InvokeResult 无 signal 字段（只有 aborted 布尔）——不伪造 signal。
+      // 统一经 skillResultWithMeta 收口（单一生产端，避免两处手写 meta 漂移）。
+      return skillResultWithMeta({
         flowId,
         script: result.script,
         exitCode: result.exitCode,
@@ -234,7 +165,9 @@ export function registerSkillGatewayTools(
         durationMs: result.durationMs,
         stdout: result.stdout.slice(0, 8000),
         stderr: result.stderr.slice(0, 4000),
-      };
+        // skillResultWithMeta 从这两个字段派生 meta（cancelled/exitCode）
+        ...(result.aborted ? { cancelled: true } : {}),
+      }, { script, startedAt: startedAtMs });
     }),
   }) ?? null);
 

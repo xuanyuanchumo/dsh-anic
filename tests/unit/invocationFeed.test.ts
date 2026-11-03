@@ -326,7 +326,7 @@ describe('registerInvocationRoute（路由）', () => {
     const { res, captured } = makeRes();
     handler({}, res);
     expect(captured.status).toBe(500);
-    expect(String((JSON.parse(captured.body ?? '{}') as { error: string }).error)).toContain('not attached');
+    expect(String((JSON.parse(captured.body ?? '{}') as { error: { message: string } }).error.message)).toContain('not attached'); // cycle-101 信封归一
   });
   it('接线后的 feed → 路由响应携带实时诊断计数', () => {
     const handlers = new Map<string, Array<(...a: unknown[]) => void>>();

@@ -141,6 +141,9 @@ export function assemblyGraphOptionsOf(input: RenderAssemblyInput): GraphRenderO
     onNodeTrace: input.onNodeTrace,
     // 泳道表头（cycle-90）：坐标全部由布局算出，渲染层只画。
     laneHeaders: true,
+    // 边命中层（cycle-98）：交互态打开——292 条边悬停可感知（透明 overlay +
+    // 原生 title），零新 React 状态，2s 轮询重建成本不变。
+    edgeHits: true,
   };
 }
 

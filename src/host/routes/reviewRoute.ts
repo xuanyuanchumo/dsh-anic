@@ -6,6 +6,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { anicError } from './envelope.ts';
 import { join } from 'node:path';
 import {
   probeLlm,
@@ -75,12 +76,12 @@ export function registerReviewRoute(
       body = JSON.parse(bodyText);
     } catch {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'INVALID_JSON', message: t('review.badJson') }));
+      res.end(JSON.stringify(anicError('ANIC_ROUTE_BAD_REQUEST', t('review.badJson'))));
       return;
     }
     if (!isReviewBody(body) || typeof body.gate !== 'string' || typeof body.role !== 'string') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'INVALID_REQUEST', message: t('review.missingFields') }));
+      res.end(JSON.stringify(anicError('ANIC_ROUTE_BAD_REQUEST', t('review.missingFields'))));
       return;
     }
     const gate = body.gate;
@@ -99,7 +100,7 @@ export function registerReviewRoute(
     const card = cards.get(cardId);
     if (card === undefined) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'AGENT_NOT_FOUND', message: t('review.cardNotFound', { cardId }) }));
+      res.end(JSON.stringify(anicError('ANIC_SKILL_UNKNOWN_SCRIPT', t('review.cardNotFound', { cardId }))));
       return;
     }
 
@@ -205,7 +206,7 @@ export function registerReviewRoute(
     }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'INTERNAL', message: err instanceof Error ? err.message : String(err) }));
+      res.end(JSON.stringify(anicError('ANIC_SKILL_EXEC_FAILED', err instanceof Error ? err.message : String(err), { effectState: 'unknown' })));
     }
   });
 }

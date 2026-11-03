@@ -27,6 +27,7 @@ import { token } from '../../../shared/tokens.ts';
 import { gt } from './graphText.ts';
 import type { PositionedNode } from './graphLayout.ts';
 import { clampPan, type Rect, type Size, type Viewport } from './graphViewport.ts';
+import { gateFillOf } from './gateColors.ts';
 
 /** 小地图尺寸（屏幕像素）。120×80 是"看得清形状但不抢图区"的最小面。 */
 export const MINIMAP_W = 120;
@@ -128,6 +129,12 @@ export interface MiniMapInput {
   size: Size;
   /** 当前焦点节点（"我在看哪个"在大图上难找，在小图上更该有）。 */
   focusId: string | null;
+  /**
+   * 节点裁决表（cycle-98）：存在时缩略点按**裁决色**着色（与主图同源
+   * `gateFillOf`），小地图从"灰点云"升级为"裁决热力图"——FAIL/G3 门禁位置
+   * 一眼可辨。缺省 undefined = 焦点/灰点行为与改造前一致（零参契约不变）。
+   */
+  verdicts?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -138,7 +145,7 @@ export interface MiniMapInput {
  * 世界 `<g>` 的**兄弟**节点，直接挂在根 svg 上。
  */
 export function renderMiniMap(input: MiniMapInput): ReactElement {
-  const { nodes, bounds, viewport, size, focusId } = input;
+  const { nodes, bounds, viewport, size, focusId, verdicts } = input;
   const origin = minimapOrigin(size);
   const { x, y } = origin;
   const box = viewportBoxInMinimap(viewport, size, bounds);
@@ -165,17 +172,25 @@ export function renderMiniMap(input: MiniMapInput): ReactElement {
       strokeWidth: 0.8, opacity: 0.92,
     }),
     // 缩略点：每节点一个 rect（**不用 circle**，见文件头）。
-    ...nodes.map((n) => createElement('rect', {
-      key: `mm-${n.id}`,
-      'data-anic-graph-minimap-node': n.id,
-      x: n.x * tr.k + tr.dx,
-      y: n.y * tr.k + tr.dy,
-      width: Math.max(1.2, n.w * tr.k),
-      height: Math.max(1.2, n.h * tr.k),
-      rx: 0.6, ry: 0.6,
-      fill: n.id === focusId ? token('anic-focus-ring') : token('anic-text-faint'),
-      opacity: n.id === focusId ? 1 : 0.5,
-    })),
+    // cycle-98：verdicts 在场时按裁决色着色（与主图同源 gateFillOf——同一份
+    // 别名表，杜绝"小地图一种色、主图另一种色"的双真相源）；无裁决回落灰点。
+    ...nodes.map((n) => {
+      const isFocus = n.id === focusId;
+      const fill = isFocus
+        ? token('anic-focus-ring')
+        : (verdicts === undefined ? null : gateFillOf(verdicts.get(n.id))) ?? token('anic-text-faint');
+      return createElement('rect', {
+        key: `mm-${n.id}`,
+        'data-anic-graph-minimap-node': n.id,
+        x: n.x * tr.k + tr.dx,
+        y: n.y * tr.k + tr.dy,
+        width: Math.max(1.2, n.w * tr.k),
+        height: Math.max(1.2, n.h * tr.k),
+        rx: 0.6, ry: 0.6,
+        fill,
+        opacity: isFocus ? 1 : 0.5,
+      });
+    }),
     // 视口矩形：小地图的**唯一**动态元素，"我在看哪一块"就靠它。
     createElement('rect', {
       key: 'minimap-viewport',

@@ -70,11 +70,14 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     if (r !== undefined && r.width > 0 && r.height > 0) return { width: r.width, height: r.height };
     return FALLBACK_SIZE;
   }, []);
+  // cycle-99/100：时间轴回放同属观察模式——Esc 一并退出（含角色筛选归零）。
+  const interactionRef = useRef<ReturnType<typeof useGraphInteraction> | null>(null);
   const clearFilter = useCallback((): void => {
-    setFilter(EMPTY_FILTER);
-    setFocusId(null);    // Escape 的语义是"退出所有观察模式"：只清筛选而把追溯留着，用户按了 Esc
-    // 却发现图还是花的——那是"键位没反应"的观感。
+    // Escape 语义是"退出所有观察模式"：清筛选但保留 roles 键的存在性（undefined 形态不变）。
+    setFilter((f) => ({ types: [], verdicts: [], query: '', roles: f.roles === undefined ? undefined : [] }));
+    setFocusId(null);
     setTraceRoot(null);
+    interactionRef.current?.timeline.exit();
   }, []);
 
   const gestures = useViewportGestures(layout, { sizeOf, onEscape: clearFilter });
@@ -155,6 +158,8 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     workspace,
   });
   const view = interaction.view;
+  // 回调时序桥：clearFilter（上方闭包）经此读到最新 interaction（见其注释）。
+  interactionRef.current = interaction;
 
   /** 小地图点击 → 局部坐标 → 纯函数换算 → 过钳制的视口。 */
   const onMinimapClick = useCallback((local: { x: number; y: number }): void => {
@@ -188,8 +193,11 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
       note: view.note,
     },
     // cycle-95：路径模式开关 + 角色图例读数（两者都走「缺省不渲染」的同一形状）。
+    // cycle-100：角色图例升级为可点选筛选（activeRoles/onToggleRole 缺省 = 纯展示）。
     path: { active: interaction.path.model.active, onToggle: interaction.path.toggle },
     roles: interaction.roleStats,
+    activeRoles: interaction.activeRoles,
+    onToggleRole: interaction.onToggleRole,
     onNodeClick: interaction.nodeClick,
     hasMoved: gestures.hasMoved,
     keyHandler: gestures.onKeyDown, describedBy: KEYHINT_ID, onNodeTrace,

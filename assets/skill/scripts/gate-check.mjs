@@ -28,6 +28,20 @@ function loadConfig(projectDir) {
 // 修字典序缺陷：数值序取最新 cycle（原 .sort().pop() 在 cycle-10 之后选错目录）
 const getLatestCycle = getLatestCycleDir;
 
+/**
+ * cycle 的**真实目录**：活跃区优先，归档区回退。
+ * cycle-101：全部循环归档后活跃区合法为空（archive-cycle 正常收口态），
+ * 旧实现一律拼 .cycles/cycles/<name> ⇒ G0/G1/G2 全判「缺失」并**写进不可变账本**
+ * （假 FAIL 永久留痕，比评估器侧的假红更严重）。
+ */
+function cycleBaseDir(projectDir, cycleName) {
+  const active = join(projectDir, '.cycles', 'cycles', cycleName);
+  if (existsSync(active)) return active;
+  const archived = join(projectDir, '.cycles', 'archive', cycleName);
+  if (existsSync(archived)) return archived;
+  return active;
+}
+
 // cycle-79 修 O-01（cycle-78 审计日志 §6 / 债务台账 O-01）：账本 `--record` 的去重键是
 // (result, detail)，而 G1/G2/G3 的 detail 原先是**循环无关**字符串（如
 // `Zero failures, zero errors (测试报告.md)`）⇒ 跨循环同结论被**静默 dedup**：
@@ -85,7 +99,7 @@ function checkG0(projectDir) {
   const latestCycle = getLatestCycle(projectDir);
   if (!latestCycle) return { pass: false, detail: 'No cycle workspace' };
 
-  const evalReport = join(cyclesDir, latestCycle, '项目评估报告.md');
+  const evalReport = join(cycleBaseDir(projectDir, latestCycle), '项目评估报告.md');
   if (!existsSync(evalReport)) return { pass: false, detail: 'No evaluation report' };
 
   // 修 iteration-5（N-10 脚本侧）：存在性不是完整性。空报告、只有标题的报告、
@@ -103,7 +117,7 @@ function checkG1(projectDir) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
   const latestCycle = getLatestCycle(projectDir);
   if (!latestCycle) return { pass: false, detail: 'No cycle workspace' };
-  const taskList = join(cyclesDir, latestCycle, '任务清单.md');
+  const taskList = join(cycleBaseDir(projectDir, latestCycle), '任务清单.md');
 
   if (!existsSync(taskList)) return { pass: false, detail: 'No task list' };
 
@@ -169,7 +183,7 @@ function checkG2(projectDir, configContent) {
   const cyclesDir = join(projectDir, '.cycles', 'cycles');
   const latestCycle = getLatestCycle(projectDir);
   if (!latestCycle) return { pass: false, detail: 'No cycle workspace' };
-  const testReportsDir = join(cyclesDir, latestCycle, 'test-reports');
+  const testReportsDir = join(cycleBaseDir(projectDir, latestCycle), 'test-reports');
 
   if (!existsSync(testReportsDir)) return { pass: false, detail: 'No test reports directory' };
 
@@ -239,7 +253,7 @@ function checkG3(projectDir, configContent) {
   // 与 eval-runner 的同义调用点无对照）。可经 config build_timeout_ms 覆盖。
   const timeoutMs = resolveTimeout('build', { configMs: timeoutFromConfig(configContent, 'build') });
   try {
-    execSync(buildCmd, { cwd: projectDir, timeout: timeoutMs, stdio: 'pipe' });
+    execSync(buildCmd, { cwd: projectDir, timeout: timeoutMs, stdio: 'pipe', windowsHide: true });
     return { pass: true, detail: `Build passed: ${buildCmd}` };
   } catch (e) {
     // 超时不是「构建失败」：根本没有构建结论（半截输出会被读成失败原因）。
@@ -258,7 +272,7 @@ function checkQualityGate(projectDir, configContent, gateId) {
   const cycleDir = getLatestCycle(projectDir);
   if (!cycleDir) return { pass: false, detail: 'No cycle directory' };
 
-  const evalResultsPath = join(projectDir, '.cycles', 'cycles', cycleDir, '项目评估报告.md');
+  const evalResultsPath = join(cycleBaseDir(projectDir, cycleDir), '项目评估报告.md');
   if (!existsSync(evalResultsPath)) return { pass: false, detail: 'No eval results (run eval-runner first)' };
 
   const evalContent = readFileSync(evalResultsPath, 'utf-8');

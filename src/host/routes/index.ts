@@ -36,6 +36,7 @@ import { registerDualBootstrapRoute } from './dualBootstrapRoute.ts';
 import { registerTruthAuditRoute } from './truthAuditRoute.ts';
 import { registerInvocationRoute } from './invocationRoute.ts';
 import { registerFlowsRoute } from './flowsRoute.ts';
+import { registerFlowsViewRoute } from './flowsViewRoute.ts';
 // cycle-90：生命周期指标路由（KM 生存分析 / EWMA 控制图 / 分位数+Gini）。
 import { registerLifecycleMetricsRoute } from './lifecycleMetricsRoute.ts';
 import { registerResolvedFlowsRoute } from './resolvedFlowsRoute.ts';
@@ -179,6 +180,11 @@ export function registerAnicRoutes(ctx: unknown, options: RegisterRoutesOptions 
 
   // ── flows 域（R3 阶段 2：流程状态流转机观测面 + 运行面）──
   disposers.push(...registerFlowsRoute(c, send, { getWorkspaceRoot }));
+  // cycle-101：FlowTracker 有界视图只读端点（dsh-context 模式的面板消费面）
+  registerFlowsViewRoute(send, { getWorkspaceRoot, reg: (path, handler) => {
+    const d = c.webServer!.register!({ kind: 'exact', path, handler });
+    disposers.push(typeof d === 'function' ? d : null);
+  } });
   // cycle-90：生命周期指标（三个数学模型的读数出口）。
   disposers.push(...registerLifecycleMetricsRoute(c, send, { getWorkspaceRoot }));
   disposers.push(...registerResolvedFlowsRoute(c, send, { getWorkspaceRoot }));

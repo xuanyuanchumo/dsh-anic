@@ -96,8 +96,10 @@ export function scanRouteDefs(files: Map<string, string>): RouteDef[] {
     // 覆盖两种帮助封装（本仓实测各一处）：
     //   flowsRoute/evolutionRoute/nativeRoute/…：`reg('<path>', handler)` / `reg('GET','<path>',h)`
     //   reviewRoute：`register('POST', REVIEW_ROUTE, handler)` ← 裸 register + 常量
+    //   cycle-101：`deps.reg(FLOWS_VIEW_ROUTE, handler)` ← 注入对象的 reg 方法
+    //   （前置字符集补 `.`：`deps.reg(` 与裸 `reg(` 同一语义，只是帮助函数来自依赖对象）
     // `[^)]` 窗口在 `handler` 参数列表处截断，但路径总在其之前，足够。
-    const regFnRe = /[\s,(;{=](?:reg|register)\s*\(([^)]{0,300}?)\)/g;
+    const regFnRe = /[\s,(;{=.](?:reg|register)\s*\(([^)]{0,300}?)\)/g;
     for (const m of text.matchAll(regFnRe)) {
       const args = m[1];
       // 形态 A 的 `register({ … })` 由上方分支处理；此处跳过对象形态防重复计数。
@@ -108,9 +110,19 @@ export function scanRouteDefs(files: Map<string, string>): RouteDef[] {
         put(lit[1], declAt(lit[1]), rel + ':' + String(lineAt(text, argStart)));
         continue;
       }
+      // 常量溯源：两种形态都要认 ——
+      //   `register('POST', REVIEW_ROUTE, handler)` （逗号包围，IDENT 在中段）
+      //   `reg(FLOWS_VIEW_ROUTE, handler)`           （IDENT 在首位，后接逗号）
+      // cycle-101 之前只认第一种，于是「首位常量」的路由被记成「无注册点」（假缺口）。
       const ident = /,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,/.exec(args);
+      // 首位常量形态（`reg(FLOWS_VIEW_ROUTE, handler)`）：仅当 args **以** IDENT+逗号
+      // 开头才认。不放进上面的 `??` 兜底 —— 那样会把 `'<path>', handler` 之类
+      // 的字符串首参也当成常量（cycle-101 变异测试实测：会报出幽灵注册点）。
+      const leading = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*,/.exec(args);
       const resolved = ident && ident[1] ? consts.get(ident[1]) : undefined;
-      if (resolved) put(resolved, declAt(resolved), rel + ':' + String(lineAt(text, argStart)));
+      const resolvedLeading = !resolved && leading && leading[1] ? consts.get(leading[1]) : undefined;
+      const finalResolved = resolved ?? resolvedLeading;
+      if (finalResolved) put(finalResolved, declAt(finalResolved), rel + ':' + String(lineAt(text, argStart)));
     }
 
     // ── 形态 C：声明存在但本文件无注册调用（如实入账为产出缺口）──

@@ -379,13 +379,26 @@ function validateSkillPackage(skillDir) {
   const countFiles = (dir) => {
     if (!existsSync(dir)) return 0;
     let count = 0;
-    const entries = readdirSync(dir, { withFileTypes: true });
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      // cycle-98：pnpm 布局下符号链接可能悬空（node_modules/.pnpm/...），readdir 失败不算损坏。
+      return 0;
+    }
     for (const entry of entries) {
       const path = join(dir, entry.name);
+      // 悬空符号链接：Dirent.isSymbolicLink() 为真时 statSync 会 ENOENT（实测
+      // node_modules/.pnpm/node_modules/tslib），统计场景跳过而不是崩溃。
+      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         count += countFiles(path);
       } else {
-        totalSize += statSync(path).size;
+        try {
+          totalSize += statSync(path).size;
+        } catch {
+          continue; // stat 失败的文件不计数（竞态删除/权限），不中断统计
+        }
         count++;
       }
     }

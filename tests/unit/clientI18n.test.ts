@@ -104,3 +104,44 @@ describe('client i18n: detectClientLang 优先级', () => {
     expect(detectClientLang()).toBe('zh');
   });
 });
+
+describe('cycle-99 宿主 locale 联动', () => {
+  const originalDefine = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+
+  afterEach(() => {
+    if (originalDefine) Object.defineProperty(globalThis, 'localStorage', originalDefine);
+    else delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  function stubLocalStorage(store: Record<string, string>): void {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store[k] ?? null,
+        setItem: (k: string, v: string) => { store[k] = v; },
+      },
+    });
+  }
+
+  it('宿主 active 写入 anic-lang（跟随语义），用户此后手动切换仍可覆盖', async () => {
+    const store: Record<string, string> = {};
+    stubLocalStorage(store);
+    const { setLocaleFromHost } = await import('../../src/client/i18n.ts');
+    setLocaleFromHost('en');
+    expect(store['anic-lang']).toBe('en');
+    expect(detectClientLang()).toBe('en');
+    // 用户手动覆盖（显式选择 > 宿主联动）——再次联动不顶掉手动选择
+    store['anic-lang'] = 'zh';
+    setLocaleFromHost('en');
+    expect(store['anic-lang']).toBe('zh');
+    expect(detectClientLang()).toBe('zh');
+  });
+
+  it('宿主 locale 服务缺席 → apply 不崩且不写覆盖（零行为变化）', async () => {
+    const { apply } = await import('../../src/client/index.ts');
+    // 无 locale 服务的 ctx（旧宿主形态）：绝不抛
+    expect(() => apply({ slots: undefined })).not.toThrow();
+    // getSnapshot 缺席的同形降级
+    expect(() => apply({ locale: {} })).not.toThrow();
+  });
+});

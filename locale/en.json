@@ -213,7 +213,16 @@
     "macroPhaseCeiling": "inference ceiling reached (stored is past the ceiling)",
     "macroPhaseUnknown": "not collected (old host or no state file)",
     "macroPhaseDriftHint": "queries never write; run advance --node {target} to adopt it",
-    "macroPhaseCeilingHint": "inference ceiling: {ceiling} (deploy/maintain have no artifact fingerprint)"
+    "macroPhaseCeilingHint": "inference ceiling: {ceiling} (deploy/maintain have no artifact fingerprint)",
+    "readout": {
+      "total": "total ever",
+      "kept": "in window",
+      "dropped": "dropped",
+      "floor": "floor",
+      "failureRate": "failure rate",
+      "avgDuration": "avg duration",
+      "ariaLabel": "flow readout metrics"
+    }
   },
   "ledger": {
     "title": "Ledger Event Stream (latest {shown} / {total})",

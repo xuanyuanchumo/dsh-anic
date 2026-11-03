@@ -8,6 +8,7 @@
  */
 import path from 'node:path';
 import type { SnapshotCtx } from '../snapshotRoute.ts';
+import { anicError } from './envelope.ts';
 import { resolveWorkspaceRoots } from '../snapshotRoute.ts';
 import { resolveSkillScriptsDir } from '../skillInvoker.ts';
 import { checkBootstrapPreconditions } from '../runtime/bootstrapPreflight.ts';
@@ -31,13 +32,13 @@ export interface SelfTarget {
 export function resolveSelfTarget(ctx: SnapshotCtx, send: SendFn, res: unknown): SelfTarget | null {
   const roots = resolveWorkspaceRoots(ctx);
   if (!roots) {
-    send(res, 500, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace' } });
+    send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace'));
     return null;
   }
   const cyclesDir = path.join(roots, '.cycles');
   const scriptsDir = resolveSkillScriptsDir(roots);
   if (!scriptsDir) {
-    send(res, 404, { error: { code: 'ANIC_SKILL_NOT_INSTALLED', message: 'skill scripts not found' } });
+    send(res, 404, anicError('ANIC_SKILL_UNKNOWN_SCRIPT', 'skill scripts not found (run anic_install first)'));
     return null;
   }
   return { roots, cyclesDir, scriptsDir };

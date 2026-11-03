@@ -154,7 +154,13 @@ function truthPaths(files: Map<string, string>): Set<string> {
       const verb = new RegExp('^' + BS + 's*' + Q + '(?:GET|POST|PUT|DELETE|PATCH)'
         + Q + BS + 's*,' + BS + 's*([A-Za-z_][A-Za-z0-9_]*)').exec(args);
       const viaVerb = verb && verb[1] ? consts.get(verb[1]) : undefined;
-      if (viaVerb) out.add(viaVerb);
+      if (viaVerb) { out.add(viaVerb); continue; }
+      // cycle-101：首位常量形态 `reg(FLOWS_VIEW_ROUTE, handler)` —— 与资产扫描器同口径。
+      // 两条腿必须认同一组形态，否则「漏报/幽灵」判据会因为形态差异互相误伤
+      // （实测：本腿漏认 ⇒ 资产腿多报 1 条 ⇒ scanner-invented-registration 假红）。
+      const leading = new RegExp('^' + BS + 's*([A-Za-z_][A-Za-z0-9_]*)' + BS + 's*,').exec(args);
+      const viaLeading = leading && leading[1] ? consts.get(leading[1]) : undefined;
+      if (viaLeading) out.add(viaLeading);
     }
   }
   return out;

@@ -28,12 +28,14 @@ function getGitChangedFiles(projectDir) {
   try {
     const output = execSync('git diff --name-only HEAD~1', {
       cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8',
+      windowsHide: true, // cycle-99c：git 子进程不弹控制台窗口（与其余脚本同纪律）
     });
     return output.trim().split('\n').filter(Boolean);
   } catch {
     try {
       const output = execSync('git status --porcelain', {
         cwd: projectDir, timeout: 5000, stdio: 'pipe', encoding: 'utf-8',
+        windowsHide: true,
       });
       return output.trim().split('\n').filter(Boolean).map(line => line.substring(3));
     } catch {

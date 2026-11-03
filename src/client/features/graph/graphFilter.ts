@@ -36,6 +36,16 @@ export interface FilterState {
   verdicts: readonly string[];
   /** 查询词（空串 = 不按文本筛）。 */
   query: string;
+  /**
+   * 选中的节点角色（cycle-100；空数组 = 不按角色筛）。规范键 entry/hub/leaf/orphan。
+   *
+   * 为什么是 FilterState 的第四维而不是独立开关：用户的心智是「图上多了一种
+   * 收窄方式」，与类型/裁决/查询是**同一维度的并列取值**（交集语义一致）；
+   * 独立开关会出现「类型筛选 × 角色筛选谁赢」的第二真相（与 graphAnomalyFilter
+   * 复用 FilterState 的同一条裁决）。旧 FilterState 字面量没有该键 ⇒
+   * `roles` 为 undefined ⇒ 视为不筛（向后兼容，旧测试/视图态存档零迁移）。
+   */
+  roles?: readonly string[];
 }
 
 export const EMPTY_FILTER: FilterState = { types: [], verdicts: [], query: '' };
@@ -96,11 +106,20 @@ export function nodeMatches(
   node: WorkflowNode,
   filter: FilterState,
   verdicts?: Map<string, string>,
+  roleOfNode?: (id: string) => string | null | undefined,
 ): boolean {
   if (filter.types.length > 0 && !filter.types.includes(node.type)) return false;
   if (filter.verdicts.length > 0) {
     const key = verdictKeyOf(verdicts?.get(node.id) ?? node.result);
     if (!filter.verdicts.includes(key)) return false;
+  }
+  // 角色维（cycle-100）：filter.roles 非空时按节点角色收窄。roleOfNode 缺席 =
+  // 调用方没接角色表 ⇒ 诚实退化（该条件当作「无节点命中」而不是「全命中」——
+  // 假装全命中会让用户以为"角色筛选坏了"的图是完整图）。
+  if (filter.roles !== undefined && filter.roles.length > 0) {
+    if (roleOfNode === undefined) return false;
+    const role = roleOfNode(node.id);
+    if (role === null || role === undefined || !filter.roles.includes(role)) return false;
   }
   const q = normalizeQuery(filter.query);
   if (q !== '') {
@@ -117,15 +136,18 @@ export function matchingNodes(
   nodes: readonly WorkflowNode[],
   filter: FilterState,
   verdicts?: Map<string, string>,
+  roleOfNode?: (id: string) => string | null | undefined,
 ): Set<string> {
   const out = new Set<string>();
-  for (const n of nodes) if (nodeMatches(n, filter, verdicts)) out.add(n.id);
+  for (const n of nodes) if (nodeMatches(n, filter, verdicts, roleOfNode)) out.add(n.id);
   return out;
 }
 
 /** 筛选是否有任何激活条件（用于「清空筛选」按钮的禁用态与 aria-pressed）。 */
 export function isFilterActive(filter: FilterState): boolean {
-  return filter.types.length > 0 || filter.verdicts.length > 0 || normalizeQuery(filter.query) !== '';
+  return filter.types.length > 0 || filter.verdicts.length > 0
+    || (filter.roles !== undefined && filter.roles.length > 0)
+    || normalizeQuery(filter.query) !== '';
 }
 
 /**
@@ -209,8 +231,9 @@ export function buildFilterView(
   filter: FilterState,
   focusId: string | null,
   verdicts?: Map<string, string>,
+  roleOfNode?: (id: string) => string | null | undefined,
 ): FilterView {
-  const matching = matchingNodes(nodes, filter, verdicts);
+  const matching = matchingNodes(nodes, filter, verdicts, roleOfNode);
   const highlight = focusId === null ? new Set<string>() : neighborhoodOf(focusId, buildAdjacency(nodes, edges));
   return { matching, highlight, active: isFilterActive(filter) };
 }

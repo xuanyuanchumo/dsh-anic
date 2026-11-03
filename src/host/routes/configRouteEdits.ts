@@ -19,6 +19,7 @@
  * `safetyBackupPath` 让用户能立刻回滚回去——这条事实不写出来，用户就永远
  * 不知道还有退路。
  */
+import { anicError } from './envelope.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { diffStats, lineDiff } from '../configEdit/yamlDiff.ts';
@@ -28,7 +29,7 @@ import { collectPaths } from '../configEdit/paths.ts';
 import { loadPathOverrides } from '../configEdit/pathOverrides.ts';
 import { rawHash } from './configRouteBody.ts';
 
-interface RouteOut { status: number; payload: Record<string, unknown> }
+interface RouteOut { status: number; payload: Record<string, unknown> | ReturnType<typeof anicError> }
 
 /** patch 形状守卫（与 config 端点同款：非对象一律 400 且零写入）。 */
 function readPatch(body: Record<string, unknown>): Record<string, unknown> | null {
@@ -41,7 +42,7 @@ function readPatch(body: Record<string, unknown>): Record<string, unknown> | nul
 export function buildPathPostBody(root: string, body: Record<string, unknown>): RouteOut {
   const patch = readPatch(body);
   if (patch === null) {
-    return { status: 400, payload: { error: 'ANIC_PATHS_BAD_PATCH', message: 'body.patch must be an object of {pathId: relativePath|null}' } };
+    return { status: 400, payload: anicError('ANIC_CONFIG_BAD_PATCH', 'body.patch must be an object of {pathId: relativePath/null}') };
   }
   const dryRun = body['dryRun'] === true;
   const plan = planPathOverrides(root, patch);

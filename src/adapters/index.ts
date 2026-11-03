@@ -109,6 +109,8 @@ export function createNodeAdapters(): Adapters {
           encoding: 'utf-8',
           // R19：敏感环境变量不进子进程（见 sanitizeEnv 注释）。
           env: sanitizeEnv(),
+          // cycle-99b：适配器是 LLM 评审链的执行面——Windows 下每次评审命令弹窗。
+          windowsHide: true,
         });
         return {
           stdout: result.stdout ?? '',

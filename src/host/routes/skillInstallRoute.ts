@@ -14,6 +14,7 @@
  *   kind=manifest-version（清单版本落后于发行源）、dualTrack（in-sync/live-behind/
  *   live-diverged/unknown）。三个路由直接透传该对象，无需各自拼装判定。
  */
+import { sendAnicError, anicError } from './envelope.ts';
 import { join } from 'node:path';
 import { createScoped, newRequestId } from '../logger.ts';
 import { isSkillInstalled, autoInstallSkill, inlineSkillRoot, resolveSkillScriptsDir } from '../skillInvoker.ts';
@@ -46,12 +47,12 @@ export function registerSkillInstallRoute(
       const requestId = newRequestId();
       const r = req as { method?: string };
       if ((r?.method ?? 'GET') !== 'POST') {
-        deps.send(res, 405, { error: 'POST only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'POST only', { requestId });
         return;
       }
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
         return;
       }
       const alreadyInstalled = isSkillInstalled(root);
@@ -71,7 +72,7 @@ export function registerSkillInstallRoute(
 
       const result = autoInstallSkill(root);
       if (!result.installed) {
-        deps.send(res, 500, { error: { code: 'ANIC_ROUTE_SKILL_INSTALL_FAILED', message: result.error ?? 'unknown error' } }, requestId);
+        deps.send(res, 500, anicError('ANIC_SKILL_EXEC_FAILED', result.error ?? 'unknown install error', { effectState: 'unknown' }), requestId);
         return;
       }
       log.info(`skill auto-installed to ${result.path}`, requestId);
@@ -94,12 +95,12 @@ export function registerSkillInstallRoute(
       const requestId = newRequestId();
       const r = req as { method?: string };
       if ((r?.method ?? 'GET') !== 'GET') {
-        deps.send(res, 405, { error: 'GET only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'GET only', { requestId });
         return;
       }
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
         return;
       }
       const installed = isSkillInstalled(root);
@@ -128,18 +129,18 @@ export function registerSkillInstallRoute(
       const requestId = newRequestId();
       const r = req as { method?: string };
       if ((r?.method ?? 'GET') !== 'POST') {
-        deps.send(res, 405, { error: 'POST only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'POST only', { requestId });
         return;
       }
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable'), requestId);
         return;
       }
       const installedDir = join(root, '.dsh', 'skills', 'ai-native-iteration-cycle');
       const inlineDir = inlineSkillRoot();
       if (!isSkillInstalled(root)) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_SKILL_NOT_INSTALLED', message: 'skill not installed (run install first)' } }, requestId);
+        deps.send(res, 404, anicError('ANIC_SKILL_UNKNOWN_SCRIPT', 'skill not installed (run install first)'), requestId);
         return;
       }
       const result = repairSkillInstall(installedDir, inlineDir);

@@ -59,7 +59,9 @@ function countRegisteredRoutes(): number {
       if (cm[1] && cm[2]) constMap[cm[1]] = cm[2];
       cm = constRe.exec(t);
     }
-    const useRe = /(?:path:\s*|register\(\s*'(?:GET|POST|PUT|DELETE)'\s*,\s*)(\w+_ROUTE)/g;
+    // cycle-101：补「deps.reg(常量)」形态 —— reg 帮助常以依赖注入对象的方法出现
+    // （flowsViewRoute 的 deps.reg(FLOWS_VIEW_ROUTE, ...)），与 path:/register('GET',常量) 同族。
+    const useRe = /(?:path:\s*|register\(\s*'(?:GET|POST|PUT|DELETE)'\s*,\s*|(?:\w+\.)?reg\(\s*)(\w+_ROUTE)/g;
     let um: RegExpExecArray | null = useRe.exec(t);
     while (um !== null) {
       if (um[1] && constMap[um[1]]) found.push(constMap[um[1]]);

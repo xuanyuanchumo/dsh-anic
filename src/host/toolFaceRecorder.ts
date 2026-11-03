@@ -20,6 +20,7 @@
 import type { ToolsSlot, ToolRegistration } from './toolsSlot.ts';
 import { wireGuard } from './toolsSlot.ts';
 import type { ToolFace } from './capabilityIndex.ts';
+import { createScoped } from './logger.ts';
 
 /** 注册面记录器：`reg` 转发到真注册，`faces()` 返回已记录的面（保序 = 注册序）。 */
 export interface FaceRecorder {
@@ -36,12 +37,35 @@ export interface FaceRecorder {
  * （逐个补丁的保修期到下一个可选字段为止 —— 见 toolsSlot.wireGuard 头注）。
  * `captured` 记录的是**注册定义**（name/description/parameters），与出口值的
  * sanitize 无关；两者顺序保持「先记录后注册」，避免注册抛错时记录一条幽灵面。
+ *
+ * ★cycle-99（last-good 回退，借鉴 dsh-ops session-shells:177-193）：同名工具
+ * 重注册失败时自动回退重注册**上一次成功的定义**——热重载场景下，新代码注册
+ * 抛错不该让该工具从宿主里消失（旧定义还在被会话引用）；双重失败才向上抛。
+ * 语义对齐：回退的 disposer 交给调用方（与正常注册同形）。
  */
 export function createFaceRecorder(tools: ToolsSlot): FaceRecorder {
   const captured: ToolFace[] = [];
+  const lastGood = new Map<string, ToolRegistration>();
   const reg = (t: ToolRegistration): (() => void) | null => {
     captured.push({ name: t.name, description: t.description, parameters: t.parameters });
-    return tools.register!(wireGuard(t)) ?? null;
+    try {
+      const disposer = tools.register!(wireGuard(t)) ?? null;
+      lastGood.set(t.name, t);
+      return disposer;
+    } catch (err) {
+      const prev = lastGood.get(t.name);
+      if (prev === undefined) throw err; // 首注册无兜底 → 响亮失败
+      const log = createScoped('anic.tools');
+      log.warn(`tool ${t.name} re-register failed (${message}) — rolled back to last-good definition`);
+      const disposer = tools.register!(wireGuard(prev)) ?? null;
+      captured[captured.length - 1] = { name: prev.name, description: prev.description, parameters: prev.parameters };
+      return disposer;
+    }
   };
   return { reg, faces: () => captured.slice() };
+}
+
+/** 错误消息提取（reg 的 catch 用；非 Error 一律 String 化）。 */
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

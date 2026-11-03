@@ -2,6 +2,7 @@
  * M2-b 分段账本路由
  */
 
+import { sendAnicError } from './envelope.ts';
 import { join } from 'node:path';
 import {
   initSegmentedLedger,
@@ -43,10 +44,10 @@ export function registerSegmentedLedgerRoute(
   disposers.push(
     c.webServer.register({ kind: 'exact', path: '/anic/api/seg-ledger', handler: (req: unknown, res: unknown) => {
       const root = opts.getWorkspaceRoot(req);
-      if (!root) return opts.send(res, 404, { error: 'workspace not found' });
+      if (!root) return sendAnicError(opts.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'workspace not found');
       const dir = resolveLedgerDir(root);
       const data = loadSegmented(dir);
-      if (data === null) return opts.send(res, 404, { error: 'segmented ledger not initialized' });
+      if (data === null) return sendAnicError(opts.send, res, 'ANIC_CONFIG_MISSING', 'segmented ledger not initialized');
       const segs = listSegmentFiles(dir);
       opts.send(res, 200, {
         head: data.head,
@@ -62,7 +63,7 @@ export function registerSegmentedLedgerRoute(
     c.webServer.register({ kind: 'exact', path: '/anic/api/seg-ledger/append', handler: (req: unknown, res: unknown) => {
       void readBody(req as RouteReq).then((body) => {
       const root = opts.getWorkspaceRoot(req);
-      if (!root) return opts.send(res, 404, { error: 'workspace not found' });
+      if (!root) return sendAnicError(opts.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'workspace not found');
       const dir = resolveLedgerDir(root);
 
       // 初始化（幂等）
@@ -74,7 +75,7 @@ export function registerSegmentedLedgerRoute(
       const gateName = typeof body.gateName === 'string' ? body.gateName : '';
       const detail = typeof body.detail === 'string' ? body.detail : '';
       if (!gate || !result) {
-        return opts.send(res, 400, { error: 'missing gate or result' });
+        return sendAnicError(opts.send, res, 'ANIC_ROUTE_BAD_REQUEST', 'missing gate or result');
       }
 
       // 幂等查重
@@ -86,7 +87,7 @@ export function registerSegmentedLedgerRoute(
           detail,
         })
       ) {
-        return opts.send(res, 409, { error: 'duplicate entry (idempotent reject)' });
+        return sendAnicError(opts.send, res, 'ANIC_GATE_FAILED', 'duplicate entry (idempotent reject)');
       }
 
       const { entry, head } = appendToSegmented(dir, {
@@ -106,7 +107,7 @@ export function registerSegmentedLedgerRoute(
   disposers.push(
     c.webServer.register({ kind: 'exact', path: '/anic/api/seg-ledger/verify', handler: (req: unknown, res: unknown) => {
       const root = opts.getWorkspaceRoot(req);
-      if (!root) return opts.send(res, 404, { error: 'workspace not found' });
+      if (!root) return sendAnicError(opts.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'workspace not found');
       const dir = resolveLedgerDir(root);
       const result = verifySegmented(dir);
       opts.send(res, 200, result);
@@ -117,7 +118,7 @@ export function registerSegmentedLedgerRoute(
   disposers.push(
     c.webServer.register({ kind: 'exact', path: '/anic/api/seg-ledger/init', handler: (req: unknown, res: unknown) => {
       const root = opts.getWorkspaceRoot(req);
-      if (!root) return opts.send(res, 404, { error: 'workspace not found' });
+      if (!root) return sendAnicError(opts.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'workspace not found');
       const dir = resolveLedgerDir(root);
       const head = initSegmentedLedger(dir);
       opts.send(res, 201, { head });

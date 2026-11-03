@@ -208,6 +208,9 @@ export function invokeSkillScript(
     timeout: resolveSkillInvokeTimeout(timeoutMs),
     encoding: 'utf-8',
     cwd: scriptsDir,
+    // cycle-99b：Windows 上缺 windowsHide 会让**每次技能调用弹一个 node 控制台窗口**
+    // （15 个脚本 × 自举循环 = 一排弹窗）。stdio 全 pipe，窗口纯噪声。
+    windowsHide: true,
   });
 
   return {

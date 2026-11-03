@@ -65,7 +65,7 @@ function scaffoldProject(projectDir, args) {
   atomicWriteFileSync(join(dir, repoMemoryFile), repoMemoryContent);
 
   if (args.git && !existsSync(join(dir, '.git'))) {
-    execSync('git init', { cwd: dir });
+    execSync('git init', { cwd: dir, stdio: 'pipe', windowsHide: true });
   }
 
   console.log(`Scaffolded AI-Native Iteration Cycle workflow in ${dir}`);

@@ -72,7 +72,27 @@ export function safeDisposeAll(
     const d = list[i];
     if (d === undefined) continue;
     try {
-      d();
+      const result: unknown = d();
+      // 异步 disposer（cycle-98 · 照搬 dsh-ops teardown.js #30）：返回 Promise 的
+      // disposer 若被 await 前后抛错，同步 try/catch **看不见**——worker/异步清理
+      // 失败会静默丢失。单独 .catch() 记录，同样不阻断其余 disposer。
+      if (result !== null && result !== undefined
+        && typeof (result as { catch?: unknown }).catch === 'function') {
+        (result as Promise<void>).catch((e: unknown) => {
+          const message = e instanceof Error ? e.message : String(e);
+          try {
+            onError({ index: i, message: `async: ${message}` });
+          } catch {
+            // sink 抛错吞掉（同同步路径）。
+          }
+          try {
+            const log = createScoped('anic.teardown');
+            log.warn(`${label}: disposer #${String(i)}（异步）失败：${message}`);
+          } catch {
+            // logger 不可用 → 静默。
+          }
+        });
+      }
       ok += 1;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

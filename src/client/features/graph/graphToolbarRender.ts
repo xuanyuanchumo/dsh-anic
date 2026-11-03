@@ -74,6 +74,10 @@ interface RenderProps {
    * 可选：缺省时不渲染（节点角色读数需要数据，纯渲染路径的零参调用不该假设它）。
    */
   roles?: RoleLegendStats;
+  /** 已选中的角色筛选（cycle-100；缺省/undefined = 角色图例退化为纯展示）。 */
+  activeRoles?: readonly string[];
+  /** 角色筛选切换（cycle-100；缺省 = 角色图例退化为纯展示 + aria-hidden）。 */
+  onToggleRole?: (role: 'entry' | 'hub' | 'leaf' | 'orphan') => void;
 }
 
 /** chip 的可见文案（类型名，动态键族 `graph.lane.<type>`）。 */
@@ -231,6 +235,7 @@ export function renderGraphToolbar(props: RenderProps): ReactElement {
     // 拆的是**职责**：「工具栏分成哪几组」留本文件；「后半段怎么装配」独立成文件。
     ...renderToolbarTail({
       viewport, adjacencyOn, filterActive, typeCounts, roles: props.roles,
+      activeRoles: props.activeRoles, onToggleRole: props.onToggleRole,
       view: props.view, path: props.path,
       onZoomIn: props.onZoomIn, onZoomOut: props.onZoomOut, onFit: props.onFit,
       onAdjacencyToggle: props.onAdjacencyToggle, onClear: props.onClear,

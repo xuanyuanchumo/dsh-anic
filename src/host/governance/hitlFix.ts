@@ -62,6 +62,7 @@ export function attemptH2Fix(workspaceRoot: string, result: HitlResult): FixOutc
     try {
       execSync('git init && git add -A && git commit -m "baseline for rollback"', {
         cwd: workspaceRoot, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+        windowsHide: true, // cycle-99b：H2 修复链的 git 调用不弹 cmd 窗口
       });
       return { success: true, action: 'Initialized git repo with baseline commit' };
     } catch (e) {

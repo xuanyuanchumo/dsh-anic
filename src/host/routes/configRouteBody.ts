@@ -25,6 +25,7 @@
  * 不是建议：客户端据此决定「编辑按钮是否可用」「恢复按钮点哪一份」。
  * 旧的 `backups: string[]` 保留（既有契约测试按名字断言，改形状会假红）。
  */
+import { anicError } from './envelope.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -121,11 +122,11 @@ export function buildPostBody(root: string, body: Record<string, unknown>) {
   const configPath = join(cyclesDir, 'config.yml');
   const patch = body['patch'];
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
-    return { status: 400, payload: { error: 'ANIC_CONFIG_BAD_PATCH', message: 'body.patch must be an object of {fieldId: value}' } };
+    return { status: 400, payload: anicError('ANIC_CONFIG_BAD_PATCH', 'body.patch must be an object of {fieldId: value}') };
   }
   const dryRun = body['dryRun'] === true;
   if (!existsSync(configPath)) {
-    return { status: 404, payload: { error: 'ANIC_CONFIG_MISSING', message: 'no .cycles/config.yml in this workspace' } };
+    return { status: 404, payload: anicError('ANIC_CONFIG_MISSING', 'no .cycles/config.yml in this workspace') };
   }
   const before = readFileSync(configPath, 'utf-8');
 

@@ -1,19 +1,12 @@
 /**
  * Flows 域路由（R3 阶段 2/3）—— 流程状态流转机的观测面 + 运行面。
- *
- *  - GET  /anic/flows                       注册表列表（描述子可序列化投影）
- *  - GET  /anic/flows/status                一站式：全部流程 + 各自当前投影（面板消费）
- *  - GET  /anic/flows/state?flow=<id>       当前投影（无投影 = 从未运行过，不伪造）
- *  - POST /anic/flows/gate-check/run        运行 gate-check 流程（mode=script/native/diff）
- *  - GET  /anic/flows/macro-phase/status    宏观六相只读视图（不落盘；增补 inferred/drift）
- *  - POST /anic/flows/macro-phase/advance   宏观相位推进（mode=script 正典/native；dryRun 只算不写）
- *  - POST /anic/flows/archive/run           归档流程（--cycle/--clean/--list 语义；mode=native/script）
- *  - POST /anic/flows/hitl/run              HITL 三段修复流程（gate=all|H1-H4；mode=native/script；R3 阶段 4）
- *  - POST /anic/flows/auto-fix/run          自动修复循环流程（maxRetries/testCmd；mode=native/script；R3 阶段 5）
+ *   GET  /anic/flows · /status · /state?flow=<id>
+ *   POST gate-check · macro-phase/advance · archive · hitl · auto-fix（mode=script/native）
  *
  * 设计注记：运行入口按流程 id 静态分派（泛型运行入口等第三个流程实例再抽象——
  * 第 4 个实例已到仍维持：各流程参数域差异大，抽象的参数税大于分派税）。
  */
+import { sendAnicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { listFlows } from '../flows/registry.ts';
 import { runGateFlow, type GateFlowMode } from '../flows/gateCheckFlow.ts';
@@ -96,11 +89,11 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   // GET /anic/flows/state?flow=<id> — 单流程当前投影
   reg('/anic/flows/state', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const url = (req as { url?: string }).url ?? '';
     const flowId = new URLSearchParams(url.split('?')[1] ?? '').get('flow') ?? 'gate-check';
     const d = listFlows().find((f) => f.id === flowId);
-    if (!d) return send(res, 404, { error: `ANIC_ROUTE_UNKNOWN_FLOW:${flowId}` });
+    if (!d) return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', `ANIC_ROUTE_UNKNOWN_FLOW:${flowId}`);
     const cyclesDir = `${root}/.cycles`;
     const projection = existsSync(cyclesDir) ? loadFlowProjection(cyclesDir, flowId) : null;
     // 无投影 = 从未运行过（IDLE 的默认态不落盘 —— 投影只记已发生的事实）
@@ -111,7 +104,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   // joinFlows/coverageMetrics 生产了归属数据但此前无路由暴露它（空心问题）。fail-closed。
   reg('/anic/api/flows/matrix', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = `${root}/.cycles`;
     // 读不到 flow-tracker → 空集合 + total 0（**如实**，不伪造）。
     const records = existsSync(cyclesDir) ? loadFlowTracker(cyclesDir).flows : [];
@@ -121,13 +114,13 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   reg('/anic/flows/gate-check/run', (req, res) => {
     void readBody(req as RouteReq).then((body) => {
       const root = deps.getWorkspaceRoot(req);
-      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
       const mode = typeof body.mode === 'string' && ['script', 'native', 'diff'].includes(body.mode)
         ? body.mode as GateFlowMode
         : 'script';
       const gate = typeof body.gate === 'string' ? body.gate : 'all';
       if (gate !== 'all' && !/^G[0-3]$/.test(gate)) {
-        return send(res, 400, { error: `ANIC_ROUTE_BAD_GATE:${gate}` });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', `ANIC_ROUTE_BAD_GATE:${gate}`);
       }
       const result = runGateFlow(root, {
         gate,
@@ -136,7 +129,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
         record: body.record === true,
         timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
       });
-      if (result.error) return send(res, 500, { error: `ANIC_ROUTE_FLOW_ERROR:${result.error}`, ...result });
+      if (result.error) return sendAnicError(send, res, 'ANIC_SKILL_EXEC_FAILED', `ANIC_ROUTE_FLOW_ERROR:${result.error}`);
       send(res, 200, result);
     });
   });
@@ -146,7 +139,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   //「状态文件没跟上工件」不可见；技能侧此前恰好反过来（inferPhase 改盘）。
   reg('/anic/flows/macro-phase/status', (req, res) => {
     const root = deps.getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     send(res, 200, statusMacroPhase(root));
   });
 
@@ -154,16 +147,16 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   reg('/anic/flows/macro-phase/advance', (req, res) => {
     void readBody(req as RouteReq).then((body) => {
       const root = deps.getWorkspaceRoot(req);
-      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
       const mode = typeof body.mode === 'string' && ['script', 'native'].includes(body.mode)
         ? body.mode as MacroFlowMode
         : 'script';
       const target = typeof body.target === 'string' ? body.target : undefined;
       if (target !== undefined && !PHASE_IDS.includes(target)) {
-        return send(res, 400, { error: `ANIC_ROUTE_BAD_PHASE:${target}`, validPhases: PHASE_IDS });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', `ANIC_ROUTE_BAD_PHASE:${target} (valid: ${PHASE_IDS.join("|")})`);
       }
       if (body.dryRun === true && mode === 'script') {
-        return send(res, 400, { error: 'ANIC_ROUTE_DRYRUN_NATIVE_ONLY' });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'dryRun is native-mode only for this endpoint');
       }
       const result = runMacroPhaseFlow(root, {
         target,
@@ -180,13 +173,13 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   reg('/anic/flows/archive/run', (req, res) => {
     void readBody(req as RouteReq).then((body) => {
       const root = deps.getWorkspaceRoot(req);
-      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
       const mode: ArchiveFlowMode = body.mode === 'script' ? 'script' : 'native';
       if (body.cycle !== undefined && typeof body.cycle !== 'number') {
-        return send(res, 400, { error: 'ANIC_ROUTE_BAD_CYCLE: expect number' });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'ANIC_ROUTE_BAD_CYCLE: expect number');
       }
       if (body.keep !== undefined && typeof body.keep !== 'number') {
-        return send(res, 400, { error: 'ANIC_ROUTE_BAD_KEEP: expect number' });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', 'ANIC_ROUTE_BAD_KEEP: expect number');
       }
       // 无参缺省 list（只读安全缺省）；archive 需显式 cycle，clean 需显式 clean:true
       const result = runArchiveFlow(root, {
@@ -205,11 +198,11 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   reg('/anic/flows/hitl/run', (req, res) => {
     void readBody(req as RouteReq).then((body) => {
       const root = deps.getWorkspaceRoot(req);
-      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
       const mode: HitlFlowMode = body.mode === 'script' ? 'script' : 'native';
       const gateStr = typeof body.gate === 'string' ? body.gate : 'all';
       if (gateStr !== 'all' && !/^H[1-4]$/.test(gateStr)) {
-        return send(res, 400, { error: `ANIC_ROUTE_BAD_HITL_GATE:${gateStr}` });
+        return sendAnicError(send, res, 'ANIC_ROUTE_BAD_REQUEST', `ANIC_ROUTE_BAD_HITL_GATE:${gateStr}`);
       }
       const gate: HitlGateArg = gateStr === 'H1' || gateStr === 'H2' || gateStr === 'H3' || gateStr === 'H4' ? gateStr : 'all';
       const result = runHitlFlow(root, {
@@ -227,7 +220,7 @@ export function registerFlowsRoute(ctx: ServerContext, send: SendFn, deps: Flows
   reg('/anic/flows/auto-fix/run', (req, res) => {
     void readBody(req as RouteReq).then((body) => {
       const root = deps.getWorkspaceRoot(req);
-      if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+      if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
       const mode: AutoFixFlowMode = body.mode === 'script' ? 'script' : 'native';
       const maxRetries = typeof body.maxRetries === 'number' && Number.isInteger(body.maxRetries) && body.maxRetries > 0 && body.maxRetries <= 10
         ? body.maxRetries

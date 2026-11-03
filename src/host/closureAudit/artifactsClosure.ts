@@ -152,9 +152,20 @@ export function scanArtifacts(rootDir: string): ArtifactsReport {
     throw new Error('closure artifacts: template scan empty (' + TEMPLATE_DIR_REL + ')');
   }
   const cyclesRoot = join(rootDir, '.cycles', 'cycles');
-  const cyclesScanned = ls(cyclesRoot).filter((d) => /^cycle-\d+$/.test(d));
+  const archiveRoot = join(rootDir, '.cycles', 'archive');
+  let cyclesScanned = ls(cyclesRoot).filter((d) => /^cycle-\d+$/.test(d));
+  let scannedFromArchive = false;
   if (cyclesScanned.length === 0) {
-    throw new Error('closure artifacts: cycle scan empty (.cycles/cycles/cycle-N)');
+    // cycle-101 修「归档后崩溃」：全部循环归档后活跃区**合法为空**（archive-cycle 的
+    // 正常收口状态），不是扫描故障。旧实现一律 throw ⇒ 归档即触发闭环体检崩溃
+    // （真机实测 isolationContract 4 红，错误信息却是「cycle scan empty」——
+    // 把合法状态报成故障，正是本仓反复出现的「把没有当错误」族缺陷）。
+    // 修法：活跃区空 → 回退归档区；归档也空 → 才 throw（此时确实一处证据都没有）。
+    cyclesScanned = ls(archiveRoot).filter((d) => /^cycle-\d+$/.test(d));
+    scannedFromArchive = cyclesScanned.length > 0;
+  }
+  if (cyclesScanned.length === 0) {
+    throw new Error('closure artifacts: no cycle dirs in either .cycles/cycles or .cycles/archive');
   }
   const consumers = consumerFiles(rootDir);
   if (consumers.length === 0) {
@@ -178,8 +189,10 @@ export function scanArtifacts(rootDir: string): ArtifactsReport {
       const dir = join(rootDir, spec.pattern);
       occurrences = ls(dir).filter((f) => f.endsWith('.md')).length;
     } else {
+      // 扫描根跟随实际找到循环的那一侧（活跃区优先；活跃区空则归档区）
+      const cycleBase = scannedFromArchive ? archiveRoot : cyclesRoot;
       cycles = cyclesScanned.map((name) => {
-        const ev = hit(join(cyclesRoot, name), spec.pattern);
+        const ev = hit(join(cycleBase, name), spec.pattern);
         // ★点名到 cycle-N/文件名（用户要求：缺失要能被点名，而不是"某循环不完整"）
         if (ev.length === 0) missing.push(name + '/' + spec.pattern);
         return { cycle: name, present: ev.length > 0, evidence: ev };

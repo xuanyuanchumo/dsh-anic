@@ -10,6 +10,7 @@ import { rmSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSkillGatewayTools } from '../../src/host/toolsSkillGateway.ts';
+import { registerSkillInstallTools } from '../../src/host/toolsSkillInstall.ts';
 import { registerReviewRoute } from '../../src/host/routes/reviewRoute.ts';
 import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,6 +42,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
   it('install 前置拒绝：无 workspace / 路径穿越', async () => {
     const h = makeSlot(WS_A);
     registerSkillGatewayTools(h.slot, { getRoot: () => null, register: h.register });
+    registerSkillInstallTools(h.slot, { getRoot: () => null, register: h.register });
     expect(await find(h.tools, 'anic_install').execute({})).toEqual({ error: 'no workspace' });
     expect(await find(h.tools, 'anic_install').execute({ workspace: '../x' }))
       .toEqual({ error: 'path traversal not allowed' });
@@ -48,6 +50,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
   it('全新工作区安装：installed=true + integrity 全绿（inline 直比 64 文件）+ 落点正确', async () => {
     const h = makeSlot(WS_A);
     registerSkillGatewayTools(h.slot, { getRoot: h.getRoot, register: h.register });
+    registerSkillInstallTools(h.slot, { getRoot: h.getRoot, register: h.register });
     const r = await find(h.tools, 'anic_install').execute({});
     expect(r.installed).toBe(true);
     expect(r.path).toBe(INSTALLED(WS_A));
@@ -59,10 +62,12 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
   it('repair 前置拒绝：未安装 / 路径穿越 / 无 workspace', async () => {
     const h = makeSlot(WS_B); // WS_B 未装技能
     registerSkillGatewayTools(h.slot, { getRoot: h.getRoot, register: h.register });
+    registerSkillInstallTools(h.slot, { getRoot: h.getRoot, register: h.register });
     expect(await find(h.tools, 'anic_skill_repair').execute({}))
       .toEqual({ error: 'skill not installed (run anic_install first)' });
     const h2 = makeSlot(WS_B);
     registerSkillGatewayTools(h2.slot, { getRoot: () => null, register: h2.register });
+    registerSkillInstallTools(h2.slot, { getRoot: () => null, register: h2.register });
     expect(await find(h2.tools, 'anic_skill_repair').execute({})).toEqual({ error: 'no workspace' });
   });
   it('篡改两个文件 → install 重新覆盖 + repair 差异修复路径（integrity 链路贯通）', async () => {
@@ -75,6 +80,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
 
     const h = makeSlot(WS_A);
     registerSkillGatewayTools(h.slot, { getRoot: h.getRoot, register: h.register });
+    registerSkillInstallTools(h.slot, { getRoot: h.getRoot, register: h.register });
     const repair = await find(h.tools, 'anic_skill_repair').execute({});
     // 篡改被 repair 修复（或 install 幂等重拷后 repair 0 差异——两条路径都证完整性链路活着）
     expect(repair.repairedCount).toBeGreaterThanOrEqual(0);
@@ -87,6 +93,7 @@ describe('SkillGateway：anic_install 装锚 → anic_skill_repair 修锚（eco 
   it('presentCall 双 edit 卡 + presentResult 恒 ✓ 卡', () => {
     const h = makeSlot(WS_A);
     registerSkillGatewayTools(h.slot, { getRoot: h.getRoot, register: h.register });
+    registerSkillInstallTools(h.slot, { getRoot: h.getRoot, register: h.register });
     const install = find(h.tools, 'anic_install') as unknown as { presentCall: (a: Record<string, unknown>) => { card: string; kind: string }; presentResult: () => { title: string } };
     const repair = find(h.tools, 'anic_skill_repair') as unknown as typeof install;
     expect(install.presentCall({}).kind).toBe('edit');
@@ -143,22 +150,22 @@ describe('reviewRoute：Tier-1 降级 + 形状校验（唯一 register(method,pa
     registerReviewRoute(register, { getAgentCards: () => new Map(), probeCtx: null });
     const out = await post(calls[0]!.handler, 'not-json{');
     expect(out.status).toBe(400);
-    expect(out.json?.error).toBe('INVALID_JSON');
+    expect(out.json?.error.code).toBe('ANIC_ROUTE_BAD_REQUEST'); // cycle-101 信封归一
   });
   it('缺 gate/role 字段 → 400 INVALID_REQUEST', async () => {
     const { calls, register } = makeRegister();
     registerReviewRoute(register, { getAgentCards: () => new Map(), probeCtx: null });
     const out = await post(calls[0]!.handler, JSON.stringify({ gate: 'G1' }));
     expect(out.status).toBe(400);
-    expect(out.json?.error).toBe('INVALID_REQUEST');
+    expect(out.json?.error.code).toBe('ANIC_ROUTE_BAD_REQUEST'); // cycle-101 信封归一
   });
   it('卡不存在 → 404 AGENT_NOT_FOUND（cardId 回显）', async () => {
     const { calls, register } = makeRegister();
     registerReviewRoute(register, { getAgentCards: () => new Map(), probeCtx: null });
     const out = await post(calls[0]!.handler, JSON.stringify({ gate: 'G1', role: 'architect' }));
     expect(out.status).toBe(404);
-    expect(out.json?.error).toBe('AGENT_NOT_FOUND');
-    expect(String(out.json?.message)).toContain('anic.agent.G1.architect');
+    expect(out.json?.error.code).toBe('ANIC_SKILL_UNKNOWN_SCRIPT'); expect(JSON.stringify(out.json)).toContain('anic.agent.'); // cardId 回显
+    expect(String(out.json?.error.message)).toContain('anic.agent.G1.architect');
   });
   it('probeCtx=null → Tier-1 启发式降级裁决（tier 字段 + providers 空数组）', async () => {
     const card = { id: 'anic.agent.G1.architect', prompt: 'p', gate: 'G1', role: 'architect' } as never;

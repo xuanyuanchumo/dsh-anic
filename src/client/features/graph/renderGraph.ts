@@ -26,6 +26,7 @@
 import { createElement, type ReactElement } from 'react';
 import type { WorkflowEdge, WorkflowNode } from '../../workflowGraphData.ts';
 import { FAIL_PULSE_STYLE } from './gateColors.ts';
+import { GRAPH_INTERACT_STYLE } from './graphInteractStyle.ts';
 import { renderGraphDataTable } from './graphDataTable.ts';
 import { layoutGraph, type GraphLayout } from './graphLayout.ts';
 import { visibilityOf, type FilterView } from './graphFilter.ts';
@@ -100,6 +101,8 @@ export interface GraphRenderOptions {
    * 这条既有纪律继续成立——需要角色时显式打开（交互态与面板默认打开）。
    */
   nodeRoles?: boolean;
+  /** 边命中层（cycle-98）：缺省 false=旧元素树；交互态开 overlay（见 graphEdgeHit）。 */
+  edgeHits?: boolean;
 }
 
 /**
@@ -118,8 +121,7 @@ export { canonicalVerdict as verdictKey } from './gateColors.ts';
  * @param onNodeClick 节点点击回调（面板传入以打开详情抽屉）
  * @param opts cycle-82/83 渲染选项（视口/筛选/焦点/布局/尺寸），缺省等价于改造前行为
  */
-export function renderGraph(
-  data: GraphData,
+export function renderGraph(  data: GraphData,
   verdicts?: Map<string, string>,
   onNodeClick?: (node: WorkflowNode) => void,
   opts?: GraphRenderOptions,
@@ -161,6 +163,7 @@ export function renderGraph(
     // <desc> 必须先于图形内容（SVG a11y 树按文档顺序取第一个 desc）。
     createElement('desc', { key: 'graph-desc' }, t('panel.graphDesc')),
     createElement('style', { key: 'fail-pulse' }, FAIL_PULSE_STYLE),
+    createElement('style', { key: 'graph-interact' }, GRAPH_INTERACT_STYLE),
     createElement('defs', { key: 'defs' }, renderArrowMarker()),
   ];
 
@@ -180,8 +183,11 @@ export function renderGraph(
     }));
   }
 
-  // 边（追溯方向判定与可见度传播见 graphEdgeRenderAll 头注）。
-  worldChildren.push(...renderEdges({ edges: layout.edges, positionOf, filterView, trace }));
+  // 边（追溯/可见度见 graphEdgeRenderAll 头注；edgeHits 语义见该文件 edgeHits 注释）。
+  worldChildren.push(...renderEdges({
+    edges: layout.edges, positionOf, filterView, trace,
+    ...(opts?.edgeHits === true ? { edgeHits: true } : {}),
+  }));
 
   for (const n of layout.nodes) {
     worldChildren.push(
@@ -227,6 +233,7 @@ export function renderGraph(
       nodeCount: nodes.length,
       edgeCount: edges.length,
       focusId,
+      ...(verdicts === undefined ? {} : { verdicts }), // 小地图裁决着色（同源 verdicts）
     }),
     // 等价数据表（P1-3）：屏幕阅读器的全量文本替代，视觉折叠（.anic-sr-only）。
     renderGraphDataTable(data, verdicts),
@@ -235,9 +242,6 @@ export function renderGraph(
 
 /**
  * `buildVerdicts` 转出口（cycle-82 已拆到 `graphVerdicts.ts`，保持调用面不变）。
- *
- * 调用点（`panelSections.ts` 的 GraphSection、`graphA11y.test.ts`）从本文件导入，
- * 拆文件不该让它们全部改 import —— 转出口是最小扰动的做法。本仓 `tokens.ts`
- * 转出 `shellTheme` 用的是同一形状。
+ * 调用点（panelSections / graphA11y.test）从本文件导入，拆文件不改 import。
  */
 export { buildVerdicts } from './graphVerdicts.ts';

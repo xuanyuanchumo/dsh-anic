@@ -358,6 +358,8 @@ describe('宿主入口 apply', () => {
     '/anic/api/flows/resolved',
     // cycle-93：披露运行时读数（进程级）
     '/anic/api/disclosure',
+    // cycle-101：FlowTracker 有界视图只读投影
+    '/anic/api/flows/view',
     // M8 跨项目技能调用
     '/anic/skill/list', '/anic/skill/invoke', '/anic/evaluate', '/anic/iterate',
     // M11 技能内联 + 原生脚本；cycle-19 eco P0 新增 repair（doctor 语义并入 status）

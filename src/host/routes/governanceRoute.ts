@@ -10,6 +10,7 @@
  * X-ANIC-Workspace 桌面多会话纠偏），本地解析函数整体删除。
  */
 
+import { sendAnicError } from './envelope.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readBody, type RouteReq } from './routeContext.ts';
@@ -49,9 +50,9 @@ export function registerGovernanceRoute(ctx: ServerContext, deps: GovernanceRout
   // P0-BODY 残留修复：原直接读 req.body（真实宿主恒 undefined）——改 readBody 流式兼容。
   reg('/anic/governance/archive', (req, res) => {
     const root = getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = join(root, '.cycles');
-    if (!existsSync(cyclesDir)) return send(res, 404, { error: 'ANIC_ROUTE_NO_CYCLES' });
+    if (!existsSync(cyclesDir)) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no .cycles directory in this workspace');
 
     void readBody(req as RouteReq).then((body) => {
       const result = runArchiveFlow(root, {
@@ -68,9 +69,9 @@ export function registerGovernanceRoute(ctx: ServerContext, deps: GovernanceRout
   // GET /anic/governance/budget — 预算检查
   reg('/anic/governance/budget', (req, res) => {
     const root = getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = join(root, '.cycles');
-    if (!existsSync(cyclesDir)) return send(res, 404, { error: 'ANIC_ROUTE_NO_CYCLES' });
+    if (!existsSync(cyclesDir)) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no .cycles directory in this workspace');
 
     const url = (req as { url?: string }).url ?? '';
     const params = new URLSearchParams(url.split('?')[1] ?? '');
@@ -106,9 +107,9 @@ export function registerGovernanceRoute(ctx: ServerContext, deps: GovernanceRout
   // POST /anic/governance/sweep — 清扫空目录与过期 .tmp
   reg('/anic/governance/sweep', (req, res) => {
     const root = getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = join(root, '.cycles');
-    if (!existsSync(cyclesDir)) return send(res, 404, { error: 'ANIC_ROUTE_NO_CYCLES' });
+    if (!existsSync(cyclesDir)) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no .cycles directory in this workspace');
 
     // P0-BODY 残留修复：原直接读 req.body（真实宿主恒 undefined）——改 readBody 流式兼容。
     void readBody(req as RouteReq).then((body) => {
@@ -123,9 +124,9 @@ export function registerGovernanceRoute(ctx: ServerContext, deps: GovernanceRout
   // GET /anic/governance/prune — 孤儿检查
   reg('/anic/governance/prune', (req, res) => {
     const root = getWorkspaceRoot(req);
-    if (!root) return send(res, 500, { error: 'ANIC_ROUTE_NO_WORKSPACE' });
+    if (!root) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable for this request');
     const cyclesDir = join(root, '.cycles');
-    if (!existsSync(cyclesDir)) return send(res, 404, { error: 'ANIC_ROUTE_NO_CYCLES' });
+    if (!existsSync(cyclesDir)) return sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no .cycles directory in this workspace');
 
     const report = pruneCheck(cyclesDir);
     send(res, 200, report);

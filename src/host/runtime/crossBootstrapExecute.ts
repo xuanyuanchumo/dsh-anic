@@ -40,6 +40,7 @@ import { join } from 'node:path';
 import { resolveCrossTarget, fingerprintCycles, sameFingerprint } from './crossBootstrap.ts';
 import { runEvalTracked, runGateTracked } from './bootstrapTrackedRunners.ts';
 import { loadBootstrapState, saveBootstrapState, type BootstrapState } from '../selfBootstrap.ts';
+import { runCrossInit } from './crossBootstrapInit.ts';
 
 /** 动作白名单（闭合枚举——不接受任意字符串，避免拼错就静默走默认分支）。 */
 export const CROSS_ACTIONS = ['init', 'evaluate', 'gate-check'] as const;
@@ -119,9 +120,12 @@ export function runCrossBootstrap(input: CrossBootstrapInput): CrossBootstrapRes
   };
 
   if (action === 'init') {
-    // 初始化目标骨架：只建目录，不写内容。
-    if (!existsSync(target.targetCyclesDir)) mkdirSync(target.targetCyclesDir, { recursive: true });
-    return finish({});
+    // cycle-101：init 语义抽到 runtime/crossBootstrapInit.ts（一域一文件 + T3 守）。
+    // 它真跑 init-workflow 并回报 initOk/initExitCode/artifacts —— 旧实现只 mkdir
+    // 就报 ok（「假装成功」，真机实测目标项目空无一物）。
+    const outcome = runCrossInit(target.targetRoot, target.targetCyclesDir, target.scriptsDir);
+    if (outcome.failed) return { status: 412, body: outcome.failureBody! };
+    return finish(outcome.extra ?? {});
   }
 
   // 目标 `.cycles` 必须已存在 —— 评估脚本要求工作区已初始化。

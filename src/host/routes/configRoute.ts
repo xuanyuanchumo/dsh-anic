@@ -26,6 +26,7 @@
  * 本文件只做**路由骨架**（方法分派、错误包装、requestId）。响应体是纯函数、
  * 可单独测（contract 直接 import 它断言形状），拆开后两端都不越过 250 行。
  */
+import { sendAnicError } from './envelope.ts';
 import { createScoped, newRequestId } from '../logger.ts';
 import { registerConfigRoutePaths, CONFIG_PATHS_ROUTE } from './configRoutePaths.ts';
 import { registerConfigRouteRollback, CONFIG_ROLLBACK_ROUTE } from './configRouteRollback.ts';
@@ -71,7 +72,7 @@ export function registerConfigRoute(ctx: unknown, deps: ConfigRouteDeps): Array<
       const method = (req as { method?: string }).method ?? 'GET';
       const root = deps.getWorkspaceRoot(req);
       if (!root) {
-        deps.send(res, 404, { error: { code: 'ANIC_ROUTE_NO_WORKSPACE', message: 'no workspace resolvable' } }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_NO_WORKSPACE', 'no workspace resolvable', { requestId });
         return;
       }
       if (method === 'GET') {
@@ -81,12 +82,12 @@ export function registerConfigRoute(ctx: unknown, deps: ConfigRouteDeps): Array<
           deps.send(res, 200, buildGetBody(root, query.get('probePath')), requestId);
         } catch (e) {
           log.error(`config GET failed: ${e instanceof Error ? e.message : String(e)}`, requestId);
-          deps.send(res, 500, { error: { code: 'ANIC_CONFIG_READ_FAILED', message: e instanceof Error ? e.message : String(e) } }, requestId);
+          sendAnicError(deps.send, res, 'ANIC_CONFIG_READ_FAILED', e instanceof Error ? e.message : String(e), { requestId });
         }
         return;
       }
       if (method !== 'POST') {
-        deps.send(res, 405, { error: 'GET or POST only' }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_ROUTE_METHOD', 'GET or POST only', { requestId });
         return;
       }
       // 真实宿主 body 是流式的（P0-BODY）——必须 readBody，直接读 req.body 会静默丢参数。
@@ -97,7 +98,7 @@ export function registerConfigRoute(ctx: unknown, deps: ConfigRouteDeps): Array<
           deps.send(res, out.status, out.payload, requestId);
         } catch (e) {
           log.error(`config POST failed: ${e instanceof Error ? e.message : String(e)}`, requestId);
-          deps.send(res, 500, { error: { code: 'ANIC_CONFIG_WRITE_FAILED', message: e instanceof Error ? e.message : String(e) } }, requestId);
+          sendAnicError(deps.send, res, 'ANIC_CONFIG_WRITE_FAILED', e instanceof Error ? e.message : String(e), { requestId });
         }
       });
     },

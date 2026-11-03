@@ -89,7 +89,7 @@ describe('registerDualBootstrapRoute（三路由守卫与状态语义）', () =>
     for (const p of ['/anic/self/dual-evaluate', '/anic/self/dual-advance'] as const) {
       const cap = h.call('POST', p);
       expect(cap.status, p).toBe(500);
-      expect(cap.body, p).toContain('ANIC_PLUGIN_ROOT_UNRESOLVED');
+      expect(String(cap.body), p).toContain('PLUGIN_ROOT_UNRESOLVED'); // cycle-101 归一 ANIC_SKILL_EXEC_FAILED
     }
   });
 

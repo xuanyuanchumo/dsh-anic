@@ -10,6 +10,7 @@
  * 只提供泛型机制，不感知任何 feature 类型（机制与形状分离）。
  */
 import { WORKFLOW_SNAPSHOT } from './workflowGraphData.ts';
+import type { FlowsViewResponseJson } from './features/flows/flowViewTypes.ts';
 import { t } from './i18n.ts';
 import type { GraphData } from './features/graph/renderGraph.ts';
 import type { StepTraceJson } from './features/stepTrace/renderStepTrace.ts';
@@ -75,6 +76,8 @@ export interface PanelState {
    * 而不是渲染一张全 0 的假读数表（那会把「取不到」读成「通过率 0%」）。
    */
   lifecycleMetrics: LifecycleMetricsJson | null;
+  /** cycle-101：FlowTracker 有界视图读数（dsh-context 模式的消费端）。 */
+  flowsView: FlowsViewResponseJson | null;
   /** cycle-91：开关解析态（服务端才知道的 workspace/deployment 层）。 */
   resolvedFlows: ResolvedFlowsJson | null;
   /** cycle-93：披露运行时读数（修 O-92-02/04 的「状态没有出口」）。 */
@@ -158,6 +161,7 @@ export function createInitialPanelState(): PanelState {
     flowsStatus: null,
     flowMatrix: null,
     lifecycleMetrics: null,
+    flowsView: null,
     resolvedFlows: null,
     disclosure: null,
     cycleList: null,

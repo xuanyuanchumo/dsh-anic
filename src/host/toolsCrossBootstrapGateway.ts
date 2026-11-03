@@ -80,6 +80,15 @@ function projectCrossResult(
       timedOut: body['timedOut'] ?? null,
       durationMs: body['durationMs'] ?? null,
       scriptsSource: (body['target'] as { scriptsSource?: unknown } | undefined)?.scriptsSource ?? null,
+      // cycle-101：init 动作的诚实回报 —— 旧实现只 mkdir 就报 ok（假成功）。
+      // 这里透出「脚本退出码 + 三个关键工件是否存在」，调用方可判真伪而不必再探目录。
+      ...(action === 'init'
+        ? {
+            initOk: body['initOk'] ?? null,
+            initExitCode: body['initExitCode'] ?? null,
+            artifacts: body['artifacts'] ?? null,
+          }
+        : {}),
     },
     sourceFingerprint: body['sourceFingerprint'] ?? null,
     sourceFingerprintAfter: body['sourceFingerprintAfter'] ?? null,

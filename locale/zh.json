@@ -213,7 +213,16 @@
     "macroPhaseCeiling": "推断到顶（stored 在推断上限之后）",
     "macroPhaseUnknown": "未采集（旧宿主或无状态文件）",
     "macroPhaseDriftHint": "查询不写盘；要以前者为准请显式 advance --node {target}",
-    "macroPhaseCeilingHint": "推断器上限：{ceiling}（deploy/maintain 无工件指纹）"
+    "macroPhaseCeilingHint": "推断器上限：{ceiling}（deploy/maintain 无工件指纹）",
+    "readout": {
+      "total": "历史总量",
+      "kept": "窗口内",
+      "dropped": "已裁",
+      "floor": "水位",
+      "failureRate": "失败率",
+      "avgDuration": "平均时长",
+      "ariaLabel": "流程读取数据"
+    }
   },
   "ledger": {
     "title": "账本事件流（最近 {shown} / {total} 条）",

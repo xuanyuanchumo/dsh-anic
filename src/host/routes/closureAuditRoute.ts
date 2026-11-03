@@ -25,6 +25,7 @@
  * 复用：HTTP 查询面与面板数据面共用 registryClosure 的同一份扫描实现
  * （单一实现纪律 G-SINGLE——面板与契约测试不得各写一套扫描器）。
  */
+import { sendAnicError } from './envelope.ts';
 import { resolvePluginRoot } from '../pluginRoot.ts';
 import {
   assertClustersPresent, assertExtraSurfacesPresent, runClosureAudit, toClosureView,
@@ -97,7 +98,7 @@ export function registerClosureAuditRoute(
         // 扫描失败（读盘异常/格式漂移）——响亮失败，不返回半截清单
         const message = e instanceof Error ? e.message : String(e);
         log.warn('closure audit failed: ' + message);
-        deps.send(res, 500, { error: 'CLOSURE_AUDIT_FAILED', message, requestId }, requestId);
+        sendAnicError(deps.send, res, 'ANIC_SKILL_EXEC_FAILED', `CLOSURE_AUDIT_FAILED: ${message}`, { requestId });
       }
     },
   });
