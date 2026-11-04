@@ -1,5 +1,60 @@
 # dsh-anic CHANGELOG
 
+## v0.56.0 — 2026-11-04（cycle-104：技能自收敛 · 图谱视口重适配 · GitHub CI/CD · npm/GitHub 发布面）
+
+> 起点：commit `fdc42a2`（v0.55.2 cycle-103），278 文件 / 3622 用例全绿。
+> 本轮：L4 全自主驱动——修复「技能修复能力只存在于测试里」的结构性缺口、
+> 图区补全仓第一个容器尺寸观测点、补发布元数据与 CI/CD 体系、建仓发布、
+> marketplace 收录 PR、真机沙箱 J0 全 8 项 PASS。
+> 终点：**283 文件 / 3639 用例全绿**、四层 ALL GREEN、coverage 90.06%/83.95%。
+
+### ① 技能自收敛（激活期 verify→repair，结构性缺口根治）
+
+- **实证的缺陷**：提交 `fdc42a2` 改了发行源 `assets/skill/`，live 副本（`.dsh/skills/`）
+  无人重装——`anic_status` 如实报 `live-diverged`，而**唯一能修好它的是跑测试**
+  （5 个测试文件的 `autoInstallSkill()` 副作用）。真实宿主 `apply()` 六处 effect
+  逐一核对均不收敛——发行源升级后运行面永久落后。
+- **修法**：`skillConverge.ts` 决策表（未安装→装 / in-sync→零写入 / 漂移→只修差异 /
+  源缺失→skipped 不猜），挂入第 7 个 effect；结论持久化 `.cycles/skill-converge.json`
+  （cycle-81 旁路同款，跨实例可见），`anic_status` 新增 `skillConverge` 读数出口。
+- **幂等可断言**：in-sync 二次运行 `repairedCount=0`，mtime 不被刷写（单测钉死）——
+  否则 mtime 抖动会污染 `computeBuildRevision` 判据。
+- **真机验证**：注入漂移（13361B→47B）→ converge 判 `repaired` 精确修 1 文件 →
+  二次 in-sync → 持久化读数正确。
+
+### ② 图区容器尺寸观测（全仓首个 ResizeObserver）
+
+- **DOM 实测缺陷**：全仓 `grep ResizeObserver src/client/` 零命中；`fittedRef` 守卫
+  「只适配一次」把容器变化也挡掉——面板折叠/窗口缩放/全屏后图停在旧视口。
+- **修法**：`useContainerSize`（ResizeObserver + 1px 容差 + 尺寸未变早退 + 无观察器
+  环境降级不崩）→ `useFitLifecycle`（首屏一次 + 尺寸变化重适配两条纪律合流）。
+  策略选 doFit：容器变化（折叠/全屏）是「想重新看全图」的信号。
+- **工程纪律**：GraphInteractive 加 hook 后 266 行触发 T3 守卫真红——职责整体迁出
+  （266→233 行），注释判据随迁移走，不删知识。
+- **配套真机修复**：J0-2 边判据从数 `<line>` 升级为数 `[data-anic-edge]` 锚点
+  （cycle-83 起边渲染为贝塞尔 path，旧判据在 79 边图上只数到 7 条直边假红）。
+
+### ③ GitHub CI/CD 与发布体系（从零到一）
+
+- `ci.yml`：build→typecheck→lint→test 四层 + **两步播种**（coverage 证据 + cycle
+  三件套——两组自审计契约的显式前置，缺了真红不是假绿；init-workflow 会覆盖
+  CLAUDE.md 的踩坑已记录并在播种中排除）。
+- `release.yml`：tag↔package.json 一致性 + CHANGELOG 段落校验 + 稳定名 tarball
+  （`dsh-anic.tgz`，marketplace `tarball:` 字段要求 URL 不随版本变化）+ 可选 npm publish。
+- PR/Issue 模板；分支策略与发布手册见 `docs/agents/CI-CD与发布流程.md`（新增）。
+
+### ④ 发布面（npm ↔ GitHub ↔ marketplace 链路打通）
+
+- `package.json` 补 `repository/homepage/bugs/keywords/author`（npm↔GitHub 关联硬性要求）。
+- GitHub 仓库 `xuanyuanchumo/dsh-anic` 建立（public，topic `dsh-plugin` 等 8 个）。
+- marketplace 收录 PR：awesome-dsh-plugin#12071（24 工具/77 路由数字已对照代码核实）。
+- 网络实测：github.com 443 直连被重置，SSH 通道稳定（手册 §9）。
+
+### ⑤ 文档与数字漂移修正
+
+- README/docs 技能文件数 65→69（find 实测）；工具面参考等文档同步。
+- `anic_status` 健康摘要、`skillIntegritySummary` 消费面不破坏（无损契约钉死）。
+
 ## v0.55.2 — 2026-11-03（cycle-103：自举循环迭代升级 · 版本锚点同步 · 测试报告补齐 · 陈旧产物归档）
 
 > 起点：commit `398aa3e`（v0.55.1 cycle-102），278 文件 / 3622 用例。
