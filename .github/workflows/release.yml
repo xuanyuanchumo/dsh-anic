@@ -24,8 +24,10 @@ jobs:
     name: build & publish GitHub Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    # CI 档位（自审计契约排除）：与 ci.yml 同理——自指/真实数据面契约在全新检出
+    # 的种子数据面上结构性无法满足（详见 vitest.config.ts exclude 段注释）。
     env:
+      ANIC_SELF_AUDIT: '0'
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       # 可选：在仓库 Settings → Secrets 里配 NPM_TOKEN 即可让本 workflow 顺带发 npm。
       # 未配置时该步骤自动跳过（见下方 if），不算失败。
@@ -77,6 +79,25 @@ jobs:
           fi
 
       # 先跑完整离线门禁：发布物不能是「没验过的东西」。
+      # 播种（与 ci.yml 同链）：自审计契约的显式前置——coverage 证据 + cycle 骨架 +
+      # 门禁账本锚 + 快照重生成 + dist 对齐重建（smoke 断言 dist==artifacts 同源）。
+      - name: Seed self-audit prerequisites
+        run: |
+          set -euo pipefail
+          node assets/skill/scripts/init-cycle.mjs .
+          for g in G0 G1 G2 G3; do
+            node assets/skill/scripts/gate-ledger.mjs . --gate "$g" --result PASS --detail "release seeded anchor"
+          done
+          if ! node scripts/coverage.mjs > coverage-seed.log 2>&1; then
+            echo "::error::coverage seeding failed — failing tests and tail:"
+            grep -E "× |FAIL |AssertionError|Error: |exit" coverage-seed.log | head -40 || true
+            tail -30 coverage-seed.log
+            exit 1
+          fi
+          node scripts/generate-snapshot.mjs
+          node assets/skill/scripts/workflow-state.mjs . check
+          pnpm run build
+
       - name: Build
         run: pnpm run build
 
