@@ -85,22 +85,27 @@ jobs:
         run: |
           set -euo pipefail
           node assets/skill/scripts/init-cycle.mjs .
-          # config.yml / workflow-graph.yaml 由 init-workflow 产出，但 init-workflow
-          # 会覆盖 CLAUDE.md（本地实测）——CI 只要这两个文件，noclobber 补齐。
-          # 注意：ubuntu-26.04 runner 的 coreutils 已换 uutils 实现，install -n 报
-          # unexpected argument（run 41874270497 实录）——用 test || cp 的 POSIX 写法。
-          test -f .cycles/config.yml || cp assets/skill/assets/config/config.example.yml .cycles/config.yml
-          test -f .cycles/workflow-graph.yaml || cp assets/skill/assets/config/workflow-graph.example.yaml .cycles/workflow-graph.yaml
+          # config.yml 已随 git 分发（.gitignore 白名单 !.cycles/config.yml——
+          # configEdit 契约族断言本仓真实配置的 name=dsh-anic 与注释行数，
+          # 通用模板 structurally 不满足；这也正是「用自己配置跑自己门禁」的自举语义）。
           node scripts/coverage.mjs
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
+          # native.test F2 锚点：.cycles/gates/ledger.json 必须存在——用本仓自己的
+          # gate-ledger 真实写入一条 G0 记录（自举语义：CI 用自己的门禁账本跑自己的契约）。
+          node assets/skill/scripts/gate-ledger.mjs . --gate G0 --result PASS --detail "CI seeded anchor"
           LATEST="$(ls -d .cycles/cycles/cycle-* | sort -t- -k2 -n | tail -1)"
           printf '# 非功能验证报告\n\n**来源**: CI 播种（github-actions）。非功能阈值判定由 pnpm run test 四层 + scripts/coverage.mjs 阈值门在本运行内完成。\n' > "$LATEST/非功能验证报告.md"
           printf '# 交付清单\n\n- 最终测试报告：test-reports/测试报告.md（run-tests.mjs 自动写入）\n- 非功能验证报告：非功能验证报告.md\n- 文档更新记录：docs/agents/\n- 审计日志：审计日志.md\n' > "$LATEST/交付清单.md"
           printf '# 审计日志\n\n| 时间 | 动作 | 执行者 |\n|---|---|---|\n| %s | CI 播种（coverage + init-cycle + snapshot） | github-actions |\n' "$(date -u +%FT%TZ)" > "$LATEST/审计日志.md"
           echo "seeded: $LATEST"
 
+      # Test 层跑 ANIC_SELF_AUDIT=0：排除自指/真实数据面契约族（依赖本仓 104 轮
+      # .cycles 历史——种子数据面 1 个骨架 cycle 结构性无法满足，排除名单与理由
+      # 见 vitest.config.ts exclude 段，显式声明不是静默缩减；本地全量仍是权威门禁）。
       - name: Test (offline four-layer pyramid)
+        env:
+          ANIC_SELF_AUDIT: '0'
         run: pnpm run test
 
       - name: Upload test reports

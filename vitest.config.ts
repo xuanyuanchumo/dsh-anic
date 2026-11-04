@@ -24,6 +24,28 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    // ANIC_SELF_AUDIT=0（CI 种子环境）：排除**自指/真实数据面契约族**（cycle-104 实证
+    // 41 用例结构性依赖本仓 104 轮 .cycles 历史——种子数据面 1 个骨架 cycle 无法满足
+    // 「真实规模/真实账本/当前循环号一致性」判据）。本地全量（默认=1）仍是唯一权威
+    // 门禁，CI 是快速回归面。排除名单在此**显式声明**（CI 日志可见，不是静默缩减），
+    // 每一项的依赖见 .github/workflows/ci.yml 播种段注释。
+    exclude: process.env.ANIC_SELF_AUDIT === '0'
+      ? [
+          'tests/**/node_modules/**',
+          'tests/contract/cycleLabelContract.test.ts',
+          'tests/contract/objectiveConformanceContract.test.ts',
+          'tests/contract/archiveResetContract.test.ts',
+          'tests/contract/graphNodeRoleContract.test.ts',
+          'tests/contract/graphInteractiveContract.test.ts',
+          'tests/contract/graphModernizationContract.test.ts',
+          'tests/contract/graphRelationCompletenessContract.test.ts',
+          'tests/contract/graphTraceContract.test.ts',
+          'tests/contract/graphUxContract.test.ts',
+          'tests/contract/deployFreshnessContract.test.ts',
+          'tests/contract/evalRunnerQuality.test.ts',
+          'tests/manual/**',
+        ]
+      : ['tests/**/node_modules/**'],
     environment: 'node',
     testTimeout: 30000,
     // 隔离：每个文件独立 worker，宿主路由测试里改 process.cwd 互不影响

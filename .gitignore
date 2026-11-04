@@ -3,6 +3,7 @@ dist/
 artifacts/
 
 .cycles/
+!.cycles/config.yml
 test-results/
 .dsh/
 .codegraph-visualizer/
@@ -17,3 +18,4 @@ test-results/
 
 # npm publish 专用 npmrc（含 token 占位符，值经 vault_run 注入；勿提交）
 .npmrc-publish
+!.cycles/workflow-graph.yaml
