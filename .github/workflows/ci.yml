@@ -70,23 +70,22 @@ jobs:
       # 四层离线金字塔：validate → vitest（单元+契约）→ smoke（stub 宿主）→ trigger。
       # 不加 --live：真实宿主 E2E 需要本机 DSH 安装，CI 环境不具备（见文件头说明）。
       #
-      # 三步播种（都是本仓自审计契约的**显式前置**，缺了就是真红，不是测试缺陷）：
-      # ① coverage 证据：coverageEvidenceContract 钉「没有证据 ≠ 通过」——
-      #    本地由 eval-runner 在跑 vitest 前生成；CI 里必须显式跑 scripts/coverage.mjs。
-      # ② cycle 三件套：closure 契约族与 ⑨ 取编号最大循环要求
-      #    测试报告/非功能验证报告/交付清单 非空。init-cycle.mjs 只建骨架不碰文档
-      #    （init-workflow.mjs 会覆盖 CLAUDE.md——本地实测踩坑后排除，勿改回）。
-      # ③ workflow-snapshot + workflow-state：graphNodeRole/Modernization/Interactive
-      #    契约读 artifacts/workflow-snapshot.json；cycleLabelContract 读
-      #    .cycles/workflow-state.json。generate-snapshot.mjs 两者都产（v0.56 起为
-      #    提交产物改由本地生成——CI 每次自建，判据不变）。
-      # set -e：任何一步失败立即停（不等 Test 层才暴露）。
+      # 三步播种（都是本仓自审计契约的**显式前置**，缺了就是真红，不是测试缺陷）。
+      # 顺序敏感（v2 实测）：coverage.mjs 读 .cycles/config.yml（reportsDirectory +
+      # 阈值声明），而 .cycles/ 被 gitignore 不随检出——**init-cycle 必须先跑**，
+      # 否则 coverage 0.4s 退出 2 且 Test 层全 ENOENT（run 41869380778 实录）。
+      #   ① init-cycle：建 .cycles 骨架（config.yml 也在内）——不触碰仓库文档
+      #     （init-workflow.mjs 会覆盖 CLAUDE.md，本地实测踩坑后排除，勿改回）。
+      #   ② coverage：coverageEvidenceContract 钉「没有证据 ≠ 通过」。
+      #   ③ generate-snapshot：graph 三契约读 artifacts/workflow-snapshot.json。
+      #   ④ workflow-state check：写 .cycles/workflow-state.json（cycleLabel 契约）。
+      #   ⑤ 三件套：⑨ 质量产物契约（真实测试报告由 run-tests.mjs 跑完覆盖写入）。
       - name: Seed coverage evidence + cycle artifacts (self-audit prerequisites)
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/coverage.mjs
           node assets/skill/scripts/init-cycle.mjs .
+          node scripts/coverage.mjs
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
           LATEST="$(ls -d .cycles/cycles/cycle-* | sort -t- -k2 -n | tail -1)"
