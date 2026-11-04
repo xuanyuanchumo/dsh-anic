@@ -111,6 +111,11 @@ jobs:
           tail -8 coverage-seed.log
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
+          # generate-snapshot 重写了 src/client/workflowGraphData.ts 与 artifacts/
+          # workflow-snapshot.json——smoke 层断言「dist 渲染 == artifacts 快照」同源，
+          # dist 是 Build 步骤（早于播种）打的，必须**重建**对齐（run 41896098237
+          # 实录：got 34(旧 dist) vs expected 26(新 artifacts)）。
+          pnpm run build
           LATEST="$(ls -d .cycles/cycles/cycle-* | sort -t- -k2 -n | tail -1)"
           printf '# 非功能验证报告\n\n**来源**: CI 播种（github-actions）。非功能阈值判定由 pnpm run test 四层 + scripts/coverage.mjs 阈值门在本运行内完成。\n' > "$LATEST/非功能验证报告.md"
           printf '# 交付清单\n\n- 最终测试报告：test-reports/测试报告.md（run-tests.mjs 自动写入）\n- 非功能验证报告：非功能验证报告.md\n- 文档更新记录：docs/agents/\n- 审计日志：审计日志.md\n' > "$LATEST/交付清单.md"
