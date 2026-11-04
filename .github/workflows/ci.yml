@@ -93,7 +93,14 @@ jobs:
           # config.yml 已随 git 分发（.gitignore 白名单 !.cycles/config.yml——
           # configEdit 契约族断言本仓真实配置的 name=dsh-anic 与注释行数，
           # 通用模板 structurally 不满足；这也正是「用自己配置跑自己门禁」的自举语义）。
-          node scripts/coverage.mjs
+          # coverage 失败时把 vitest 输出尾部打到日志（此前失败原因被截断吞掉，
+          # 四轮 CI 排障全靠注解猜——本轮加「失败可见」后不再盲猜）。
+          if ! node scripts/coverage.mjs > coverage-seed.log 2>&1; then
+            echo "::error::coverage seeding failed — last 80 lines:"
+            tail -80 coverage-seed.log
+            exit 1
+          fi
+          tail -8 coverage-seed.log
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
           # native.test F2 锚点：.cycles/gates/ledger.json 必须存在——用本仓自己的
