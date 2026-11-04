@@ -14,3 +14,6 @@ test-results/
 # 源码扫描把它们当成项目源码（"1570 个文件 51.2% 变化"），评估基线被产物污染 ——
 # 用户明确要求「避免过度的产物影响判断」。gitignore 之外还要清目录（见本轮记录）。
 .agents/
+
+# npm publish 专用 npmrc（含 token 占位符，值经 vault_run 注入；勿提交）
+.npmrc-publish

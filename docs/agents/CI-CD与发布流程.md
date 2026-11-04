@@ -78,6 +78,17 @@ tag push 触发，依次执行：
 npm publish --access public   # 经 vault_run npm 执行
 ```
 
+**实测坑位（cycle-104，勿重踩）**：
+1. `vault_run` 默认 cwd 是 desktop profile——在那里跑 publish 会读错 package.json，
+   报 `Cannot read properties of null (reading 'prerelease')`。必须让 npm 进程 cwd
+   落在项目目录（包装脚本 execFileSync 指定 cwd）。
+2. npm 11 **不**把裸 `NPM_TOKEN` 环境变量当凭据——需 `.npmrc-publish`
+   （仓库根，已 gitignore）写 `//registry.npmjs.org/:_authToken=${NPM_TOKEN}`，
+   发布时 `--userconfig .npmrc-publish`。
+3. 新包首次发布成功后 registry 会先呈现 `0.0.0-stage`（占位 staged 包），
+   `409 Cannot publish over previously staged version` 表示**已在审核/传播队列**，
+   不是失败——官方 registry 新包要过 npm 的人工/自动审核窗口才对外可见。
+
 发布前核对（contributing.md 硬性要求）：
 - `package.json.repository` 必须指回被收录的 GitHub 仓库（npm ↔ GitHub 关联靠它，cycle-104 已补）；
 - `files` 字段已含 `dist/ assets/skill/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE`；
