@@ -41,8 +41,14 @@ export default defineConfig({
           'tests/contract/graphRelationCompletenessContract.test.ts',
           'tests/contract/graphTraceContract.test.ts',
           'tests/contract/graphUxContract.test.ts',
+          'tests/contract/graphVisualUpgradeContract.test.ts',
           'tests/contract/deployFreshnessContract.test.ts',
           'tests/contract/evalRunnerQuality.test.ts',
+          // unit 侧 graph 族与 contract 同根：断言真实提交快照（104 节点）的布局
+          // 指标/计数/过滤语义，种子数据面（25 节点）结构性不满足（CI 实录 4 红）。
+          'tests/unit/graphLayout.test.ts',
+          'tests/unit/graphModernization.test.ts',
+          'tests/unit/graphFilter.test.ts',
           'tests/manual/**',
         ]
       : ['tests/**/node_modules/**'],
