@@ -44,6 +44,12 @@ export default defineConfig({
           'tests/contract/graphVisualUpgradeContract.test.ts',
           'tests/contract/deployFreshnessContract.test.ts',
           'tests/contract/evalRunnerQuality.test.ts',
+          // coverageEvidenceContract 在 **coverage.mjs 的 vitest 运行内**也会执行：
+          // 它断言 coverage-summary.json 已存在，而 CI 全新检出的 coverage 运行正是
+          // 生成这份摘要的过程——自指（鸡生蛋）。本地绿是因为上一轮的 summary 遗留
+          // （clean:false）。CI 把它排除后，summary 仍由播种真实产出并随 artifact 上传，
+          // 阈值判定由 coverage.mjs 的退出码承担（声明阈值 80/65 在脚本里判，不放宽）。
+          'tests/contract/coverageEvidenceContract.test.ts',
           // unit 侧 graph 族与 contract 同根：断言真实提交快照（104 节点）的布局
           // 指标/计数/过滤语义，种子数据面（25 节点）结构性不满足（CI 实录 4 红）。
           'tests/unit/graphLayout.test.ts',
