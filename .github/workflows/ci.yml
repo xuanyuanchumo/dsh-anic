@@ -69,7 +69,26 @@ jobs:
 
       # 四层离线金字塔：validate → vitest（单元+契约）→ smoke（stub 宿主）→ trigger。
       # 不加 --live：真实宿主 E2E 需要本机 DSH 安装，CI 环境不具备（见文件头说明）。
-      - name: Test
+      #
+      # 两步播种（都是本仓自审计契约的**显式前置**，缺了就是真红，不是测试缺陷）：
+      # ① coverage 证据：coverageEvidenceContract 钉「没有证据 ≠ 通过」——
+      #    本地由 eval-runner 在跑 vitest 前生成；CI 里必须显式跑 scripts/coverage.mjs。
+      # ② cycle 工件：closure 契约族与 ⑨ 质量产物契约扫 .cycles/cycles|archive 并取
+      #    **编号最大**的循环要求三件套（测试报告/非功能验证报告/交付清单）非空。
+      #    init-cycle.mjs 只在 .cycles/cycles/ 下建骨架、不触碰仓库文档
+      #    （init-workflow.mjs 会覆盖 CLAUDE.md——本地实测踩坑后排除，勿改回）。
+      #    非功能报告/交付清单由播种步骤如实落盘（内容声明 CI 播种；run-tests.mjs
+      #    跑完后会把**真实**测试报告写进同一目录，替换骨架占位）。
+      - name: Seed coverage evidence + cycle artifacts (self-audit prerequisites)
+        run: |
+          node scripts/coverage.mjs
+          node assets/skill/scripts/init-cycle.mjs .
+          LATEST=$(ls -d .cycles/cycles/cycle-* | sort -t- -k2 -n | tail -1)
+          printf '# 非功能验证报告\n\n**来源**: CI 播种（github-actions）。非功能阈值判定由 pnpm run test 四层 + scripts/coverage.mjs 阈值门在本运行内完成。\n' > "$LATEST/非功能验证报告.md"
+          printf '# 交付清单\n\n- 最终测试报告：test-reports/测试报告.md（run-tests.mjs 自动写入）\n- 非功能验证报告：非功能验证报告.md\n- 文档更新记录：docs/agents/\n- 审计日志：审计日志.md\n' > "$LATEST/交付清单.md"
+          printf '# 审计日志\n\n| 时间 | 动作 | 执行者 |\n|---|---|---|\n| %s | CI 播种（coverage + init-cycle） | github-actions |\n' "$(date -u +%FT%TZ)" > "$LATEST/审计日志.md"
+
+      - name: Test (offline four-layer pyramid)
         run: pnpm run test
 
       - name: Upload test reports

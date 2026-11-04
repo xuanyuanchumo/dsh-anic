@@ -25,6 +25,7 @@
 | [质量属性与全生命周期评审体系.md](质量属性与全生命周期评审体系.md) | E1-E8/Q1-Q8 维度分派、G0-G3 收敛门判据、六项质量属性承诺、五层测试金字塔、四件套交付纪律 | 判断某质量维度归属、跑门禁、写评估报告时 |
 | [UI功能域与界面组件规划.md](UI功能域与界面组件规划.md) | 14 分区现状矩阵、数据面演进（ETag/304/可见性暂停/store 化 §2.4）、组件层清单（panelStore/panelSections）、缺口排期、设计令牌约束 | 新增/修改面板分区、规划 UI 工作、判断某分区该接哪个数据源时 |
 | [工程脚本与场地自洽.md](工程脚本与场地自洽.md) | scripts/ 域 5 个开发脚本的职责与解析序（快照生成/测试宿主启动/J0 探针/同步拷贝）、cycle-43 场地自洽化裁决（默认数据源=本仓 .cycles/）、init-cycle ↔ workflow-state 联动契约（T-4302 根因与防御线） | 改 scripts/ 默认值、排查快照数据来源、理解技能状态机如何跟循环对齐时 |
+| [CI-CD与发布流程.md](CI-CD与发布流程.md) | 分支策略、commit/tag 规范、ci.yml 四层检查项与两步播种（coverage + init-cycle，自审计契约的显式前置）、release.yml 发布链（tag/CHANGELOG 校验→tarball→可选 npm）、npm 手动发布核对单、marketplace 收录要求、回滚手册、Windows git 网络实测 | 推 master、打 tag 发版、配 CI、提 marketplace PR、网络被重置时 |
 
 ## 三条必读前提
 

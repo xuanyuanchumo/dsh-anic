@@ -1,0 +1,115 @@
+# CI-CD 与发布流程（cycle-104）
+
+> 本文是 dsh-anic 的分支管理 / CI / 发布操作手册。所有命令均已在本仓实测。
+> 工作流定义：[.github/workflows/ci.yml](../../.github/workflows/ci.yml) / [.github/workflows/release.yml](../../.github/workflows/release.yml)
+
+## 1. 分支策略
+
+| 分支 | 用途 | 生命周期 |
+|---|---|---|
+| `master` | 主干，永远可安装可发布 | 永久 |
+| `feat/<域>-<主题>` | 功能开发 | 合并即删 |
+| `fix/<issue号>-<主题>` | 缺陷修复 | 合并即删 |
+| `chore/<主题>` | 工程/文档 | 合并即删 |
+
+规则：
+- **主干只进验证过的提交**——push 前本地必须 `pnpm run typecheck && pnpm run test && pnpm run build` 全绿（CLAUDE.md 纪律）。
+- CI 对 `master`、`feat/**`、`fix/**`、`chore/**` 的 push 与所有 PR 触发（ci.yml `on:` 段）。
+- 大改动走 PR；单人仓库允许直接 push master，但 commit message 必须写清「改了什么 + 为什么」。
+
+## 2. Commit 规范
+
+格式：`<type>(<scope>): <一句话结论>`
+
+type 取值：`feat` / `fix` / `docs` / `refactor` / `test` / `chore` / `v<版本号>`（版本收口提交）。
+本仓惯例（见 `git log`）：版本收口提交以 `v0.X.Y cycle-N:` 开头，正文按领域列条目，每条写「改了什么——为什么/实证出处」。
+
+## 3. CI 检查项（ci.yml）
+
+顺序即依赖关系，**build 必须先于 lint/test**：
+
+1. **Build**（`pnpm run build`）——`dist/` 在 .gitignore 里，CI 必须自建；
+   lint 的 C9/C10 检查 dist 存在性，smoke 层直接读 dist/client.js，
+   deployFreshnessContract 要求 dist 不旧于 src。
+2. **Typecheck**（tsconfig.client + tsconfig.host 双编译）。
+3. **Lint**（DSH 规范符合性门 validate-dsh.mjs）。
+4. **Test**（离线四层金字塔：validate → vitest → smoke → trigger）。
+   **不跑 `--live`**：真实宿主 E2E 需要本机 DSH 桌面端 + Chrome，CI 不具备——显式跳过并说明，不是假绿。
+
+CI 环境要点（都是实测踩过的坑）：
+- `pnpm install --frozen-lockfile`，**绝不** `autoInstallPeers=true`（会把宿主整棵树 ~824 包拖进 CI）；
+  peer 设置住在 pnpm-workspace.yaml，需要 pnpm ≥10.13，故 action 固定 pnpm 11。
+- Node 22（`engines.node: >=22.19`）。
+- 测试报告（`.cycles/cycles/*/test-reports/`，被 gitignore）用 upload-artifact 显式上传，14 天保留。
+
+## 4. 版本号与 tag 规范
+
+- 版本号唯一事实源：`package.json` 的 `version`。CHANGELOG.md 必须有对应 `## vX.Y.Z` 段落。
+- **版本锚点同步**（v0.55.2 cycle-103 确立的纪律）：改 version 时同轮改 CHANGELOG；
+  README 中出现的工具数/路由数由 `tests/contract/readmeNumbers.test.ts` 契约钉死，改面必须同步。
+- tag 形如 `vX.Y.Z`，与 package.json.version **完全一致**——release.yml 里有硬校验，不一致直接红。
+- 打 tag 与推送：
+
+```sh
+git tag v0.56.0
+git push origin v0.56.0   # 只推 tag，release.yml 自动接手
+```
+
+## 5. 发布流程（release.yml）
+
+tag push 触发，依次执行：
+
+1. tag ↔ package.json 版本一致性校验（不一致 fail，不猜）。
+2. CHANGELOG 版本段落存在性校验（release notes 直接取自 CHANGELOG，杜绝手写漂移）。
+3. Build → Typecheck → Lint → Test（同 CI 四件套——发布物不能是没验过的东西）。
+4. `pnpm pack` 产出 tarball，重命名为**稳定名** `dsh-anic.tgz`（marketplace `tarball:` 字段
+   要求 URL 不随版本变化；带版本名的 URL 下次发版就 404——contributing.md 明文警告），
+   附 sha256。
+5. `gh release create`（重跑时先删旧 release 防撞车）。
+6. **npm publish（可选）**：仓库 Settings → Secrets 配置 `NPM_TOKEN` 后自动执行
+   `pnpm publish --access public --provenance`；未配置则显式 skip 并提示（不算失败）。
+
+## 6. npm 发布（本地手动路径）
+
+令牌经 DSH 凭证库注入（明文永不落盘/入对话）：
+
+```sh
+# 凭证库预置 NPM_TOKEN（env 注入子进程，不进 shell 历史）
+npm publish --access public   # 经 vault_run npm 执行
+```
+
+发布前核对（contributing.md 硬性要求）：
+- `package.json.repository` 必须指回被收录的 GitHub 仓库（npm ↔ GitHub 关联靠它，cycle-104 已补）；
+- `files` 字段已含 `dist/ assets/skill/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE`；
+- `engines.dsh` / peerDependencies 的预发布分支写法已是 explicit `||` 形态。
+
+## 7. marketplace 收录（awesome-dsh-plugin）
+
+规则来源：awesome-dsh-plugin contributing.md。要点：
+- fork 后新增**一个文件** `data/plugins/xuanyuanchumo__dsh-anic.yml`（一个 PR 最多 3 条）；
+- `url` 必须与仓库完全一致；`category: workflow`；
+- **描述数字必须与代码核实一致**（夸大是唯一会被打回的原因）：
+
+```sh
+grep -rho "name: 'anic_[a-z_]*'" src/host/tools*.ts | sort -u | wc -l   # → 24（工具数）
+```
+
+- 含 `: ` 的英文描述必须整体加引号；
+- 仓库需满 1 天 + topic `dsh-plugin`（本仓 2026-11-04 建仓 + 已加 topic）；
+- CI 绿是前置条件不是结论，维护者会读源码核对描述。
+
+## 8. 回滚
+
+| 场景 | 动作 |
+|---|---|
+| npm 某版本损坏 | `npm deprecate dsh-anic@X.Y.Z "reason"`；不能真删（npm 政策），发修复版 |
+| Release 附件错误 | 删 release 重打 tag：`gh release delete vX.Y.Z --yes && git push origin :refs/tags/vX.Y.Z`，修好重推 |
+| master 回退 | `git revert <bad-commit>`（保历史）；禁止 force-push 主干 |
+| 宿主里插件损坏 | `anic_reload_self`（热重载）或重装插件包 |
+
+## 9. Windows 本地网络注意（cycle-104 实测）
+
+- github.com 443 直连可能被重置（git push 报 `Connection was reset` / timeout），
+  而 `gh` API 与 SSH 443 通——**remote 用 SSH 形态**（`git@github.com:...`），
+  `gh auth setup-git` 对 HTTPS 形态无效时这是唯一稳定通道。
+- SSH 认证自检：`ssh -T git@github.com` → `Hi <user>!` 即通。
