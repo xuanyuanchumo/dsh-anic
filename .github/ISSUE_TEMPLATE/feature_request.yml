@@ -1,0 +1,76 @@
+name: Feature request
+description: 提出一个功能建议或能力扩展
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提新功能前请先确认：这是「ANIC 循环本身的能力缺口」，还是「你所在项目的工作流需求」。
+        前者适合本仓，后者更适合在你自己项目里配置 `.cycles/config.yml`。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 描述使用场景与当前卡点。避免只写「希望支持 X」。
+      placeholder: |
+        我在做 ... 时遇到 ...，当前只能 ...，导致 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 你期望的行为是什么？如果涉及工具/路由，请说明名字与入参形状。
+      placeholder: |
+        期望新增 anic_xxx 工具 / GET /anic/api/xxx 路由，入参 ..., 返回 ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响域
+      description: 对应本仓的六域分区
+      options:
+        - data（快照 / 自检 / 闭环体检 / 配置）
+        - cycle（循环 / 账本 / 栈探针）
+        - review（评审，条件性 LLM）
+        - evolution（信任 / 自主级 / 熔断 / 技术债）
+        - governance（归档 / 预算 / 清扫 / 修剪）
+        - self（自举 / 技能网关）
+        - client（白盒面板 UI）
+        - 工程化 / CI / 发布
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 以及为什么不够用。
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响面预估
+      description: |
+        是否触及工具注册面 / HTTP 路由数量 / 破坏性变更？
+        注意：工具与路由数字由 `tests/contract/readmeNumbers.test.ts` 契约钉死，
+        README 与 marketplace 条目需同步更新。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，未发现重复
+          required: true
+        - label: 我愿意自己实现并提 PR
+          required: false

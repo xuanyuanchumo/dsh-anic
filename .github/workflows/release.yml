@@ -1,0 +1,146 @@
+name: Release
+
+# 触发面：只认 vX.Y.Z 形式的 tag（与 CHANGELOG 的版本段一一对应）。
+# 手工触发用于重跑失败的发布（workflow_dispatch 必须显式给出 tag）。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（必须形如 vX.Y.Z 且已存在）'
+        required: true
+
+permissions:
+  contents: write # gh release create 需要写内容权限
+  id-token: write # 可选的 npm publish --provenance 步骤需要 OIDC（未配 NPM_TOKEN 时该步骤不执行）
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build & publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      # 可选：在仓库 Settings → Secrets 里配 NPM_TOKEN 即可让本 workflow 顺带发 npm。
+      # 未配置时该步骤自动跳过（见下方 if），不算失败。
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tag 必须与 package.json 的 version 完全一致，否则发布物与 tag 名字对不上
+      # （回溯「这个 tag 到底发了什么」时无法自证）。不一致直接红，不猜。
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED="v${PKG_VERSION}"
+          echo "tag=$TAG package.json version=$PKG_VERSION"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::tag '$TAG' 与 package.json version '$PKG_VERSION' 不一致（期望 $EXPECTED）"
+            exit 1
+          fi
+
+      # CHANGELOG.md 必须有该版本的段落——发布说明直接从那里取，避免手写漂移。
+      # 本仓 CHANGELOG 的版本标题形如 `## v0.55.2 — 2026-11-03（cycle-103：...）`。
+      - name: Verify CHANGELOG has this version
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if ! grep -qE "^#{2,3}[[:space:]]*v${PKG_VERSION//./\\.}([[:space:]]|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md 中没有 v$PKG_VERSION 的版本段落"
+            exit 1
+          fi
+
+      # 先跑完整离线门禁：发布物不能是「没验过的东西」。
+      - name: Build
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint (DSH 规范符合性门)
+        run: pnpm run lint
+
+      - name: Test (离线四层，不含 --live)
+        run: pnpm run test
+
+      # 产出 marketplace `tarball:` 字段可用的固定名附件。
+      # pnpm pack 默认文件名带版本号（dsh-anic-0.55.2.tgz），重命名为稳定名
+      # dsh-anic.tgz —— marketplace 条目的 tarball URL 才能长期不变。
+      - name: Pack tarball
+        run: |
+          set -euo pipefail
+          rm -rf .pack && mkdir -p .pack
+          pnpm pack --pack-destination .pack
+          ls -l .pack
+          SRC="$(ls .pack/*.tgz | head -1)"
+          cp "$SRC" dsh-anic.tgz
+          sha256sum dsh-anic.tgz | tee dsh-anic.tgz.sha256
+
+      # 从 CHANGELOG 抽出该版本段落作为 release notes；抽不到就回退到 tag 名，
+      # 不编造内容。
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          awk -v tag="$TAG" '
+            $0 ~ "^#+[[:space:]]*"tag"([[:space:]]|$)" { found=1; print; next }
+            found && /^#+[[:space:]]*v[0-9]/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            printf 'Release %s\n' "$TAG" > release-notes.md
+          fi
+          printf '\n---\n\n**附件**：`dsh-anic.tgz`（预构建包，附 `dsh-anic.tgz.sha256`）\n' >> release-notes.md
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 已存在同名 release 时先删（重跑发布不撞车）；不存在则忽略。
+          gh release delete "$TAG" --yes --cleanup-tag=false 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            dsh-anic.tgz dsh-anic.tgz.sha256
+
+      # 可选：配置了 NPM_TOKEN 才执行。未配置 → 显式 skip，不是失败。
+      - name: Publish to npm (optional)
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm publish --no-git-checks --access public --provenance
+        continue-on-error: false
+
+      - name: Skip notice (npm)
+        if: env.NPM_TOKEN == ''
+        run: echo "未配置 NPM_TOKEN —— 跳过 npm publish（GitHub Release 已发布，不影响 marketplace 收录）"

@@ -402,7 +402,8 @@ describe('宿主入口 apply', () => {
     // cycle-74：5 层 = skill(cycle-97) + routes + tools + flows(R3 阶段 2) + 工具面按需加载接线。
     // 末层在默认 full 模式下**不注册任何监听器**（内部直接返回），零行为变更。
     // cycle-80：+1 = 热更新握手（finalize in-flight + 冷启动 staleness 记录）⇒ 6 层。
-    expect(effect).toHaveBeenCalledTimes(6);
+    // cycle-104：+1 = 技能自收敛（verify → repair 漂移的 live 副本）⇒ 7 层。
+    expect(effect).toHaveBeenCalledTimes(7);
     // label 必须点明是聚合注册（少一层即功能面缺失）
     expect(effect.mock.calls[0]?.[1]).toContain('dsh-anic: runtime skill');
     expect(effect.mock.calls[1]?.[1]).toContain('dsh-anic: routes');

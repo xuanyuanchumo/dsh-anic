@@ -8,6 +8,7 @@ import type { ToolRegistration, ToolsSlot } from './toolsSlot.ts';
 import { makeToolOutput } from './toolsSlot.ts';
 import { inlineSkillRoot } from './skillInvoker.ts';
 import { skillIntegritySummary } from './skillIntegrity.ts';
+import { readConvergeOutcome } from './skillConverge.ts';
 import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
 import { projectFlowTrackerView, renderFlowViewMarker, projectStatusDistribution } from './flowTrackerProjection.ts';
 import { analyzeSkillHealth, formatHealthSummary } from './runtime/continuousLearning.ts';
@@ -71,13 +72,17 @@ export function registerStatusTool(
           ? join(root, '.dsh', 'skills', 'ai-native-iteration-cycle')
           : null;
         const skillIntegrity = skillIntegritySummary(installedDir, inlineSkillRoot());
+        // cycle-104：技能自收敛读数（上次激活的收敛动作 + 修复文件数；无记录 = null，不猜）
+        const skillConverge = existsSync(join(root, '.cycles'))
+          ? readConvergeOutcome(join(root, '.cycles'))
+          : null;
         return {
           statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`,
           desktopNote: 'URL routes are served by the dsh web host; desktop (Electron) reaches them via the dsh-app:// IPC bridge.',
           // cycle-101：有界视图（flowsHead/stats/summary 计入）+ grep 友好 marker
           flowView, flowMarker, flowDistribution,
           flows, flowStats: stats,
-          health, healthSummary, skillIntegrity,
+          health, healthSummary, skillIntegrity, skillConverge,
         };
       },
     }) ?? null,

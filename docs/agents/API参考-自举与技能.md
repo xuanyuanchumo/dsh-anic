@@ -133,7 +133,7 @@ parseGateVerdict(result) // 'PASS' | 'FAIL' | 'unknown'
 
 **跨项目调用人体工学（cycle-38 T-3805，工具面 `anic_skill`）**：调用方把目标项目绝对路径误放进 `args`（如 `args: ["D:\\...\\project", "status"]`）曾是真机 6 连失败的形态。现在 `anic_skill` 工具网关（`toolsSkillGateway.ts`）对此自动收口：`args` 首位匹配盘符/正反斜杠开头的绝对路径、且 `validateWorkspace` 通过、且非 quick-validate 的 skill-dir 形态时——把它移作 workspace 参数、从 args 剥离，并在响应回显 `workspaceRedirected` + `note` 两字段（不静默：调用方看得见发生了什么）。FlowTracker 记账与技能脚本目录解析都按重定向后的工作区。非法路径（不存在/非目录）不吞不重定向，让脚本数量守卫报更精确的错误。HTTP 面 `/anic/skill/invoke` 不做此重定向（两通道行为差异是有意的：工具面服务大模型调用，HTTP 面服务程序调用——程序应当传对）。
 
-**参数防护（cycle-27 起）**：技能脚本 16 个，全部经 `assets/skill/scripts/lib/args.mjs` 的 `parseCliArgs(argv, spec)` 统一解析——三防线：`--help/-h` 打印用法并退出 0；未知旗标（`--*` 不在 spec 白名单）exit 1 并报旗标名；位置参数数量契约（`min/max`，越界报实收数与清单）。值旗标缺参 / int/float NaN 同样拒绝；kebab 旗标自动映射 camelCase（`--max-retries` → `args.maxRetries`）。注意：`SKILL_SCRIPTS` 宿主白名单是 15 项（不含 `mcp-server.mjs`），脚本文件 16 个 + `lib/args.mjs` 共享库 = 技能 65 文件。
+**参数防护（cycle-27 起）**：技能脚本 16 个，全部经 `assets/skill/scripts/lib/args.mjs` 的 `parseCliArgs(argv, spec)` 统一解析——三防线：`--help/-h` 打印用法并退出 0；未知旗标（`--*` 不在 spec 白名单）exit 1 并报旗标名；位置参数数量契约（`min/max`，越界报实收数与清单）。值旗标缺参 / int/float NaN 同样拒绝；kebab 旗标自动映射 camelCase（`--max-retries` → `args.maxRetries`）。注意：`SKILL_SCRIPTS` 宿主白名单是 15 项（不含 `mcp-server.mjs`），脚本文件 16 个 + `lib/` 等共享库 = 技能 69 文件。
 
 ### 2.3 POST `/anic/evaluate`（`skillRoute.ts:78`）
 

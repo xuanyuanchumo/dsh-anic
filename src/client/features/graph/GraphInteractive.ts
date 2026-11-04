@@ -26,6 +26,7 @@ import { renderBreadcrumb } from './graphBreadcrumb.ts';
 import { renderStage } from './graphStage.ts';
 import { renderTraceBar } from './graphTraceBar.ts';
 import { frameGesturesOf, renderViewportFrame } from './graphViewportFrame.ts';
+import { useFitLifecycle } from './useContainerRefit.ts';
 import { worldToViewport } from './graphMiniMap.ts';
 import { useGraphTooltip } from './useGraphTooltip.ts';
 import { useGraphSearch } from './useGraphSearch.ts';
@@ -82,26 +83,9 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
 
   const gestures = useViewportGestures(layout, { sizeOf, onEscape: clearFilter });
 
-  /**
-   * 首屏适配一次。
-   *
-   * 为什么需要 effect 而不是把 useState 初值直接设成 fit：`fitToView` 需要**容器的
-   * 真实像素尺寸**，首渲时 DOM 还没测量。stub 环境不跑 effect ⇒ 保持恒等视口，
-   * 那正好是"未缩放"的合理默认（见文件头"初值必须自足"）。
-   *
-   * 用 ref 守卫「只跑一次」：数据 tick 换 nodes 引用时不该把用户调好的缩放/平移
-   * 重置回适配态——那会让 2s 轮询下的用户没法稳定看图。
-   *
-   * cycle-95：**先恢复**分键视图态再适配 —— 恢复的 effect 声明在
-   * `useGraphInteraction` 里（比这里更早注册 ⇒ 更早执行），所以有存过的项目
-   * 不会被首屏适配顶掉；没存过的项目仍走这里的适配。
-   */
-  const fittedRef = useRef(false);
-  useEffect(() => {
-    if (fittedRef.current) return;
-    fittedRef.current = true;
-    gestures.doFit();
-  }, [gestures]);
+  // 适配生命周期（cycle-104 迁至 useFitLifecycle）：首屏适配一次 + 容器尺寸变化
+  // 重适配。两条纪律的正确性理由见 useContainerRefit.ts 头注（本文件已贴 T3 250 行限）。
+  useFitLifecycle({ target: wrapRef, doFit: gestures.doFit });
 
   /** 邻居数表（预览要显示"几条关系"；引用做键）。 */
   const adjRef = useRef<{ key: readonly WorkflowNode[]; map: Map<string, Set<string>> } | null>(null);

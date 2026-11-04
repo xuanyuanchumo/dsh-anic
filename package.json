@@ -7,6 +7,29 @@
   "license": "MIT",
   "icon": "./icon.svg",
   "main": "./dist/host.js",
+  "author": "xuanyuanchumo",
+  "homepage": "https://github.com/xuanyuanchumo/dsh-anic#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xuanyuanchumo/dsh-anic.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xuanyuanchumo/dsh-anic/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ai-native",
+    "iteration",
+    "workflow",
+    "workflow-visualizer",
+    "evaluation",
+    "convergence-gate",
+    "sdlc",
+    "agent",
+    "plugin"
+  ],
   "bin": {
     "anic-init": "./bin/anic-init.mjs"
   },

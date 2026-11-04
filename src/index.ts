@@ -32,6 +32,7 @@ import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
 import { createInvocationAttributor } from './host/runtime/invocationAttribution.ts';
 import { registerRuntimeSkill } from './host/skillRegistration.ts';
+import { convergeSkill, describeConverge, persistConvergeOutcome } from './host/skillConverge.ts';
 import { registerBuiltinFlows } from './host/flows/builtin.ts';
 import { wireToolDisclosureFromConfig } from './host/toolDisclosureWiringRuntime.ts';
 import { join } from 'node:path';
@@ -41,6 +42,44 @@ import { resolveWorkspaceRoots } from './host/snapshotRoute.ts';
 import { buildFreshness, computeBuildRevision, finalizeInFlight, markRunningRevision } from './host/runtime/hotReload.ts';
 
 const reloadLog = createScoped('hot-reload');
+const convergeLog = createScoped('skill-converge');
+
+/**
+ * 技能自收敛（cycle-104）——把 live 副本拉齐到发行源，每次激活跑一次。
+ *
+ * 为什么必须放在激活期：实证见 `.cycles/cycle-104-evidence/baseline-findings.md` §1——
+ * 提交 `fdc42a2` 改了发行源却没人重装 live 副本，`anic_status` 如实报 diverged，
+ * 而**唯一能修好它的是测试**（tests 里调 `autoInstallSkill`）。真实宿主从不调用，
+ * 于是发行源升级后运行面永久落后。
+ *
+ * 三条纪律（与 runReloadHandshake 同构）：
+ * ① 任何失败只记 warn 不抛——自愈是附加项，抛异常会把整条 fiber 连带拖垮；
+ * ② in-sync 时零写入（`convergeSkill` 已保证，这里只消费结论）；
+ * ③ 结论必须可被外部读到——故挂在 ctx 上供 org-status/面板消费，而不是只写日志。
+ */
+function runSkillConverge(ctx: unknown): void {
+  try {
+    const ws = resolveWorkspaceRoots(ctx as Parameters<typeof resolveWorkspaceRoots>[0]);
+    if (ws === '') return;
+    const outcome = convergeSkill(ws);
+    // 只有「真的发生了事」才出声：in-sync 是常态，每次启动打一条 info 会把日志淹掉
+    // （本仓 cycle-101 已确立「告警疲劳」纪律：噪声会让真问题淹没在熟悉感里）。
+    if (outcome.action === 'repaired' || outcome.action === 'installed-fresh') {
+      convergeLog.info(describeConverge(outcome)
+        + (outcome.repaired.length > 0 ? ` [${outcome.repaired.join(', ')}]` : ''));
+    } else if (outcome.action === 'failed') {
+      convergeLog.warn(describeConverge(outcome));
+    }
+    // 读数出口：持久化到 .cycles/skill-converge.json（跨实例可见——本仓 cycle-81
+    // 实证路由模块读不到本模块内存值，hotReload 同款旁路；写失败不影响激活）。
+    persistConvergeOutcome(join(ws, '.cycles'), outcome);
+  } catch (e) {
+    convergeLog.warn(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** 本次激活的技能收敛结论（持久化于 .cycles/skill-converge.json，跨实例可见）。 */
+export { readConvergeOutcome, persistConvergeOutcome, SKILL_CONVERGE_FILE } from './host/skillConverge.ts';
 
 /**
  * 热更新握手 + 冷启动新鲜度（cycle-80 WS-2）。
@@ -108,6 +147,8 @@ export function apply(ctx: unknown): void {
     c.effect(() => { wireToolDisclosureFromConfig(ctx); }, 'dsh-anic: tool disclosure (agent/created, indexed only)');
     // cycle-80：热更新握手（finalize in-flight）+ 冷启动新鲜度记录（构建职责不在运行时）。
     c.effect(() => { runReloadHandshake(ctx); }, 'dsh-anic: hot-reload handshake (finalize in-flight + staleness)');
+    // cycle-104：技能自收敛——发行源升级后 live 副本不再只能靠跑测试来修复。
+    c.effect(() => { runSkillConverge(ctx); }, 'dsh-anic: skill convergence (verify → repair drifted live copy)');
   } else {
     registerRuntimeSkill(ctx);
     wireRoutes(ctx, { invocationFeed: feed });
@@ -115,5 +156,6 @@ export function apply(ctx: unknown): void {
     registerBuiltinFlows();
     wireToolDisclosureFromConfig(ctx);
     runReloadHandshake(ctx);
+    runSkillConverge(ctx);
   }
 }

@@ -37,7 +37,7 @@ Claude Code / Codex / 任意 MCP 客户端用户可不装宿主，一条命令�
 npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] [--dry-run]
 ```
 
-只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 65 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
+只做两件事（「插件装引擎，入口装工作流」）：① `assets/skill/` 69 文件 → `<project-dir>/.dsh/skills/ai-native-iteration-cycle/`（与插件内 `anic_install` 同构落点，含幂等与版本锚点检测）② `.cycles/` 工作流骨架脚手架。之后让模型读 `SKILL.md`，或把 `scripts/mcp-server.mjs`（15 工具）注册为 MCP server。零依赖，`--dry-run` 只打印不写盘。
 
 
 ## 当前形态（M1..M11 + R3 流程状态机；**cycle-71 时点 v0.40.0**）
@@ -117,7 +117,7 @@ npx dsh-anic init <project-dir> --name "<项目名>" [--framework claude|codex] 
 - **M8 跨项目+DSH 工具**：`host/tools.ts` + `toolsPointerGateway.ts` + `toolsSkillGateway.ts` + `toolsEvolutionGateway.ts` + `toolsFlowsGateway.ts` 共 16 DSH 工具（anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check/hitl/install/status/skill/bootstrap_cycle/bootstrap_analyze/autonomy_downgrade/flows_gate_check/flows_advance/flows_archive）+ skillRoute 4 路由；inject=['tools','webServer','sessions','skills']。
 - **M9 结构优化**：`host/routes/routeContext.ts` 提取共享依赖 + `routes/index.ts` 瘦身至 ~75 行纯组合 + 六域分区（data/cycle/review/evolution/governance/self）。
 - **M10 发布 v0.2.0**：CHANGELOG + README + package.json 0.2.0。
-- **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 65 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
+- **M11 技能内联+原生等价物+双向自举**：`assets/skill/` 69 文件内联（安装即用）+ `skillInstallRoute` 自动安装/更新 + 7 原生模块（hitlAudit/bandDetector/orgStatus/factBaseVerify/planSync/multiAgentGate/fixLoop）+ `dualBootstrap.ts` 双向自举（插件⇄技能）+ org 面板。
 - **真实性审计（自举目标）**：`host/evolution/truthAudit.ts` + `truthAuditChecks.ts` — T1 真实性（文件存在）/ T2 准确性（计数+版本）/ T3 结构性（250 行模块限制）/ T4 逻辑性（路由注册+工具数）；`dualBootstrap` 评估权重 60% 基线 + 40% 审计分；GET `/anic/api/truth-audit`。
 - **数据结构优化**：snapshotCore O(n²)→O(n)（Map 替 find/some）；stateMachine O(n)→O(1)（buildGraphIndex nodeMap+predecessors 邻接表）。
 - **适配器层**：`adapters/index.ts` — FsAdapter/ExecAdapter/HttpAdapter 三接口隔离外部依赖（Q5 架构约束，eval-runner PASS）+ spawnSync env 清洗（`*KEY*/*SECRET*/*TOKEN*/*PASSWORD*` 剥除）。

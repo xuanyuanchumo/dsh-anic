@@ -1,0 +1,96 @@
+name: Bug report
+description: 报告一个可复现的缺陷
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先搜索现有 Issue，避免重复。
+        **不要在 Issue 里粘贴令牌、凭据或本机绝对路径。**
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？如果有报错，请粘贴完整错误输出。
+      placeholder: |
+        期望：...
+        实际：...
+        报错：
+        ```
+        （粘贴输出）
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 最小可复现路径。能贴命令与参数最好。
+      placeholder: |
+        1. 安装 dsh-anic（版本 ...）
+        2. 调用 anic_xxx 工具 / 访问 /anic/api/xxx
+        3. 出现 ...
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: dsh-anic 版本
+      description: 取自 package.json 的 version，或 `dsh plugin list` 的输出
+      placeholder: '0.55.2'
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 宿主版本
+      description: 宿主版本必须落在 engines.dsh 范围（>=0.2.0-rc.2 <0.4.0-0）内才受理
+      placeholder: '0.3.x'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node 版本
+      description: '`node -v` 的输出（engines.node: >=22.19）'
+      placeholder: 'v22.20.0'
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / 证据
+      description: |
+        宿主日志、`/anic/api/*` 响应、`anic_self_check` 输出都可以。
+        若涉及 CI，请附上 GitHub Actions 运行链接。
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，未发现重复
+          required: true
+        - label: 我已确认这不是本机环境特有问题（或用 `anic_self_check` 排除了插件自身不变量破坏）
+          required: false

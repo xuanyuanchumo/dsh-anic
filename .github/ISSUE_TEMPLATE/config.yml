@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用与安装问题
+    url: https://github.com/xuanyuanchumo/dsh-anic/blob/master/README.md
+    about: 安装、engines 版本范围、技能自动安装等说明见 README
+  - name: 发布流程与分支规范
+    url: https://github.com/xuanyuanchumo/dsh-anic/blob/master/docs/agents/CI-CD%E4%B8%8E%E5%8F%91%E5%B8%83%E6%B5%81%E7%A8%8B.md
+    about: CI 检查项、tag 规范、发布与回滚步骤

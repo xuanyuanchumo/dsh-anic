@@ -1,0 +1,86 @@
+name: CI
+
+# 触发面：主干与功能分支的 push、所有 PR。
+# 说明：本仓主战场是 Windows（开发者在 Windows 上跑 pnpm run test），
+# 但 scripts/ 全部是纯 Node（无 .bats/.ps1/.cmd 依赖），因此 CI 跑 ubuntu 即可。
+# 唯一 Windows-only 的脚本是 scripts/start-dsh-test.mjs（真实宿主 E2E，`pnpm run j0` /
+# `pnpm run test:live`），它需要本机安装 DSH 桌面客户端 + Chrome，CI 上不存在，
+# 故本 workflow **不跑** --live 层——这是显式跳过并说明原因，不是假绿。
+on:
+  push:
+    branches: [master, 'feat/**', 'fix/**', 'chore/**']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# 同一分支的新 push 取消旧运行，省配额。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck / lint / test (node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # 与本地开发一致的 pnpm 大版本；pnpm 专属设置（autoInstallPeers 等）住在
+          # pnpm-workspace.yaml，需要 pnpm >=10.13 才被读取。
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # engines.node: >=22.19；22.x 最新小版本满足 lockfile 中
+          # @asamuzakjp/* 的 ^22.22.2 引擎要求。
+          node-version: '22'
+          cache: 'pnpm'
+
+      # peerDependencies（@deepseek-ai/dsh、@deepseek-ai/cordis）由 DSH 宿主在运行时
+      # 提供，本仓 node_modules 只供开发/测试。autoInstallPeers=false 已写进
+      # pnpm-workspace.yaml —— 不要在此处改成 true，否则会拖入整棵宿主树（~824 包）。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 构建必须先于 lint/test：
+      #   - `pnpm run lint`（scripts/validate-dsh.mjs）的 C9/C10 检查 dist/client.js
+      #     与 dist/host.js 的存在性、包装形状与语法；
+      #   - `pnpm run test` 的 smoke 层（scripts/offline-smoke.mjs）直接 readFileSync
+      #     dist/client.js；tests/contract/deployFreshnessContract 要求 dist 不比 src 旧。
+      # dist/ 在 .gitignore 里，所以 CI 必须自己构建，不能依赖仓库产物。
+      - name: Build
+        run: pnpm run build
+
+      - name: Typecheck (tsconfig.client + tsconfig.host)
+        run: pnpm run typecheck
+
+      - name: Lint (DSH 规范符合性门)
+        run: pnpm run lint
+
+      # 四层离线金字塔：validate → vitest（单元+契约）→ smoke（stub 宿主）→ trigger。
+      # 不加 --live：真实宿主 E2E 需要本机 DSH 安装，CI 环境不具备（见文件头说明）。
+      - name: Test
+        run: pnpm run test
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          # run-tests.mjs 把分层结果写进 .cycles/cycles/<latest>/test-reports/
+          # （.cycles/ 被 gitignore，故必须显式上传才是可下载证据）。
+          path: |
+            .cycles/cycles/*/test-reports/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
