@@ -86,9 +86,11 @@ jobs:
           set -euo pipefail
           node assets/skill/scripts/init-cycle.mjs .
           # config.yml / workflow-graph.yaml 由 init-workflow 产出，但 init-workflow
-          # 会覆盖 CLAUDE.md（本地实测）——CI 只要这两个文件，用 noclobber 拷贝补齐。
-          install -n assets/skill/assets/config/config.example.yml .cycles/config.yml
-          install -n assets/skill/assets/config/workflow-graph.example.yaml .cycles/workflow-graph.yaml
+          # 会覆盖 CLAUDE.md（本地实测）——CI 只要这两个文件，noclobber 补齐。
+          # 注意：ubuntu-26.04 runner 的 coreutils 已换 uutils 实现，install -n 报
+          # unexpected argument（run 41874270497 实录）——用 test || cp 的 POSIX 写法。
+          test -f .cycles/config.yml || cp assets/skill/assets/config/config.example.yml .cycles/config.yml
+          test -f .cycles/workflow-graph.yaml || cp assets/skill/assets/config/workflow-graph.example.yaml .cycles/workflow-graph.yaml
           node scripts/coverage.mjs
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
