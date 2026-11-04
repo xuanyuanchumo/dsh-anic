@@ -152,8 +152,11 @@ describe('eval-runner 质量子检查（D-1403/D-1404/D-1408 回归钉，Windows
       // 旧 madge 实现此场景会吐 SKIP（非零退出被 shell-ism 吞掉）——现在必须 FAIL
       expect(q5).toMatch(/FAIL/);
       expect(q5).toMatch(/1 circular dependencies? detected/);
-      expect(q5).toContain('src\\client\\a.ts');
-      expect(q5).toContain('src\\client\\b.ts');
+      // cycle-104：路径分隔符平台自适应——importGraph 输出原生 sep（Windows `\`、
+      // Linux `/`）。旧断言硬编码 `src\client\a.ts` 在 CI（ubuntu）假红：
+      // 守卫自己违反了它要守的跨平台纪律。改为「正反斜杠都认」的字面量对。
+      expect(q5).toMatch(/src[\\\/]client[\\\/]a\.ts/);
+      expect(q5).toMatch(/src[\\\/]client[\\\/]b\.ts/);
     },
   );
 
