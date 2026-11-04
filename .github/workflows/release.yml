@@ -79,8 +79,11 @@ jobs:
           fi
 
       # 先跑完整离线门禁：发布物不能是「没验过的东西」。
-      # 播种（与 ci.yml 同链）：自审计契约的显式前置——coverage 证据 + cycle 骨架 +
-      # 门禁账本锚 + 快照重生成 + dist 对齐重建（smoke 断言 dist==artifacts 同源）。
+      # 顺序（run 41901601533 实录修正）：**Build 必须在播种的 coverage 之前**——
+      # dshConformance 的 dist 契约（C9/C10）要求 dist 已存在；coverage 不依赖 dist。
+      - name: Build
+        run: pnpm run build
+
       - name: Seed self-audit prerequisites
         run: |
           set -euo pipefail
@@ -96,10 +99,8 @@ jobs:
           fi
           node scripts/generate-snapshot.mjs
           node assets/skill/scripts/workflow-state.mjs . check
+          # generate-snapshot 重写嵌入快照源——dist 必须与 artifacts 对齐（同 ci.yml）。
           pnpm run build
-
-      - name: Build
-        run: pnpm run build
 
       - name: Typecheck
         run: pnpm run typecheck
