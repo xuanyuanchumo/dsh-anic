@@ -18,16 +18,25 @@ afterAll(() => {
   try { rmSync(TMP, { recursive: true, force: true }); } catch { /* 容忍并发清理 */ }
 });
 
-/** 最小可评估夹具：config 三命令全为 node -e 打印（秒级），源码 N 个文件。 */
+/** 最小可评估夹具：config 三命令全为 node --exit-code 脚本（秒级），源码 N 个文件。
+ *
+ * cycle-104 跨平台修复：旧命令 `node -e "process.exit(0)"` 在 Linux /bin/sh -c 下
+ * 双引号被剥掉 → `(` 未引用 → Syntax error "(" unexpected（CI 四轮实录）。
+ * Windows cmd 解析路径不同所以本地全绿、CI 全红——守卫自己的 fixture 违反了
+ * 它要守的跨平台纪律。修法：命令改为无 shell 元字符的 `node <ok-script>`，
+ * 脚本文件随 fixture 落盘（单引号安全，POSIX/Windows 语义一致）。 */
+const OK_SCRIPT = 'scripts/ok.cjs';
 function makeFixture(name: string, srcFileCount: number): string {
   const dir = join(TMP, name);
   mkdirSync(join(dir, 'src'), { recursive: true });
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
   mkdirSync(join(dir, '.cycles', 'intent'), { recursive: true });
+  writeFileSync(join(dir, 'scripts', 'ok.cjs'), 'process.exitCode = 0;\n');
   writeFileSync(join(dir, '.cycles', 'config.yml'),
     'project_name: p\n'
-    + 'test_cmd: "node -e \\"process.exit(0)\\""\n'
-    + 'lint_cmd: "node -e \\"process.exit(0)\\""\n'
-    + 'build_cmd: "node -e \\"process.exit(0)\\""\n');
+    + `test_cmd: "node ${OK_SCRIPT}"\n`
+    + `lint_cmd: "node ${OK_SCRIPT}"\n`
+    + `build_cmd: "node ${OK_SCRIPT}"\n`);
   writeFileSync(join(dir, '.cycles', 'intent', 'intent.md'), '# intent\n');
   for (let i = 0; i < srcFileCount; i++) {
     writeFileSync(join(dir, 'src', `m${i}.ts`), `export const v${i} = ${i};\n`);
