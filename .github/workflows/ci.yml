@@ -94,13 +94,18 @@ jobs:
           # configEdit 契约族断言本仓真实配置的 name=dsh-anic 与注释行数，
           # 通用模板 structurally 不满足；这也正是「用自己配置跑自己门禁」的自举语义）。
           # native.test F2 在 **coverage 运行内**断言 .cycles/gates/ledger.json——
-          # 锚点必须先落（gate-ledger 真实写一条 G0 记录，自举语义）。
-          node assets/skill/scripts/gate-ledger.mjs . --gate G0 --result PASS --detail "CI seeded anchor"
+          # 锚点必须先落。gateToolMappingContract 还要求账本非空时**必须含 G0-G3 全集**
+          # （防「永不命中」型死键），故四门各写一条真实记录（build/typecheck/lint
+          # 在前面步骤真实跑过，PASS 是事实，不是伪造）。
+          for g in G0 G1 G2 G3; do
+            node assets/skill/scripts/gate-ledger.mjs . --gate "$g" --result PASS --detail "CI seeded anchor"
+          done
           # coverage 失败时把 vitest 输出尾部打到日志（此前失败原因被截断吞掉，
           # 四轮 CI 排障全靠注解猜——本轮加「失败可见」后不再盲猜）。
           if ! node scripts/coverage.mjs > coverage-seed.log 2>&1; then
-            echo "::error::coverage seeding failed — last 80 lines:"
-            tail -80 coverage-seed.log
+            echo "::error::coverage seeding failed — failing tests and tail:"
+            grep -E "× |FAIL |AssertionError|Error: |exit" coverage-seed.log | head -40 || true
+            tail -30 coverage-seed.log
             exit 1
           fi
           tail -8 coverage-seed.log
