@@ -26,6 +26,11 @@ jobs:
     name: typecheck / lint / test (node 22)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # CI 档位（自审计契约排除开关）必须是 **job 级**：coverage.mjs 内部再起一次
+    # vitest（播种步骤里），若只在 Test 步骤设 env，coverage 运行拿不到开关照样红
+    # （run 41877723121 实录：coverage 3s 退出非 0）。
+    env:
+      ANIC_SELF_AUDIT: '0'
 
     steps:
       - name: Checkout
@@ -100,12 +105,8 @@ jobs:
           printf '# 审计日志\n\n| 时间 | 动作 | 执行者 |\n|---|---|---|\n| %s | CI 播种（coverage + init-cycle + snapshot） | github-actions |\n' "$(date -u +%FT%TZ)" > "$LATEST/审计日志.md"
           echo "seeded: $LATEST"
 
-      # Test 层跑 ANIC_SELF_AUDIT=0：排除自指/真实数据面契约族（依赖本仓 104 轮
-      # .cycles 历史——种子数据面 1 个骨架 cycle 结构性无法满足，排除名单与理由
-      # 见 vitest.config.ts exclude 段，显式声明不是静默缩减；本地全量仍是权威门禁）。
+      # Test 层（ANIC_SELF_AUDIT=0 已在 job 级 env）：排除自指/真实数据面契约族。
       - name: Test (offline four-layer pyramid)
-        env:
-          ANIC_SELF_AUDIT: '0'
         run: pnpm run test
 
       - name: Upload test reports
