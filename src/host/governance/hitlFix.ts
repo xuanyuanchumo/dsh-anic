@@ -60,10 +60,19 @@ export function attemptH2Fix(workspaceRoot: string, result: HitlResult): FixOutc
 
   if (result.detail.includes('No git history')) {
     try {
-      execSync('git init && git add -A && git commit -m "baseline for rollback"', {
-        cwd: workspaceRoot, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
-        windowsHide: true, // cycle-99b：H2 修复链的 git 调用不弹 cmd 窗口
-      });
+      // cycle-104：-c 兜底身份——CI/容器环境没有全局 user.email/user.name，
+      // 裸 git commit 必败（run 41887328804 实录 Linux 假红；Windows 本地因装过
+      // 全局身份而假绿）。修复链的自愈语义不该依赖宿主机是否恰好配过 git 身份，
+      // -c 只在仓库级临时生效，不污染全局配置，已有身份时也不会覆盖用户配置
+      // （git 以 -c 为准，等价于机器人提交署名，HITL 审计里如实可查）。
+      execSync(
+        'git init && git add -A && git -c user.name="anic-hitl-fix" -c user.email="anic-fix@localhost" '
+        + 'commit -m "baseline for rollback"',
+        {
+          cwd: workspaceRoot, timeout: 10000, stdio: 'pipe', encoding: 'utf-8',
+          windowsHide: true, // cycle-99b：H2 修复链的 git 调用不弹 cmd 窗口
+        },
+      );
       return { success: true, action: 'Initialized git repo with baseline commit' };
     } catch (e) {
       return { success: false, reason: `git init failed: ${(e as { message?: string }).message ?? 'unknown'}` };

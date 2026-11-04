@@ -112,17 +112,20 @@ describe('Q-1 工作区选择器：?workspace= 与请求头同等级', () => {
     expect(resolveWorkspaceRoots(ctx, { url: '/anic/hitl-audit?workspace=..%2Fevil' })).toBe(known);
   });
 
-  it('⑤ 编码后的反斜杠路径可解码命中（%3A%5C 形态与非编码原样形态都行）', () => {
+  it('⑤ 编码后的路径可解码命中（编码形态与未编码原样形态都行）', () => {
     const known = workspace();
     const target = workspace(); // 不在 registry 合法集，只能靠"真含 .cycles"被采信
     const ctx = makeCtx(known);
-    // encodeURIComponent：Windows 路径 → C%3A%5CUsers%5C...%5Canic-sel-xxx
-    expect(urlWith(target)).toContain('%5C');
-    expect(resolveWorkspaceRoots(ctx, { url: urlWith(target) })).toBe(target);
-    // 未编码原样反斜杠（手工 curl / 浏览器自动编码前的形态）同样命中
+    // cycle-104 平台自适应：断言语义是「encodeURIComponent 后的 target 仍可解码命中」，
+    // 不硬编码 %5C（Windows 反斜杠）——Linux 路径没有反斜杠，硬编码字面量在那里恒假红
+    // （run 41887328804 实录）。编码后字符串必须**不同于原样**（真的编码了）且解码回原值。
+    const encoded = urlWith(target);
+    expect(encoded).not.toBe(target); // 确实编码过（哪怕平台无反斜杠，: 等仍会被编码）
+    expect(resolveWorkspaceRoots(ctx, { url: encoded })).toBe(target);
+    // 未编码原样形态（手工 curl / 浏览器自动编码前的形态）同样命中
     expect(resolveWorkspaceRoots(ctx, { url: `/anic/org-status?workspace=${target}` })).toBe(target);
-    // 反向自检：不做解码时字符串带 %5C，不存在 → 回落 known
-    expect(legacyResolveHeaderOnly(ctx, { url: urlWith(target) })).toBeNull();
+    // 反向自检：不做解码时字符串带 %XX 编码形态，不存在 → 回落 known
+    expect(legacyResolveHeaderOnly(ctx, { url: encoded })).toBeNull();
   });
 
   it('⑥ 畸形/缺失 URL 不抛异常且一律回落（选择器绝不炸掉请求）', () => {
