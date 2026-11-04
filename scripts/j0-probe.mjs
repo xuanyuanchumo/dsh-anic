@@ -158,17 +158,21 @@ try {
     const wf = document.querySelector('[data-anic-workflow]');
     const svg = wf ? wf.querySelector('svg') : null;
     const circles = svg ? svg.querySelectorAll('circle').length : 0;
-    const lines = svg ? svg.querySelectorAll('line').length : 0;
-    return { t, circles, lines, hasSvg: !!svg };
+    // cycle-104 判据升级：边自 cycle-83 起渲染为贝塞尔 <path data-anic-edge>（跨列
+    // 曲线支持），<line> 只剩同列直边的少数形态——旧断言数 <line> 在 79 边的图上
+    // 只读到 7 条直边而假红（J0 真机实录）。判据改为**锚点数**（与
+    // offline-smoke / graphInteractiveContract 同源纪律：任何边形态都必须带锚点）。
+    const edges = svg ? svg.querySelectorAll('[data-anic-edge]').length : 0;
+    return { t, circles, edges, hasSvg: !!svg };
   });
   const t = probe.t;
   record('J0-3 遥测通道', !!t && t.registered === true, t ? `registered=${t.registered} registerCount=${t.registerCount}` : 'window.__ANIC_TAB_SPIKE__ 不存在');
   // cycle-10 强不变量：渲染 = 遥测（面板 live 到达后同步 spike.nodes/edges——
   // 旧断言只查 circles>=100，在会话工作区 .cycles 较小时假红、在遥测陈旧时假绿
   // （cycle-9 实录 175 圆 vs 169 遥测即后者）。现在要求逐数相等：画的就是报的。
-  record('J0-2 图渲染', probe.hasSvg && probe.circles >= 20 && probe.lines >= 20 && !!t && t.nodes > 0
-    && probe.circles === t.nodes && probe.lines === t.edges,
-    `svg=${probe.hasSvg} circles=${probe.circles} lines=${probe.lines} 遥测 nodes=${t?.nodes} edges=${t?.edges}`);
+  record('J0-2 图渲染', probe.hasSvg && probe.circles >= 20 && probe.edges >= 20 && !!t && t.nodes > 0
+    && probe.circles === t.nodes && probe.edges === t.edges,
+    `svg=${probe.hasSvg} circles=${probe.circles} edges=${probe.edges} 遥测 nodes=${t?.nodes} edges=${t?.edges}`);
 } catch (e) {
   record('J0-2 图渲染', false, String(e).slice(0, 160));
   record('J0-3 遥测通道', false, String(e).slice(0, 160));
