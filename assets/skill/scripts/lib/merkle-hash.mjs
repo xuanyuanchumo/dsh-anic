@@ -13,6 +13,29 @@ import { atomicWriteFileSync } from './fs-safe.mjs';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 /**
+ * 缓存基线扫描的单一扩展名真源（上游场地 C142）。
+ *
+ * ## 为什么是这里（CLAUDE.md「两份以上清单必然漂移」）
+ *
+ * 本模块曾有**三份**各自硬编码的扩展名数组（calculateDirMerkleRoot /
+ * detectDetailedChanges / updateCacheFileHashes），全部只有 ['.ts','.js','.mjs']：
+ *   - `.tsx/.jsx` 不进键——React 组件改了，eval-runner 缓存照样 hit（假绿）；
+ *   - `.css` 不进键——上游场地 C142 现场实证：token 契约违例修复（改 runtime-panel.css）
+ *     后缓存仍报旧 FAIL 结果（技能侧改进项 §85.5 的直接根因）。
+ * 收敛为一个 export 常量：新增扩展名改这一处，三处消费点同步。
+ *
+ * ## 为什么含 .css/.scss
+ *
+ * eval-runner 的缓存键覆盖 src+tests 双树；前端项目的样式源（tokens.css 等）
+ * 被 tokensContract 一类守卫测试直接断言——样式变了测试结果就可能变，
+ * 不进键 = 样式修复被缓存吞掉。
+ */
+export const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.scss'];
+
+/** 兼容旧导入面： calculateDirMerkleRoot 的缺省参数用它。 */
+const DEFAULT_EXTENSIONS = SOURCE_EXTENSIONS;
+
+/**
  * 计算单个文件的 SHA-256 哈希（16 字节前缀）
  */
 export function calculateFileHash(filePath) {
@@ -27,7 +50,7 @@ export function calculateFileHash(filePath) {
  * @param {string[]} extensions - 文件扩展名过滤器
  * @returns {string} Merkle root hash (32 bytes hex)
  */
-export function calculateDirMerkleRoot(dirPath, extensions = ['.ts', '.js', '.mjs']) {
+export function calculateDirMerkleRoot(dirPath, extensions = DEFAULT_EXTENSIONS) {
   let combined = '';
   const entries = [];
 
@@ -121,7 +144,7 @@ export function detectDetailedChanges(currentProjectDir, previousCacheFile) {
         continue;
       }
       
-      if (['.ts', '.js', '.mjs'].some(ext => entry.name.endsWith(ext))) {
+      if (SOURCE_EXTENSIONS.some(ext => entry.name.endsWith(ext))) {
         const hash = calculateFileHash(full);
         if (hash) {
           currentFiles.set(relative(cache.projectDir, full), hash);
@@ -171,7 +194,7 @@ export function updateCacheFileHashes(cacheFile, projectDir) {
         continue;
       }
       
-      if (['.ts', '.js', '.mjs'].some(ext => entry.name.endsWith(ext))) {
+      if (SOURCE_EXTENSIONS.some(ext => entry.name.endsWith(ext))) {
         const hash = calculateFileHash(full);
         if (hash) {
           fileHashes[relative(projectDir, full)] = hash;

@@ -139,4 +139,51 @@ describe('merkle-hash — 缓存基线数据结构', () => {
     const rootAfter = calculateDirMerkleRoot(join(dir, 'src'));
     expect(rootAfter).toBe(rootBefore); // 依赖目录变更不影响指纹
   });
+
+  // ── 上游场地 C142：扩展名单一真源（三份硬编码白名单漂移的根修）──────────
+  describe('SOURCE_EXTENSIONS 单一真源（上游场地 C142）', () => {
+    it('CSS 变更必须击穿缓存（上游场地 C142 现场缺陷：token 契约修复被缓存吞掉）', () => {
+      // 直接复现 上游场地 C142 §85.5：eval-runner 的缓存键只扫 .ts/.js/.mjs，
+      // runtime-panel.css 的 token 违例修复后 Merkle 根不变 → 缓存 hit → 报旧结果。
+      const cssRoot1 = calculateDirMerkleRoot(join(dir, 'src'));
+      writeFileSync(join(dir, 'src', 'theme.css'), '.a { color: #fff; }\n');
+      const cssRoot2 = calculateDirMerkleRoot(join(dir, 'src'));
+      expect(cssRoot2).not.toBe(cssRoot1); // 新 CSS 文件进键
+
+      // 已有 CSS 文件的内容变更同样进键（纯样式修改场景）
+      const rootBefore = calculateDirMerkleRoot(join(dir, 'src'));
+      writeFileSync(join(dir, 'src', 'theme.css'), '.a { color: #f00; }\n');
+      const rootAfter = calculateDirMerkleRoot(join(dir, 'src'));
+      expect(rootAfter).not.toBe(rootBefore);
+    });
+
+    it('TSX/JSX 变更必须进键（React 组件修复此前同样被缓存吞掉）', () => {
+      writeFileSync(join(dir, 'src', 'Panel.tsx'), 'export const A = () => null;\n');
+      const root1 = calculateDirMerkleRoot(join(dir, 'src'));
+      writeFileSync(join(dir, 'src', 'Panel.tsx'), 'export const A = () => <b/>;\n');
+      const root2 = calculateDirMerkleRoot(join(dir, 'src'));
+      expect(root2).not.toBe(root1);
+
+      writeFileSync(join(dir, 'src', 'App.jsx'), 'export const B = 1;\n');
+      const root3 = calculateDirMerkleRoot(join(dir, 'src'));
+      expect(root3).not.toBe(root2);
+    });
+
+    it('反向自检：无扩展名/非源码文件不入键（守卫不是放行一切）', () => {
+      const root1 = calculateDirMerkleRoot(join(dir, 'src'));
+      writeFileSync(join(dir, 'src', 'notes.txt'), 'not source');
+      writeFileSync(join(dir, 'src', 'README'), 'md without ext');
+      const root2 = calculateDirMerkleRoot(join(dir, 'src'));
+      expect(root2).toBe(root1); // 非源码文件变更不影响指纹
+    });
+
+    it('守卫自检：SOURCE_EXTENSIONS 必须含 CSS/TSX（防白名单被悄悄收窄）', async () => {
+      // 若有人把 .css/.tsx 从单一真源删掉，上面「变更进键」的用例虽然仍会红，
+      // 但若连用例一起被删，这条最小断言就是最后防线。
+      const mod = await import(libUrl.href);
+      expect(mod.SOURCE_EXTENSIONS).toContain('.css');
+      expect(mod.SOURCE_EXTENSIONS).toContain('.tsx');
+      expect(mod.SOURCE_EXTENSIONS).toContain('.ts');
+    });
+  });
 });
