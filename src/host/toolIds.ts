@@ -1,6 +1,11 @@
 /**
  * ANIC DSH 工具 id 的正典清单（cycle-38 · M2-a 落地）。
  *
+ * cycle-107 起本文件**再导出** `src/shared/anicToolIds.ts` 的共享清单——client 半部
+ * 要在 `tool.call.toolview` 席位注册 anic_* 工具的终端卡片，需要工具名清单，而 client
+ * 的 tsconfig 已 include `src/shared` 目录下全部 TS 文件。再导出保持契约测试
+ * （`tests/contract/toolIdsContract.test.ts`）的 import 路径零变更。
+ *
  * 为什么需要这个文件（补的是 agents.ts 里一条**自我承诺**）：
  *   `src/host/agents.ts` 的注释原文写着「`toolsAllowlist` M1 只做形状校验
  *   （`^anic_[a-z][a-z0-9_]*$`）；存在性校验在 M2-a 工具面落地后接入
@@ -20,43 +25,13 @@
  *   被允许调用它」——授权判定是 `autonomyBand` 与调用点的职责，本表不做。
  */
 
-/** 本插件注册的全部 DSH 工具 id（24 个，字典序）。
- *
- * cycle-74：19 → 21 —— 新增两个**渐进式披露加载器**（anic_tool_detail / anic_tools_search）。
- * 它们是 indexed 模式下模型取回 schema 的唯一通道，缺则自锁（见 indexActivation.activationReady）。
- * cycle-77：21 → 22 —— 新增 `anic_autonomy_upgrade`（升级此前无任何入口，只能手改 config，
- * 与「人类授权的 L4」无法区分；现在升级能力进工具面才可被计数/索引/自检消费）。
- * cycle-80：22 → 23 —— 新增 `anic_reload_self`（宿主 hmr 服务消费面：此前 `grep ctx.hmr src/`
- * 零命中，能力注册了却从不使用，于是改代码只能人工重启宿主）。
- * cycle-96：23 → 24 —— 新增 `anic_bootstrap_other`（「举他」工具化：跨项目自举此前**只有**
- * HTTP 端点 `POST /anic/self/bootstrap-other` 与外部调度器能触发，`grep bootstrap_other
- * src/host/tools*.ts` 零命中 ⇒ 模型不可达。现 in-process 复用同一执行体，不 HTTP 自调）。 */
-export const ANIC_TOOL_IDS: readonly string[] = [
-  'anic_autonomy_downgrade',
-  'anic_autonomy_upgrade',
-  'anic_bootstrap',
-  'anic_bootstrap_analyze',
-  'anic_bootstrap_cycle',
-  'anic_bootstrap_other',
-  'anic_evaluate',
-  'anic_flows_advance',
-  'anic_flows_archive',
-  'anic_flows_auto_fix',
-  'anic_flows_gate_check',
-  'anic_flows_hitl',
-  'anic_gate_check',
-  'anic_hitl',
-  'anic_install',
-  'anic_iterate',
-  'anic_reload_self',
-  'anic_self_check',
-  'anic_skill',
-  'anic_skill_repair',
-  'anic_snapshot',
-  'anic_status',
-  'anic_tool_detail',
-  'anic_tools_search',
-];
+export {
+  ANIC_TOOL_IDS,
+  ANIC_TOOL_PREFIX,
+  isAnicToolName,
+} from '../shared/anicToolIds.ts';
+
+import { ANIC_TOOL_IDS } from '../shared/anicToolIds.ts';
 
 const KNOWN = new Set(ANIC_TOOL_IDS);
 
@@ -79,3 +54,4 @@ export function unknownToolIds(ids: readonly string[]): string[] {
   }
   return out;
 }
+

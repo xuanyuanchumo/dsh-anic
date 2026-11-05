@@ -15,6 +15,7 @@
  * 的 host/client 命名惯例一致。
  */
 import { integrateWorkflowTab } from './integrations/WorkflowTabIntegration.ts';
+import { integrateToolView } from './integrations/ToolViewIntegration.ts';
 import { setLocaleFromHost } from './i18n.ts';
 
 export const name = 'dsh-anic-client';
@@ -22,6 +23,12 @@ export const inject = ['slots', 'locale'];
 
 export function apply(ctx: unknown): void {
   integrateWorkflowTab(ctx);
+  // cycle-107：命令窗口显示修复——注册 tool.call.toolview 席位渲染 anic_* 终端卡片。
+  // 内置 Web Client 不消费 presentCall/presentResult（官方契约），必须由 client 插件注册。
+  // disposer 随插件 fiber 卸载（ctx.slots.inject 的 inject 级清理 + 注册 disposer 数组）。
+  try {
+    integrateToolView(ctx);
+  } catch { /* 注册失败不阻断面板与 locale 联动 */ }
   // 宿主语言联动（cycle-99）：locale 服务存在才订阅；订阅 disposer 随插件 fiber 卸载。
   const c = ctx as { locale?: { getSnapshot?: () => { active?: string }; subscribe?: (fn: () => void) => () => void } };
   const locale = c.locale;
