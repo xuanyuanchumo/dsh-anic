@@ -1,7 +1,12 @@
 # dsh-anic — AI-Native Iteration Cycle（DSH 插件）
 
 ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工程**。可行性研究、
-需求分析、架构与里程碑见 [`docs/anic/`](../docs/anic/)（README + 01–17 + spike 报告）。
+需求分析、架构与里程碑见 [`docs/anic/`](../docs/anic/)（README + 01–25 + spike 报告）。
+
+> **内部技能库（cycle-106）**：`assets/skills/` 是 dsh-anic 的自进化操作知识库——8 个叶技能
+> （git 分支 / GitHub PR / Gitee 镜像 / npm 发布 / CI-CD / Token-SSH / DSH 原生 API / superagent 模式）
+> + 元技能 `skill-library-evolution`（自进化七步）。注册表 `assets/skills/skills.index.json` 是唯一事实源；
+> 研究与裁决见 [`docs/anic/25-原生优化与内部技能库研究.md`](../docs/anic/25-原生优化与内部技能库研究.md)。
 
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
