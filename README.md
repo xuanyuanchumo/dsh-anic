@@ -36,6 +36,16 @@ SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration
   + **边语义图例**（6 种边类型的线型可查）+ **开关解析态**（客户端可见工作区/部署层的真实生效值）
 - **cycle-91 治本**：flow-tracker **append-only 历史**（统计样本不再被滚动淘汰截断）
   + 流程 `reset` **真实触发器**（`IDLE` 从此可达）+ 三个空心开关接上运行时消费面
+- **cycle-109 新增·可观测性取证化（两个「信任态」变可查证）**：
+  - **披露宿主侧裁决**：`ctx.tools.schemas(agent)` 采一次 ⇒ `verified / partial / unverified`
+    三态（`partial` 再拆 `leaked` 越权暴露 与 `missing` 遮蔽过头/自锁）；
+    读数出口 `GET /anic/api/disclosure` 的 `hostVerifiedAgents / hostPartialAgents / hostUnverifiedAgents`。
+  - **技能可见性三态**：注册 ≠ 模型可见 —— 回读 `ctx.skills.snapshot()` ⇒ `active / absent / unknown`
+    （`unknown` 绝不谎报 `absent`），并贯通 frontmatter 的 `disable-model-invocation` / `user-invocable`
+    （缺键不传 `invocation`）+ `skills/change` 计数。
+  - **内部技能库可查**：`assets/skills/`（1 主干 + 9 叶 + 1 元技能）注册表 ⇄ 磁盘**只读对账**，
+    六种 `issue.kind` 分流；出口 `GET /anic/skill/health` 的 `library` 段与 `anic_status` 的
+    `skillLibrary` 字段（首跑即抓到注册表 10 条里 9 条缺 `dir` 的真实漂移，已修）。
 
 截图见 `docs/screenshots/`（市场详情页通过仓库根 `screenshots.json` 自动展示）。
 

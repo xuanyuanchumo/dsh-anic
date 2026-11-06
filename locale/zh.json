@@ -296,7 +296,15 @@
     "levelUnused": "未使用",
     "recentVsOverall": "近期成功率 {recent} · 全史 {overall}",
     "noRecentData": "近 7 天无网关调用，当前状态不可判定（展示全史值）",
-    "lastInvoked": "最近调用：{at}"
+    "lastInvoked": "最近调用：{at}",
+    "runtimeSkillLabel": "运行时技能",
+    "runtimeSkillActive": "模型可见",
+    "runtimeSkillAbsent": "不可见（可能被同名技能压制）",
+    "runtimeSkillUnknown": "不可判定（观测不完整）",
+    "libraryLabel": "内部技能库",
+    "librarySummary": "v{version} · {skills} 个技能 · {issues} 个问题",
+    "libraryOk": "注册表与磁盘一致",
+    "skillsChangeEmits": "目录变更 {count} 次"
   },
   "budget": {
     "title": "治理预算（.cycles/ 工作区）",
@@ -499,7 +507,6 @@
     "edgeLegendHint": "六种边语义的线型对照（与图上同源）",
     "nodeRoleLabel": "节点角色",
     "pathFind": "找路径",
-    "pathFindPlaceholder": "从… 到…（名称或 id）",
     "pathFindHint": "输入两个节点（用 → 或逗号分隔）找最短路径",
     "pathFindNoPath": "两点之间不可达",
     "pathFindResult": "路径 {hops} 跳：{path}",
@@ -516,7 +523,9 @@
     "pathPickStart": "选起点：在节点上按 Enter",
     "pathPickEnd": "选终点：再选一个节点",
     "pathExit": "退出找路径",
-    "pathFindTooLong": "路径超出 {hops} 跳上限（可能更远）"
+    "pathFindTooLong": "路径超出 {hops} 跳上限（可能更远）",
+    "pathReverseOnly": "反向可达：{hops} 跳（正向不通，把端点对调即可）",
+    "compareLimit": "最多对比 {max} 个（再多选不会加入）"
   },
   "config": {
     "title": "配置与路径",

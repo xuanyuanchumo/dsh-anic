@@ -42,6 +42,7 @@
  */
 import { disclosureOf, trackedAgentCount, listTrackedAgents } from './disclosureActivation.ts';
 import { toolsChangeEmitCount } from './toolsChangeCounter.ts';
+import type { DisclosureVerdict } from './disclosureVerdict.ts';
 
 // 计数器已下沉到零依赖叶子（解环）；此处重导出保持既有 import 路径零变更。
 export { noteToolsChangeEmit, toolsChangeEmitCount, resetToolsChangeEmitCount } from './toolsChangeCounter.ts';
@@ -59,6 +60,14 @@ export interface AgentDisclosureReadout {
   unlocked: string[];
   /** 当前是否还有生效的 restriction（`disposer !== null`）。 */
   restricted: boolean;
+  /** cycle-109：宿主侧裁决（`unverified` 不等于失败，等于采不到）。 */
+  hostVerdict: DisclosureVerdict;
+  /** 宿主实测可见数（null = 采不到）。 */
+  hostVisible: number | null;
+  /** 该遮蔽却仍在（越权暴露，最危险）。 */
+  hostLeaked: string[];
+  /** 该可见却不见了（遮蔽过头，可能自锁）。 */
+  hostMissing: string[];
 }
 
 /** 披露运行时读数（`GET /anic/api/disclosure` 的响应体）。 */
@@ -81,6 +90,17 @@ export interface DisclosureReadout {
   fullyMaskedAgents: number;
   /** 读数生成时刻（ISO）。 */
   generatedAt: string;
+  /**
+   * cycle-109：宿主侧取证的三态计数。
+   *
+   * 为什么要**三个数**而不是一个 `allVerified`：三态的补救动作不同 ——
+   * `partial` 要立刻查（可能是越权泄漏或自锁），`unverified` 只是采不到
+   * （换宿主/老代/stub），把两者混成一个 "not verified" 会让真正的越权
+   * 淹没在「采集不到」的噪声里。
+   */
+  hostVerifiedAgents: number;
+  hostPartialAgents: number;
+  hostUnverifiedAgents: number;
 }
 
 /**
@@ -95,6 +115,9 @@ export interface DisclosureReadout {
 export function buildDisclosureReadout(nowIso?: string): DisclosureReadout {
   const agents: AgentDisclosureReadout[] = [];
   let fullyMasked = 0;
+  let hostVerified = 0;
+  let hostPartial = 0;
+  let hostUnverified = 0;
   // trackedAgentCount 只给数量；明细需要逐个 agent ⇒ 用导出的迭代器。
   for (const agent of iterTrackedAgents()) {
     const st = disclosureOf(agent);
@@ -103,12 +126,19 @@ export function buildDisclosureReadout(nowIso?: string): DisclosureReadout {
     const denyCount = st.deny.length;
     const isFullyMasked = denyCount === st.allToolIds.length - st.loaderIds.length;
     if (isFullyMasked) fullyMasked++;
+    if (st.hostVerdict === 'verified') hostVerified++;
+    else if (st.hostVerdict === 'partial') hostPartial++;
+    else hostUnverified++;
     agents.push({
       allToolCount: st.allToolIds.length,
       loaderCount: st.loaderIds.length,
       denyCount,
       unlocked,
       restricted: st.disposer !== null,
+      hostVerdict: st.hostVerdict,
+      hostVisible: st.hostVisible,
+      hostLeaked: [...st.hostLeaked],
+      hostMissing: [...st.hostMissing],
     });
   }
   return {
@@ -117,6 +147,9 @@ export function buildDisclosureReadout(nowIso?: string): DisclosureReadout {
     toolsChangeEmits: toolsChangeEmitCount(),
     fullyMaskedAgents: fullyMasked,
     generatedAt: nowIso ?? new Date().toISOString(),
+    hostVerifiedAgents: hostVerified,
+    hostPartialAgents: hostPartial,
+    hostUnverifiedAgents: hostUnverified,
   };
 }
 
@@ -141,7 +174,10 @@ export function summarizeDisclosure(readout: DisclosureReadout): string {
   if (readout.trackedAgents === 0) return 'no agent in indexed disclosure (mode=full)';
   const unlockedTotal = readout.agents.reduce((n, a) => n + a.unlocked.length, 0);
   return `agents=${String(readout.trackedAgents)}, unlocked=${String(unlockedTotal)}, `
-    + `fullyMasked=${String(readout.fullyMaskedAgents)}, tools/change=${String(readout.toolsChangeEmits)}`;
+    + `fullyMasked=${String(readout.fullyMaskedAgents)}, tools/change=${String(readout.toolsChangeEmits)}, `
+    // cycle-109：宿主侧三态。**不合并**——三者的补救动作不同（见接口注释）。
+    + `host=verified:${String(readout.hostVerifiedAgents)}/partial:${String(readout.hostPartialAgents)}/`
+    + `unverified:${String(readout.hostUnverifiedAgents)}`;
 }
 
 /**

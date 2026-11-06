@@ -1,5 +1,6 @@
 ---
 name: dsh-native-api
+version: 0.2.2
 whenToUse: >
    在 dsh-anic（或任何 DSH 插件）里需要理解/改造插件 manifest、打包为组合包（bundle）、
    安装进 profile、声明 `engines.dsh` 兼容范围、写 `cordis.patch.yml`、处理 git 安装的
@@ -129,7 +130,8 @@ allowBuilds:
 1. **打包**：`package.json` 的 `dsh` 键声明 `bundle.patch` 与 `client`（本仓 `package.json:78-90`）。
 2. **写 patch**：`cordis.patch.yml` 用 `- insert:` 声明 entry（本仓 `cordis.patch.yml:10-13`），
    用 `disabled: !!js "..."` 防双挂载。
-3. **声明兼容**：`engines.dsh` 用 SemVer 范围（本仓 `>=0.2.0-rc.2 <0.4.0-0`，`package.json:47-50`）。
+3. **声明兼容**：`engines.dsh` 用 SemVer 范围（本仓 `>=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0`，
+   **两段显式**——不是单段 `<0.4.0-0`，单段会把 rc 分支挡在外面；`package.json:59`）。
 4. **安装**：`dsh plugin --profile <name> add <pkg>`。
 5. **跑检查**：
    - `node assets/skills/dsh-native-api/scripts/dsh-manifest-check.mjs <project-dir>`

@@ -19,7 +19,7 @@ node <script> <project-dir> [附加参数...]
 
 | 脚本 | 用途 | 退出码 |
 |---|---|---|
-| `workflow-lint.mjs` | 校验 `.github/workflows/*.yml`：触发面、`permissions: contents: read`、四件套顺序、`--frozen-lockfile`、无 `--live`、job 级 `ANIC_SELF_AUDIT: '0'`、Release 的 tag/CHANGELOG/pack 校验步 | 0 通过 / 1 违规 / 2 用法错误 |
+| `workflow-lint.mjs` | 校验 `.github/workflows/*.yml`：触发面、`permissions: contents: read`、四件套顺序、`--frozen-lockfile`、无 `--live`、job 级 `ANIC_SELF_AUDIT: '0'`、job 级 `timeout-minutes`、OIDC 最小权限（CI 禁 `id-token: write`／Release 必须有）、Release 的 `cancel-in-progress: false` 与 tag/CHANGELOG/pack 校验步 | 0 通过 / 1 违规 / 2 用法错误 |
 | `release-check.mjs` | 发布前四项卫生：tag↔`package.json.version`、CHANGELOG `## vX.Y.Z` 段、`files` 发布清单、`repository` 指向 GitHub | 0 通过 / 1 违规 / 2 用法错误 |
 
 ## 用法

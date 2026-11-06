@@ -59,4 +59,32 @@ export const GRAPH_CSS: string = [
   `[data-anic-graph-viewport] [data-anic-graph-lane-header] {`,
   `  pointer-events: none;`,
   `}`,
+
+  // ── cycle-109（U1/U3）：对比面板 ─────────────────────────────────
+  //
+  // 面板只在选中集 ≥2 时渲染（零占位，见 graphExtras），所以这段样式不会改变
+  // 单选/无选中的任何视觉。差异**不只**靠字重：行锚点带
+  // `data-anic-graph-compare-diff`，配 `≠` 徽标是第二通道（WCAG 1.4.1，
+  // 见 graphComparePanel 头注）——颜色在这里只是加强，不是唯一信息载体。
+  `[data-anic-graph-compare] {`,
+  `  background: ${v('anic-surface-active')}; border: 1px solid ${v('anic-border')};`,
+  `  border-radius: 6px; color: ${v('anic-text')};`,
+  `}`,
+  `[data-anic-graph-compare-head] {`,
+  `  color: ${v('anic-text-strong')}; font-weight: bold;`,
+  `  border-bottom: 1px solid ${v('anic-border')}; padding-bottom: 1px;`,
+  `}`,
+  `[data-anic-graph-compare-row-label] { color: ${v('anic-text-dim')}; }`,
+  `[data-anic-graph-compare-row][data-anic-graph-compare-diff='true'] {`,
+  `  font-weight: 600;`,
+  `}`,
+  `[data-anic-graph-compare-diff-mark] { color: ${v('anic-warn-text')}; }`,
+  // 选满读数：它是"为什么点了没反应"的唯一解释，必须比普通读数更显眼（字重 + 色）。
+  `[data-anic-graph-compare-limit] {`,
+  `  color: ${v('anic-warn-text')}; font-weight: 600; padding-top: 1px;`,
+  `}`,
+  // 强制颜色模式：面板底色与描边会被系统接管，差异必须回到结构通道（徽标 + 字重）。
+  `@media (forced-colors: active) {`,
+  `  [data-anic-graph-compare] { border: 1px solid CanvasText; background: Canvas; }`,
+  `}`,
 ].join('\n');

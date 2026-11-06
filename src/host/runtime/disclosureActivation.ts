@@ -45,6 +45,24 @@
  */
 import { createScoped } from '../logger.ts';
 import { noteToolsChangeEmit } from './toolsChangeCounter.ts';
+import {
+  classifyDisclosureVerdict,
+  expectedVisibleIds,
+  recomputeDeny,
+  type DisclosureVerdict,
+} from './disclosureVerdict.ts';
+// cycle-109 T3：纯 deny 重算已并入 disclosureVerdict.ts（与 expectedVisibleIds 同族）。
+export { recomputeDeny } from './disclosureVerdict.ts';
+// cycle-109 T3：宿主侧取证下移到 disclosureHostCapture.ts（沿「动作 / 观测」切）。
+import {
+  captureHostVisibility,
+  unverifiedVisibility,
+  type HostVisibility,
+  type ScopedToolsCtx,
+} from './disclosureHostCapture.ts';
+
+export type { HostVisibility, ScopedToolsCtx } from './disclosureHostCapture.ts';
+export { captureHostVisibility } from './disclosureHostCapture.ts';
 
 const log = createScoped('anic:disclosure-activation');
 
@@ -60,6 +78,17 @@ export interface AgentDisclosureState {
   deny: string[];
   /** 撤销当前 restriction 的 disposer。 */
   disposer: (() => void) | null;
+  /**
+   * cycle-109：**宿主侧**可见性裁决（旁路取证，不是前置条件）。
+   * `unverified` = 宿主无 `schemas` / 无 scope / 抛错 —— 采不到不等于失败。
+   */
+  hostVerdict: DisclosureVerdict;
+  /** 实测可见数（null = 采不到）。 */
+  hostVisible: number | null;
+  /** 该遮蔽却仍在（空 = 无越权泄漏）。 */
+  hostLeaked: string[];
+  /** 该可见却不见了（空 = 无遮蔽过头）。 */
+  hostMissing: string[];
 }
 
 /** 解锁结果（供加载器把真实结果告诉模型）。 */
@@ -72,22 +101,16 @@ export interface UnlockOutcome {
   reason?: string;
 }
 
-/** 宿主 scoped 面（本地窄化，不引宿主包）。 */
-export interface ScopedToolsCtx {
-  tools?: { restrict?: (f: { deny: string[] }) => () => void };
-  /** `tools/change` 是 emit 事件：restriction 变更后必须发。 */
-  emit?: (name: string, ...args: unknown[]) => unknown;
-}
-
 /** 内存注册表：agent → 状态。 */
 const states = new WeakMap<object, AgentDisclosureState>();
 
 /** 记录一个 agent 的披露状态（由接线层在 restrict 成功后调用）。 */
 export function rememberDisclosure(
   agent: object,
-  state: Omit<AgentDisclosureState, 'unlocked'>,
+  state: Omit<AgentDisclosureState, 'unlocked' | keyof HostVisibility>,
 ): void {
-  states.set(agent, { ...state, unlocked: new Set<string>() });
+  // 未传取证 ⇒ 诚实形态（未采到）。绝不把「没采」默认成 verified。
+  states.set(agent, { ...unverifiedVisibility(), ...state, unlocked: new Set<string>() });
 }
 
 /** 读取状态（缺省 null —— 该 agent 未启用 indexed 披露）。 */
@@ -119,26 +142,6 @@ export function forgetDisclosure(agent: object): void {
   states.delete(agent);
   // 同源清理：读数按 tracked 遍历，漏清会让读数虚高。
   tracked.delete(agent);
-}
-
-/**
- * **重算 deny**：从「全部工具」里移除加载器与已解锁项。
- *
- * 纯函数（可单测）：顺序稳定（保持 allToolIds 原序）⇒ 同输入同输出。
- */
-export function recomputeDeny(
-  allToolIds: readonly string[],
-  loaderIds: readonly string[],
-  unlocked: ReadonlySet<string>,
-): string[] {
-  const keep = new Set(loaderIds);
-  const out: string[] = [];
-  for (const id of allToolIds) {
-    if (keep.has(id)) continue;
-    if (unlocked.has(id)) continue;
-    out.push(id);
-  }
-  return out;
 }
 
 /**
@@ -196,6 +199,9 @@ export function unlockTool(agent: unknown, toolName: string): UnlockOutcome {
     const d = restrict({ deny: nextDeny });
     st.disposer = typeof d === 'function' ? d : null;
     st.deny = nextDeny;
+    // cycle-109：deny 变了 ⇒ 旧的宿主取证已过期，重采一次（这正是「解锁是否真的
+    // 让宿主多给了一个工具」的**唯一**直接证据；不重采则读数永远停在初态）。
+    Object.assign(st, captureHostVisibility(scoped, agent, st.allToolIds, nextDeny));
   } catch (e) {
     // 撤销成功、施加失败 ⇒ 当前**无 restriction** ⇒ 全部工具可见（放宽方向）。
     st.deny = [];
@@ -210,7 +216,11 @@ export function unlockTool(agent: unknown, toolName: string): UnlockOutcome {
   } catch (e) {
     log.warn('emit tools/change threw: ' + (e instanceof Error ? e.message : String(e)));
   }
-  log.info(`unlocked ${toolName} for agent (deny ${String(beforeDenyCount)} → ${String(nextDeny.length)})`);
+  log.info(`unlocked ${toolName} for agent (deny ${String(beforeDenyCount)} → ${String(nextDeny.length)}); `
+    + `host=${st.hostVerdict}`
+    + (st.hostVisible === null ? '' : ` visible=${String(st.hostVisible)}`)
+    + (st.hostLeaked.length > 0 ? ` leaked=[${st.hostLeaked.join(', ')}]` : '')
+    + (st.hostMissing.length > 0 ? ` missing=[${st.hostMissing.join(', ')}]` : ''));
   return { newlyUnlocked: !already, callable: true };
 }
 

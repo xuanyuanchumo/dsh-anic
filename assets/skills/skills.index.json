@@ -1,7 +1,7 @@
 {
   "$schema": "./skills.schema.json",
   "library": "dsh-anic-internal-skills",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "updatedAt": "2026-11-06",
   "description": "dsh-anic 内部技能库注册表（唯一事实源）：主干技能 + 9 叶技能 + 1 元技能。叶技能只提供操作知识与确定性脚本，不互相 import；主干技能（ai-native-iteration-cycle）充当流程脊柱。自进化由 _meta/skill-library-evolution 承载。",
   "spine": {
@@ -14,7 +14,7 @@
     {
       "name": "skill-library-evolution",
       "dir": "_meta/skill-library-evolution",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "tier": "meta",
       "summary": "技能库元技能：取证→评估→补丁→基准→留痕七步，承载自进化演化能力",
       "triggers": [
@@ -32,6 +32,8 @@
       "anchors": [
         "SKILL.md",
         "scripts/skill-lib-manifest.mjs",
+        "scripts/skill-lib-drift.mjs",
+        "scripts/skill-lib-ledger.mjs",
         "CHANGELOG.md"
       ],
       "gates": [
@@ -41,7 +43,8 @@
     },
     {
       "name": "git-branch-workflow",
-      "version": "0.1.0",
+      "dir": "git-branch-workflow",
+      "version": "0.2.0",
       "tier": "leaf",
       "summary": "分支策略、提交规范、主干保护、revert 红线、多分支并行的操作知识",
       "triggers": [
@@ -56,6 +59,8 @@
       "anchors": [
         "SKILL.md",
         "scripts/branch-lint.mjs",
+        "scripts/pre-push-verify.mjs",
+        "references/branch-protection.md",
         "CHANGELOG.md"
       ],
       "gates": [],
@@ -63,7 +68,8 @@
     },
     {
       "name": "github-pr-actions",
-      "version": "0.1.0",
+      "dir": "github-pr-actions",
+      "version": "0.2.0",
       "tier": "leaf",
       "summary": "PR 生命周期、CI 失败分诊、gh 操作、评审协议、合并策略、G0-G3 映射",
       "triggers": [
@@ -92,7 +98,8 @@
     },
     {
       "name": "gitee-mirror-sync",
-      "version": "0.1.0",
+      "dir": "gitee-mirror-sync",
+      "version": "0.1.1",
       "tier": "leaf",
       "summary": "GitHub↔Gitee 镜像与 MR 同步、收录规则、漂移检测、中文协作面差异（全仓零覆盖，新建）",
       "triggers": [
@@ -116,7 +123,8 @@
     },
     {
       "name": "npm-publish",
-      "version": "0.1.0",
+      "dir": "npm-publish",
+      "version": "0.2.0",
       "tier": "leaf",
       "summary": "npm 版本号/打包/发布/回滚：唯一事实源、tag 一致性、tarball 稳定名、vault_run 注入、deprecate",
       "triggers": [
@@ -143,7 +151,8 @@
     },
     {
       "name": "ci-cd-release",
-      "version": "0.2.0",
+      "dir": "ci-cd-release",
+      "version": "0.3.0",
       "tier": "leaf",
       "summary": "GitHub Actions 与发布流水线设计：触发面、依赖顺序、secrets 最小化、artifact、回滚矩阵、marketplace",
       "triggers": [
@@ -160,6 +169,8 @@
       "anchors": [
         "SKILL.md",
         "scripts/workflow-lint.mjs",
+        "scripts/release-check.mjs",
+        "references/actions-authoring.md",
         "CHANGELOG.md"
       ],
       "gates": [
@@ -172,7 +183,8 @@
     },
     {
       "name": "token-ssh-security",
-      "version": "0.1.0",
+      "dir": "token-ssh-security",
+      "version": "0.1.1",
       "tier": "leaf",
       "summary": "凭据/令牌/SSH 安全操作：DSH 凭证库、gh auth、.npmrc-publish 保护、脱敏、H1 检查点",
       "triggers": [
@@ -197,7 +209,8 @@
     },
     {
       "name": "dsh-native-api",
-      "version": "0.2.0",
+      "dir": "dsh-native-api",
+      "version": "0.2.2",
       "tier": "leaf",
       "summary": "DSH 打包/安装/插件原生面：manifest、cordis.patch.yml、engines.dsh、层顺序、不变量探测",
       "triggers": [
@@ -219,7 +232,8 @@
     },
     {
       "name": "superagent-patterns",
-      "version": "0.1.0",
+      "dir": "superagent-patterns",
+      "version": "0.1.1",
       "tier": "leaf",
       "summary": "Superagent 部署/授权/执行模式：独立 profile、stateDir、hourly check、准入表、Mandate、退出码",
       "triggers": [
@@ -244,7 +258,8 @@
     },
     {
       "name": "dsh-plugin-patterns",
-      "version": "0.1.0",
+      "dir": "dsh-plugin-patterns",
+      "version": "0.1.1",
       "tier": "leaf",
       "summary": "DSH 插件工程模式（P01-P14）：工具注册面/toolview 席位/client UI 纪律/safeDispose/失败为值/分层持久化，沉淀自 dsh-ops 与 dsh-context 源码研究",
       "triggers": [

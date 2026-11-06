@@ -25,8 +25,15 @@ import { createScoped } from './logger.ts';
 import { planActivation, INDEX_LOADER_TOOLS } from './indexActivation.ts';
 import { buildIndexSectionText, resolveDisclosureMode } from './toolDisclosure.ts';
 import type { CapabilityIndexInjectable } from './capabilityIndex.ts';
-import { forgetDisclosure, rememberDisclosure, trackAgent, untrackAgent } from './runtime/disclosureActivation.ts';
+import {
+  captureHostVisibility,
+  forgetDisclosure,
+  rememberDisclosure,
+  trackAgent,
+  untrackAgent,
+} from './runtime/disclosureActivation.ts';
 import { noteToolsChangeEmit } from './runtime/disclosureReadout.ts';
+import { describeHostVerdict, type DisclosureVerdict } from './runtime/disclosureVerdict.ts';
 
 const log = createScoped('anic:tool-disclosure');
 
@@ -44,7 +51,11 @@ const INDEX_SECTION_ORDER = 4950;
 
 /** 接线所需的**scoped**宿主面（本地窄化，不引宿主包）。 */
 interface ScopedCtx {
-  tools?: { restrict?: (f: { deny: string[] }) => () => void };
+  tools?: {
+    restrict?: (f: { deny: string[] }) => () => void;
+    /** cycle-109：文档化读面（观察 scope 效果的唯一官方通道）。 */
+    schemas?: (scope?: unknown) => Array<{ name?: unknown }>;
+  };
   systemPrompt?: { section?: (s: { name: string; order: number; text: string }) => unknown };
 }
 interface DisclosureHost {
@@ -64,6 +75,14 @@ export interface WiringOutcome {
   wired: boolean;
   reason: string;
   denyCount: number;
+  /**
+   * cycle-109：**宿主侧**裁决（`unverified` = 采不到；取证是旁路，
+   * **绝不**因取证失败而改动 `wired` 语义——否则会出现「取证失败 ⇒ 回退 full」
+   * 这种把观测故障升级成行为变更的恶性耦合）。
+   */
+  hostVerdict?: DisclosureVerdict;
+  /** 实测可见数（null = 采不到）。 */
+  hostVisible?: number | null;
 }
 
 /**
@@ -116,6 +135,9 @@ export function applyDisclosureToScope(
   }
   try {
     const disposer = scoped.tools.restrict({ deny: plan.deny });
+    // cycle-109：**施加完成后再取证**（顺序不可反：restrict 之前采到的是全量视图，
+    // 那样裁决恒 partial）。取证失败只会得到 unverified，不影响 wired 语义。
+    const host = captureHostVisibility(scoped, agent, allToolIds, plan.deny);
     // cycle-92：记录状态，供 `anic_tool_detail` **按需解锁**（只解锁该 agent）。
     // 修复前这里**丢弃 disposer** ⇒ 既无法解锁、也无法在 agent 销毁时撤销（遮蔽泄漏）。
     if (agent !== null && agent !== undefined && typeof agent === 'object') {
@@ -124,13 +146,20 @@ export function applyDisclosureToScope(
         loaderIds: INDEX_LOADER_TOOLS,
         deny: plan.deny,
         disposer: typeof disposer === 'function' ? disposer : null,
+        ...host,
       });
       trackAgent(agent);
     }
     // 宿主契约（tools.md）：scoped restriction 变更属于 `tools/change` 的触发条件；
     // 不发 ⇒ 宿主下一次 prompt 装配可能沿用陈旧工具集。
     try { (scoped as { emit?: (n: string) => unknown }).emit?.('tools/change'); noteToolsChangeEmit(); } catch { /* 老代宿主无 emit */ }
-    return { wired: true, reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools (unlockable via anic_tool_detail)', denyCount: plan.deny.length };
+    return {
+      wired: true,
+      reason: 'indexed: injected index + restricted ' + String(plan.deny.length) + ' tools (unlockable via anic_tool_detail)',
+      denyCount: plan.deny.length,
+      hostVerdict: host.hostVerdict,
+      hostVisible: host.hostVisible,
+    };
   } catch (e) {
     // restrict 失败 ⇒ 未遮蔽（section 已注入但无害：索引在 full 模式下只是补充信息）。
     return { wired: false, reason: 'restrict threw (not restricted, index section only): ' + (e instanceof Error ? e.message : String(e)), denyCount: 0 };
@@ -171,7 +200,12 @@ export function wireToolDisclosure(
       ? opts.resolveForAgent(agent)
       : { mode: resolveDisclosureMode(opts.mode) as 'full' | 'indexed', index: opts.index };
     const out = applyDisclosureToScope(scoped, d.index, d.mode, opts.allToolIds, agent);
-    log[out.wired ? 'info' : 'warn']('agent disclosure: ' + out.reason);
+    // 取证结论必须**每次都出声**：`wired:true` 只说「调用没抛」，
+    // 不说「宿主真的少给了工具」。一行日志把两者分开报（cycle-109）。
+    const hostLine = out.hostVerdict === undefined
+      ? ''
+      : '; ' + describeHostVerdict(out.hostVerdict, out.hostVisible ?? null);
+    log[out.wired ? 'info' : 'warn']('agent disclosure: ' + out.reason + hostLine);
   });
   // cycle-92：agent 销毁时**撤销遮蔽并清状态**。
   // 修复前不监听 `agent/disposed` ⇒ restriction 的 disposer 从不调用 ⇒

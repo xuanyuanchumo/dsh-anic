@@ -26,6 +26,7 @@ import type { TraceResult } from './graphTrace.ts';
 import type { GraphRenderOptions } from './renderGraph.ts';
 import type { ToolbarWiring } from './graphInteractiveParts.ts';
 import { toolbarWiring } from './graphInteractiveParts.ts';
+import type { ModKeyState } from './graphSelection.ts';
 import { toolbarPropsWithView, type ViewWiringInput } from './graphToolbarWire.ts';
 import type { PathGroupInput } from './graphToolbarPath.ts';
 import type { RoleLegendStats } from './graphToolbarLegendRow.ts';
@@ -51,8 +52,8 @@ export interface RenderAssemblyInput {
   path: PathGroupInput;
   /** 角色图例读数（cycle-95；缺省 = 不渲染角色图例）。 */
   roles: RoleLegendStats;
-  /** 节点点击回调（缺省 = 不可交互）。 */
-  onNodeClick: ((node: WorkflowNode) => void) | undefined;
+  /** 节点点击回调（缺省 = 不可交互）。`mods` 携带 Ctrl/Cmd（cycle-109 多选）。 */
+  onNodeClick: ((node: WorkflowNode, mods?: ModKeyState) => void) | undefined;
   /** 拖拽过界时不该触发点击（组件提供）。 */
   hasMoved: () => boolean;
   /** 缩放键处理器（合并进 svg 的 onKeyDown）。 */
@@ -154,12 +155,18 @@ export function assemblyGraphOptionsOf(input: RenderAssemblyInput): GraphRenderO
   };
 }
 
-/** 节点点击回调（拖拽越界时不触发：否则"拖了一下图"就跳进节点详情抽屉）。 */
+/**
+ * 节点点击回调（拖拽越界时不触发：否则"拖了一下图"就跳进节点详情抽屉）。
+ *
+ * cycle-109：把点击事件原样透传（`mods` 里的 Ctrl/Cmd 决定"多选切换"还是
+ * "单选替换"）。为什么**不**在这一层读修饰键：它还需要"路径模式下点击不算
+ * 选中"这条裁决，而那条只有 `useGraphInteraction` 知道。
+ */
 export function assemblyNodeClickOf(
   input: RenderAssemblyInput,
-): ((node: WorkflowNode) => void) | undefined {
+): ((node: WorkflowNode, mods?: ModKeyState) => void) | undefined {
   if (input.onNodeClick === undefined) return undefined;
-  return (n) => { if (!input.hasMoved()) input.onNodeClick?.(n); };
+  return (n, mods) => { if (!input.hasMoved()) input.onNodeClick?.(n, mods); };
 }
 
 /** 布局模式（供组件读 state，单独转出免得 import 类型路径散落）。 */

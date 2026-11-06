@@ -1,5 +1,6 @@
 ---
 name: token-ssh-security
+version: 0.1.1
 whenToUse: >
    在 dsh-anic（或任何 DSH 插件）仓库里需要配置/使用 GitHub 与 npm 凭据、
    设置 `gh auth` 或 SSH remote、保护 `.npmrc-publish` / `.env`、清理 PR 与 Issue
@@ -32,7 +33,7 @@ dsh-anic 的 **凭据/令牌/SSH 安全操作叶技能**：把「DSH 凭证库�
 | # | 规则 | 说明 | 证据 |
 |---|---|---|---|
 | R01 | 明文令牌永不出 Host | `vault_set` 只入库不回显；`vault_run` 把令牌注入子进程环境变量，绝不进对话/日志/shell 历史 | 工具契约（见下方「DSH 凭证库」）；`docs/agents/CI-CD与发布流程.md:74-79` |
-| R02 | 令牌名用小写连字符 | `github` / `npm`；env 映射 `GH_TOKEN` / `NPM_TOKEN` | 工具契约 |
+| R02 | 令牌名用小写连字符 | 现役三个：`github` / `npm` / `gitee`。env 映射见下表（**默认只自动映射 github/npm**） | `vault_list` 实测（只回名称） |
 | R03 | 命令白名单 | 只许 `gh` / `npm` / `npx` / `node` / `git`（参数任意，无 shell 注入面） | 工具契约 |
 | R04 | npm 11 需 `.npmrc-publish` | 裸 `NPM_TOKEN` 不生效；必须 `--userconfig .npmrc-publish` | `docs/agents/CI-CD与发布流程.md:85-87`；`.gitignore:19-20` |
 | R05 | 发布 cwd 必须落项目目录 | `vault_run` 默认 cwd 是 desktop profile，在那里 publish 会读错 package.json | `docs/agents/CI-CD与发布流程.md:82-84` |
@@ -52,6 +53,28 @@ dsh-anic 的 **凭据/令牌/SSH 安全操作叶技能**：把「DSH 凭证库�
 
 **禁止**：把令牌值打印/贴进回复、写入工作区文件、把 `vault_show` 结果转述给用户。
 
+### 令牌 ↔ 环境变量映射（本仓实测，2026-11-06）
+
+凭证库当前有 **三个**令牌（`vault_list` 只回名称）：
+
+| 令牌名 | 默认注入的 env | 谁用它 | 复验 |
+|---|---|---|---|
+| `github` | `GH_TOKEN` | `gh` CLI（`gh api` / `gh run list` / `gh pr`） | `vault_run(name: 'github', command: 'gh', args: ['api', 'repos/<o>/<r>'])` |
+| `npm` | `NPM_TOKEN` | npm/pnpm（配合 `.npmrc-publish` 的 `${NPM_TOKEN}` 占位符） | `vault_run(name: 'npm', command: 'npm', args: ['config', 'get', 'registry', '--userconfig', '.npmrc-publish'])` |
+| `gitee` | **无默认**（须显式 `env_name`） | Gitee API / MCP 连接器 | `vault_run(name: 'gitee', command: 'node', args: [...] , env_name: 'GITEE_TOKEN')` |
+
+**两条硬边界（不是风格问题）**：
+
+1. **`gitee` 没有默认 env 映射**：`vault_run` 只自动映射 `github→GH_TOKEN`、`npm→NPM_TOKEN`。
+   调 Gitee 时必须显式 `env_name: 'GITEE_TOKEN'`，否则子进程拿不到令牌而报 401/未授权，
+   而且**不会**有任何提示说"映射缺失"。
+2. **`vault_run` 命令白名单只有 `gh` / `npm` / `npx` / `node` / `git`** ⇒ **不能**用它跑
+   `curl` 直接打 Gitee API。Gitee 侧要么走 MCP 连接器（`mcp__gitee__*`，账号态已实测可通），
+   要么用 `node` 脚本读 `process.env.GITEE_TOKEN` 自己发请求（令牌仍不入对话）。
+
+> 反例（会失败且看不出原因）：`vault_run(name:'gitee', command:'curl', ...)` —— `curl`
+> 不在白名单，调用直接被拒；这不是令牌问题，别去换令牌。
+
 ## 快速启动
 
 1. **入库**：`vault_set github <token> "dsh-anic GitHub"`；`vault_set npm <token> "npm publish"`。
@@ -64,7 +87,10 @@ dsh-anic 的 **凭据/令牌/SSH 安全操作叶技能**：把「DSH 凭证库�
    - `node assets/skills/token-ssh-security/scripts/secret-scan.mjs <project-dir>`
    - `node assets/skills/token-ssh-security/scripts/ssh-selfcheck.mjs <project-dir>`
 6. **提交前**：确认 `.npmrc-publish`、`dist/`、`.cycles/` 在 `.gitignore` 内；
-   建议同时补一行 `.env`（本仓当前未显式忽略 `.env`）。
+   **`.env` 至今未被忽略**（2026-11-06 实测：`.gitignore` 共 21 行，grep `env` 零命中，
+   只有 `.npmrc-publish` 命中"npmrc"）——本仓目前没有 `.env` 文件，但**一旦引入就会裸奔**。
+   复验：`Select-String -Path .gitignore -Pattern '\.env'`；补法（人工门，属 `.gitignore` 写域）：
+   加一行 `.env` / `.env.*`。
 
 ## Windows 443 重置 → SSH 通道
 

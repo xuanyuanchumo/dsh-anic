@@ -12,6 +12,9 @@ import { createElement, type ReactElement } from 'react';
 import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import { isObjectLike } from '../../components/fetchJson.ts';
+// cycle-109：注册面两行（runtime 技能可见性 + 内部技能库对账）已拆至
+// renderSkillFace.ts（T3 ≤250；边界是「调用健康面 / 注册面」）。
+import { renderSkillRegistrationFace } from './renderSkillFace.ts';
 
 export const SKILL_HEALTH_URL = '/anic/skill/health';
 
@@ -38,6 +41,31 @@ export interface SkillHealthJson {
   overallSuccessRate: number;
   totalInvocations: number;
   generatedAt: string;
+  /**
+   * cycle-109：本插件 **runtime 技能**是否模型可见（三态，不是布尔）。
+   * 旧宿主缺字段 ⇒ undefined，本分区整块不渲染（零占位）。
+   */
+  runtimeSkill?: RuntimeSkillJson;
+  /** cycle-109：内部技能库（`assets/skills/`）注册表 ⇄ 磁盘对账读数。 */
+  library?: SkillLibraryJson;
+}
+
+/** 与宿主 `SkillVisibilityReadout.last` 对齐的最小形状。 */
+export interface RuntimeSkillJson {
+  name: string | null;
+  state: 'active' | 'absent' | 'unknown';
+  reason: string;
+  skillsChangeEmits: number;
+}
+
+/** 与宿主 `SkillLibraryReadout` 对齐的最小形状（明细数组不进面板，只看计数）。 */
+export interface SkillLibraryJson {
+  ok: boolean;
+  version: string;
+  updatedAt: string;
+  skills: number;
+  issues: number;
+  summary: string;
 }
 
 /** 响应守卫：scripts 数组 + 数值汇总字段（防畸形数据进渲染层）。 */
@@ -124,6 +152,7 @@ export function renderSkillHealth(data: SkillHealthJson | null): ReactElement | 
       t('health.title'),
       t('health.summary', { total: String(data.totalInvocations), rate: pct(data.overallSuccessRate) }),
     ),
+    renderSkillRegistrationFace(data),
     data.totalInvocations === 0
       ? createElement('div', { 'data-anic-skill-health-empty': 'true', style: { fontSize: 11, color: token('anic-text-faint'), padding: '4px 10px' } }, t('health.empty'))
       : createElement(

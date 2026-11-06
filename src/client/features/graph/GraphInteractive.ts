@@ -33,6 +33,8 @@ import { useGraphSearch } from './useGraphSearch.ts';
 import { EMPTY_TRACE, buildTrace } from './graphTrace.ts';
 import { useLayoutCache } from './useLayoutCache.ts';
 import { useGraphInteraction } from './useGraphInteraction.ts';
+import { useGraphSelection } from './useGraphSelection.ts';
+import { resolveSelectionOf } from './graphFocusResolve.ts';
 import { assemblyGraphOptionsOf, assemblyNodeClickOf, assemblyToolbarBaseOf, assemblyToolbarOf } from './graphAssembly.ts';
 import {
   FALLBACK_SIZE, KEYHINT_ID, VIEWPORT_HEIGHT, keyHintText,
@@ -54,9 +56,12 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   // ── 数据态（初值必须自足，见文件头）────────────────────────
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
   const [adjacencyOn, setAdjacencyOn] = useState(true);
-  const [focusId, setFocusId] = useState<string | null>(null);
+  /** 悬停/键盘聚焦（U1）：只回答"指针压在谁上面"，**不再**是选区（选区见下一行）。 */
+  const [hoverId, setHoverId] = useState<string | null>(null);
   /** 追溯起点（cycle-84，null = 未启用）。双击节点进入，Esc / 「退出追溯」退出。 */
   const [traceRoot, setTraceRoot] = useState<string | null>(null);
+  /** 选区（cycle-109 U1+U3：钉住 + 多选同住一个 hook，理由见其文件头注）。 */
+  const selection = useGraphSelection();
 
   const wrapRef = useRef<{
     getBoundingClientRect?: () => { width: number; height: number };
@@ -76,12 +81,14 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   const clearFilter = useCallback((): void => {
     // Escape 语义是"退出所有观察模式"：清筛选但保留 roles 键的存在性（undefined 形态不变）。
     setFilter((f) => ({ types: [], verdicts: [], query: '', roles: f.roles === undefined ? undefined : [] }));
-    setFocusId(null);
+    setHoverId(null);
     setTraceRoot(null);
     interactionRef.current?.timeline.exit();
     // cycle-108：Esc 必须能退出**路径模式**（此前只退时间轴与筛选，路径模式
     // 只能点条上的 ✕ 退出——键盘用户没有等价通道，且 Esc 语义是"退出所有观察模式"）。
     interactionRef.current?.path.exit();
+    // cycle-109：Escape 同时撤掉选区（`clear` 是空依赖 useCallback，捕获首帧对象也安全）。
+    selection.clear();
   }, []);
 
   const gestures = useViewportGestures(layout, { sizeOf, onEscape: clearFilter });
@@ -94,8 +101,12 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   const adjRef = useRef<{ key: readonly WorkflowNode[]; map: Map<string, Set<string>> } | null>(null);
   const adjacency = adjacencyOf(nodes, edges, adjRef);
 
+  // 选区解析（U1，为什么预览刻意不并钉住见 graphFocusResolve 头注）：
+  // highlightFocusId = 钉住优先（高亮/读数/缩放到选中），tooltipFocusId = 只看悬停。
+  const { highlightFocusId: focusId, tooltipFocusId } = resolveSelectionOf({ pinnedId: selection.pinnedId, hoverId });
+
   /** 预览卡状态（cycle-84 抽成 hook，见 useGraphTooltip 头注）。 */
-  const { tooltip } = useGraphTooltip({ nodes, verdicts, adjacency, focusId });
+  const { tooltip } = useGraphTooltip({ nodes, verdicts, adjacency, focusId: tooltipFocusId });
 
   // ── 追溯（cycle-84）：双向邻接表按 edges 引用缓存 + 纯函数 BFS ──────
   const traceAdjRef = useRef<{ key: readonly WorkflowEdge[]; adj: ReturnType<typeof traceAdjacencyOf> } | null>(null);
@@ -111,7 +122,7 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   const { matches: searchMatches, total: searchTotal, activeMatch, moveMatch, jumpTo, jumpActive } = useGraphSearch({
     nodes, layoutNodes: layout.nodes, query: filter.query,
     sizeOf, viewport: gestures.viewport,
-    setViewport: gestures.setViewport, setFocusId,
+    setViewport: gestures.setViewport, setFocusId: setHoverId,
   });
 
   // ── 筛选动作（chips 多选是 toggle 语义：再点一次取消）───────────
@@ -123,7 +134,7 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
   }, []);
   const setQuery = useCallback((query: string): void => { setFilter((f) => ({ ...f, query })); }, []);
   const toggleAdjacency = useCallback((): void => { setAdjacencyOn((v) => !v); }, []);
-  const onNodeFocus = useCallback((id: string | null): void => { setFocusId(id); }, []);
+  const onNodeFocus = useCallback((id: string | null): void => { setHoverId(id); }, []);
 
   // 邻接高亮关闭时传 null 焦点 ⇒ 高亮集为空 ⇒ 子集内节点全亮（关掉"非邻居降透明"）。
   const containerRef = useRef<HTMLElement | null>(null);
@@ -143,6 +154,7 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     hasMoved: gestures.hasMoved,
     adjacencyOn,
     workspace,
+    selection,
   });
   const view = interaction.view;
   // 回调时序桥：clearFilter（上方闭包）经此读到最新 interaction（见其注释）。
@@ -221,7 +233,7 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
       fullscreenRef: containerRef,
       keyHintId: KEYHINT_ID, keyHintText: keyHintText(), height: VIEWPORT_HEIGHT,
       stage: renderStage(stagePropsOf({
-        graph, tooltip, layout, viewport: gestures.viewport, size, focusId,
+        graph, tooltip, layout, viewport: gestures.viewport, size, focusId, selection,
         onFocusNode: onNodeFocus,
         onMinimapClick,
         dragging: gestures.dragging,

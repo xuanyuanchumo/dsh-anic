@@ -35,6 +35,7 @@ import {
 } from './graphNodeStyle.ts';
 import { t } from '../../i18n.ts';
 import { healthOf, healthSegments, healthSummaryText } from './graphHealth.ts';
+import type { ModKeyState } from './graphSelection.ts';
 
 /**
  * 次标签：类型名 + 裁决。
@@ -59,7 +60,14 @@ export interface NodeRenderInput {
   visibility: NodeVisibility;
   focusId: string | null;
   interactive: boolean;
-  onNodeClick: ((node: WorkflowNode) => void) | undefined;
+  /**
+   * 点击回调。`mods` = 点击时按住的修饰键（cycle-109：Ctrl/Cmd 决定多选切换）。
+   *
+   * 为什么把事件对象传出去而不是在卡片里读 `metaKey`：卡片是**渲染层**，
+   * "点击会发生什么"（单选替换 / 多选切换 / 路径模式设端点）是交互裁决，
+   * 归装配层与 `useGraphInteraction`。渲染层只负责把按键状态如实上报。
+   */
+  onNodeClick: ((node: WorkflowNode, mods?: ModKeyState) => void) | undefined;
   /**
    * 路径追溯角色（cycle-84）：root / up（上游）/ down（下游）/ both / null。
    * null = 未启用追溯，渲染与改造前**逐字节等价**（零参调用仍可用）。
@@ -158,7 +166,7 @@ export function renderNode(input: NodeRenderInput): ReactElement {
       'data-anic-trace-depth': String(traceDepth),
       // 卡片尺寸进 DOM：布局压缩率与重叠检查都能据此断言，不必自己重算布局。
       'data-anic-node-box': `${String(n.w)} ${String(n.h)}`,
-      onClick: onNodeClick ? () => { onNodeClick(n); } : undefined,
+      onClick: onNodeClick ? (ev: ModKeyState) => { onNodeClick(n, ev); } : undefined,
       // 双击 = 进入/退出该节点的上下游追溯（cycle-84）。单击仍打开详情抽屉，
       // 两者不冲突：双击会先触发两次 click，详情抽屉重复打开同一节点是幂等的。
       onDoubleClick: onNodeTrace ? () => { onNodeTrace(n); } : undefined,

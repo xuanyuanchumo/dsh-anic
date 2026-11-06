@@ -25,6 +25,7 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { GROUP_LABEL, renderToolbarGroup } from './graphToolbarGroups.ts';
+import { gt } from './graphText.ts';
 import { t } from '../../i18n.ts';
 
 /**
@@ -36,6 +37,18 @@ import { t } from '../../i18n.ts';
  */
 function pathLabel(): string {
   return t('graph.pathFind');
+}
+
+/**
+ * 按钮的 title（cycle-109 · U4 ⑤）：接手此前**零消费**的 `graph.pathFindHint`。
+ *
+ * 为什么用 title 而不是加一个输入框：模式是"在图上点两个节点"，输入框是另一套
+ * 交互模型（要求用户把已经看得到的节点再按名字输一遍）。但"怎么用"总得有个说法，
+ * `pathFindHint` 正是那句话——把它挂到 title 上，零控件、零新词条。
+ * 注：`graph.pathFindPlaceholder`（承诺输入框的那条）本轮已删，见 graphText。
+ */
+function pathHint(): string {
+  return gt('pathFindHint');
 }
 
 /** 路径组入参。 */
@@ -58,7 +71,8 @@ export function renderPathGroup(input: PathGroupInput): ReactElement {
       'data-anic-graph-path-mode': input.active ? 'on' : 'off',
       'aria-pressed': input.active ? 'true' : 'false',
       'aria-label': pathLabel(),
-      title: pathLabel(),
+      // title = 用法说明（此前零消费的死键，见 pathHint 注释）。
+      title: pathHint(),
       onClick: input.onToggle,
       className: 'anic-btn',
       style: {

@@ -15,12 +15,22 @@ import { readFileSync, mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'nod
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseSkillFrontmatter, registerRuntimeSkill } from '../../src/host/skillRegistration.ts';
+import { parseSkillFrontmatter, registerRuntimeSkill, classifySkillVisibility, verifyRuntimeSkillVisibility, wireSkillsChange } from '../../src/host/skillRegistration.ts';
+import { resetSkillsChangeCount, skillsChangeCount } from '../../src/host/runtime/skillsChangeCounter.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REAL_SKILL_MD = join(HERE, '..', '..', 'assets', 'skill', 'SKILL.md');
 /** 真实技能目录（dist 相对推导的同源路径，测试里显式传）。 */
 const SKILL_DIR = join(HERE, '..', '..', 'assets', 'skill');
+
+/** cycle-109 新增用例的临时目录（与本文件既有的 registerRuntimeSkill 作用域内 tmpd 分开）。 */
+const CLEAN2: string[] = [];
+function tmpd2(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'anic-skillreg2-'));
+  CLEAN2.push(dir);
+  return dir;
+}
+afterEach((): void => { while (CLEAN2.length > 0) { const d = CLEAN2.pop(); if (d) rmSync(d, { recursive: true, force: true }); } });
 
 describe('parseSkillFrontmatter', () => {
   it('解析真实 SKILL.md：name 为 ai-native-iteration-cycle，description 非空，body 以正文开头', () => {
@@ -104,6 +114,99 @@ describe('registerRuntimeSkill', () => {
   });
 });
 
+describe('cycle-109 调用策略贯通（fix D1：frontmatter 两键不再被静默丢弃）', () => {
+  it('disable-model-invocation: true ⇒ modelInvocable=false 且传 invocation', () => {
+    const parsed = parseSkillFrontmatter('---\nname: a\ndescription: d\ndisable-model-invocation: true\n---\n');
+    expect(parsed.modelInvocable).toBe(false);
+    expect(parsed.invocationDeclared).toBe(true);
+  });
+  it('user-invocable: false ⇒ userInvocable=false', () => {
+    const parsed = parseSkillFrontmatter('---\nname: a\ndescription: d\nuser-invocable: false\n---\n');
+    expect(parsed.userInvocable).toBe(false);
+    expect(parsed.invocationDeclared).toBe(true);
+  });
+  it('两键都缺 ⇒ **不传** invocation（缺键不传：不把"没表态"写死成"表过态"）', () => {
+    const register = vi.fn((): (() => void) => (): void => {});
+    registerRuntimeSkill({ skills: { register } }, SKILL_DIR);
+    const input = register.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect('invocation' in input).toBe(false);
+  });
+  it('显式策略键 ⇒ invocation 如实出现在注册输入里', () => {
+    const dir = tmpd2();
+    writeFileSync(join(dir, 'SKILL.md'), '---\nname: demo\ndescription: d\ndisable-model-invocation: true\nuser-invocable: false\n---\n\n# B\n');
+    const register = vi.fn((): (() => void) => (): void => {});
+    registerRuntimeSkill({ skills: { register } }, dir);
+    const input = register.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(input.invocation).toEqual({ modelInvocable: false, userInvocable: false });
+  });
+  it('非法布尔值不猜（忽略该键，invocation 不出现）', () => {
+    const parsed = parseSkillFrontmatter('---\nname: a\ndescription: d\nuser-invocable: yes\n---\n');
+    expect(parsed.invocationDeclared).toBeUndefined();
+  });
+});
+
+describe('classifySkillVisibility（cycle-109 · fix D2：注册 ≠ 可见）', () => {
+  const snap = (names: string[], complete = true) => ({ skills: names.map((name) => ({ name, source: 'runtime', provider: 'anic' })), complete });
+  it('complete 且命中 ⇒ active（带 source/provider 供分辨层）', () => {
+    const r = classifySkillVisibility(snap(['ai-native-iteration-cycle']), 'ai-native-iteration-cycle');
+    expect(r.state).toBe('active');
+    expect(r.source).toBe('runtime');
+    expect(r.provider).toBe('anic');
+  });
+  it('complete 且未命中 ⇒ absent（点名"可能被 project 层同名压制"）', () => {
+    const r = classifySkillVisibility(snap([]), 'ai-native-iteration-cycle');
+    expect(r.state).toBe('absent');
+    expect(r.reason).toContain('shadow');
+  });
+  it('complete:false ⇒ unknown（**绝不** absent：不完整观测不可下结论）', () => {
+    const r = classifySkillVisibility(snap([], false), 'x');
+    expect(r.state).toBe('unknown');
+  });
+  it('snap=null（宿主无 snapshot/旧代）⇒ unknown，绝不 absent', () => {
+    expect(classifySkillVisibility(null, 'x').state).toBe('unknown');
+  });
+  it('注册不受取证影响：无 snapshot 时 registerRuntimeSkill 仍返回 disposer', () => {
+    const register = vi.fn((): (() => void) => (): void => {});
+    expect(registerRuntimeSkill({ skills: { register } }, SKILL_DIR)).toBeTypeOf('function');
+  });
+  it('回读抛错 ⇒ unknown 且不冒泡（旁路不得拖垮激活）', async () => {
+    const ctx = {
+      skills: {
+        register: (): (() => void) => (): void => {},
+        snapshot: async (): Promise<never> => { throw new Error('boom'); },
+      },
+    };
+    const r = await verifyRuntimeSkillVisibility(ctx, SKILL_DIR);
+    expect(r?.state).toBe('unknown');
+    expect(r?.reason).toContain('boom');
+  });
+  it('回读命中 ⇒ active（真实 SKILL.md 端到端）', async () => {
+    const ctx = {
+      skills: {
+        register: (): (() => void) => (): void => {},
+        snapshot: async () => ({ skills: [{ name: 'ai-native-iteration-cycle', source: 'runtime' }], complete: true }),
+      },
+    };
+    const r = await verifyRuntimeSkillVisibility(ctx, SKILL_DIR);
+    expect(r?.state).toBe('active');
+  });
+});
+
+describe('skills/change 计数（cycle-109 · fix D3：工具面/技能面观测对称）', () => {
+  it('host 无 ctx.on ⇒ false（不制造假监听）', () => {
+    expect(wireSkillsChange({})).toBe(false);
+  });
+  it('订阅后事件到达 ⇒ 计数 +1（计数叶子与事件名钉死）', () => {
+    resetSkillsChangeCount();
+    const handlers: Record<string, () => void> = {};
+    const ok = wireSkillsChange({ on: (n: string, h: () => void) => { handlers[n] = h; } });
+    expect(ok).toBe(true);
+    handlers['skills/change']?.();
+    handlers['skills/change']?.();
+    expect(skillsChangeCount()).toBe(2);
+  });
+});
+
 describe('入口静态 inject 契约（cycle-97）', () => {
   it('src/index.ts 的 inject 含 skills 且不含可选服务（workspaceRegistry 仍走探测）', () => {
     // 读真实入口源码：消费 ctx.skills 的接线必须经静态 inject（官方 dsh-skill-badge
@@ -113,7 +216,12 @@ describe('入口静态 inject 契约（cycle-97）', () => {
     expect(indexText).toMatch(/inject\s*=\s*\['tools',\s*'sessions',\s*'skills'\]/);
     expect(indexText, 'webServer 必须不在父 inject（P0）').not.toMatch(/inject\s*=\s*\[[^\]]*webServer/);
     expect(indexText).not.toMatch(/inject\s*=\s*\[[^\]]*workspaceRegistry/);
-    // apply 必须经 effect 注册技能（disposer 记账），不能裸调用后丢弃返回值
-    expect(indexText).toMatch(/registerRuntimeSkill\(ctx\)\s*\?\?\s*undefined/);
+    // apply 必须经 effect 注册技能（disposer 记账），不能裸调用后丢弃返回值。
+    // cycle-109：注册与可见性回读在同一 effect 里（回读是旁路，不得阻塞注册）。
+    expect(indexText).toMatch(/registerRuntimeSkill\(ctx\)/);
+    expect(indexText).toMatch(/const d = registerRuntimeSkill\(ctx\);/);
+    expect(indexText).toMatch(/return d \?\? undefined;/);
+    expect(indexText).toMatch(/verifyRuntimeSkillVisibility\(ctx\)/);
+    expect(indexText).toMatch(/wireSkillsChange\(ctx\)/);
   });
 });

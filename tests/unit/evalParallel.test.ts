@@ -28,6 +28,16 @@ afterAll(() => {
 const OK_SCRIPT = 'scripts/ok.cjs';
 function makeFixture(name: string, srcFileCount: number): string {
   const dir = join(TMP, name);
+  /*
+   * ★cycle-109 修的**非自洽夹具**缺陷：旧实现只 mkdir，不清理已有目录。
+   * 一旦上一轮被中断（超时 / Ctrl-C / 并发清理失败）导致 `afterAll` 没跑，
+   * 目录里会残留 `.cycles/.eval-cache.json` ⇒ 本轮 Merkle 根相同 ⇒ eval-runner
+   * **走缓存命中**（"source Merkle root unchanged — reusing cached results"），
+   * 于是"并行 warm-up / 抽样档位"这两条断言**必然**红 —— 而根因与实现无关。
+   * 实测：cycle-109 全量跑出现 `P1-b/P2-a` 双红，正是此形态。
+   * ⇒ 夹具必须**先清后建**：每条用例看到的都是干净起点（可重复、与执行顺序无关）。
+   */
+  rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'src'), { recursive: true });
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   mkdirSync(join(dir, '.cycles', 'intent'), { recursive: true });

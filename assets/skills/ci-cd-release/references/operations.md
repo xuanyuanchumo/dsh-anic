@@ -7,11 +7,11 @@
 
 | 事实 | 值 | 证据 |
 |---|---|---|
-| 当前版本 | `0.56.0` | `package.json:3` |
-| DSH 引擎范围 | `>=0.2.0-rc.2 <0.4.0-0` | `package.json:47-50` |
-| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:51-59` |
-| Node 引擎 | `>=22.19` | `package.json:48` |
-| 发布文件清单 | `dist/ assets/skill/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE` | `package.json:36-46` |
+| 当前版本 | `0.58.0`（读时现算：`node -p "require('./package.json').version"`） | `package.json:3` |
+| DSH 引擎范围 | `>=0.2.0-rc.2 <0.3.0-0 \|\| >=0.3.0-rc.1 <0.4.0-0`（**两段显式**，不是单段 `<0.4.0-0`） | `package.json:59` |
+| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:61-64` |
+| Node 引擎 | `>=22.19` | `package.json:58` |
+| 发布文件清单 | `dist/ assets/skill/ assets/skills/ assets/index/ assets/icon-180.png bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE` | `package.json:44-56` |
 | gitignore 白名单 | `!.cycles/config.yml`、`!.cycles/workflow-graph.yaml` | `.gitignore:5-6,21` |
 | npmrc 保护 | `.npmrc-publish` 被忽略 | `.gitignore:19-20` |
 
@@ -203,7 +203,7 @@ npm publish --access public   # 经 vault_run npm 执行，cwd 必须落项目�
 发布前核对（contributing.md 硬性要求）：
 
 - `package.json.repository` 必须指回被收录的 GitHub 仓库（npm ↔ GitHub 关联靠它）；
-- `files` 字段已含发布必需项（`package.json:36-46`）；
+- `files` 字段已含发布必需项（`package.json:44-56`）；
 - `engines.dsh` / peerDependencies 的预发布分支写法已是 explicit `||` 形态。
 
 ## 5. marketplace 收录（awesome-dsh-plugin）

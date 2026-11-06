@@ -3,6 +3,51 @@
 本技能遵循 dsh-anic 内部技能库三锚一致纪律：`SKILL.md` 版本标注、
 `scripts/<primary>.mjs` 脚本版本串、本 CHANGELOG 顶层条目三处版本必须一致。
 
+## v0.2.0 — 2026-11-06（cycle-108：补 PR 生命周期 / review 语义 / 合并队列与设置面）
+
+> 起点：v0.1.0（cycle-105）。本轮补的是**此前完全没写、且能用 `gh` 实测钉死**的四块。
+
+### 新增（`references/operations.md` §5-§7）
+
+- **§5 合并策略连带后果**：本仓实测 `allow_squash_merge/merge/rebase` 三法全 `true`、
+  `delete_branch_on_merge: false`、`allow_auto_merge: false`。据此写明两条真会踩的后果：
+  ① squash 后原分支**不再是** `master` 祖先 ⇒ `git branch -d` 拒绝、须 `-D`；
+  ② `delete_branch_on_merge=false` ⇒ 网页合并不删远端分支，必须 `gh pr merge --delete-branch`。
+- **§6 PR 生命周期 draft→ready→review→merge**：全链路 `gh` 命令（flag 均以 `gh 2.92.0 --help`
+  实测：`gh pr create --draft` / `gh pr ready [--undo]` / `gh pr review --approve|--request-changes|
+  --comment` / `gh pr checks --watch --fail-fast --required`），并给**review 三态在有无保护时的
+  真实效果差异**——无保护仓库 `--request-changes` **不阻塞合并**。
+- **§7 合并队列不可用**：本仓 `rulesets` → `[]` ⇒ 无 `merge_queue` 规则；引 `gh pr merge --help`
+  原文说明「有队列时 `gh pr merge` 语义变成入队/auto-merge」，提醒跨仓迁移前先
+  `gh ruleset check <branch>` 确认。
+- **本仓现状硬事实**：`gh pr list --state all --limit 10` **空输出**、`gh api .../branches` 只有
+  `["master"]` ⇒ PR 通道从未使用过，全部直推 master。故本节定位为「为多人协作预备」，
+  并明确写出本仓**没有任何机器级 PR 强制**。
+
+### 变更
+
+- `SKILL.md`：新增 R10（无保护时 review 不阻塞）/ R11（合并前先读仓库设置）/ R12（draft→ready→
+  review→merge 生命周期）；快速启动 §3 改为 draft 起步 + `--watch --fail-fast`，§4 改为
+  评审三态 + `--delete-branch` + 设置回读命令；导航索引按 §区间拆行；
+  frontmatter 补 `version: 0.2.0`（激活此前休眠的 `anchor:version` 锚）。
+- `skills.index.json`：补显式 `dir` 字段。
+
+### 依据（可复验）
+
+```sh
+gh api repos/xuanyuanchumo/dsh-anic --jq '{s:.allow_squash_merge,m:.allow_merge_commit,r:.allow_rebase_merge,d:.delete_branch_on_merge,a:.allow_auto_merge}'
+gh api repos/xuanyuanchumo/dsh-anic/rulesets      # []
+gh pr list -R xuanyuanchumo/dsh-anic --state all --limit 10   # 空输出
+gh api repos/xuanyuanchumo/dsh-anic/branches --jq '[.[].name]' # ["master"]
+gh pr create --help ; gh pr ready --help ; gh pr review --help ; gh pr checks --help ; gh pr merge --help
+gh ruleset --help ; gh --version                  # 2.92.0
+```
+
+### 安全
+
+- 全部 `gh` 调用为只读；认证经 DSH 凭证库 `vault_run`（`github` → `GH_TOKEN`），令牌不入对话/日志。
+- 未在本仓实测的写侧（required checks 字段、merge_queue 参数）标注「未实测/通用知识」并给验证方法。
+
 ## v0.1.0 — 2026-11-05
 
 ### 新增

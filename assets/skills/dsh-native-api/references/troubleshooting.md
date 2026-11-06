@@ -36,7 +36,7 @@
 
 **根因**：`engines.dsh` SemVer 范围与运行中 DSH 不符。
 
-**修复**：核对 `engines.dsh` 范围（本仓 `>=0.2.0-rc.2 <0.4.0-0`，`package.json:49`）；
+**修复**：核对 `engines.dsh` 范围（本仓 `>=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0`，`package.json:59`）；
 上界过窄会阻塞后续 DSH——逐版本核对，建立升级 checklist（`B-dsh-native-api-baseline.md` §2.1）。
 
 ## 5. `peers` 字段在新规则下无效

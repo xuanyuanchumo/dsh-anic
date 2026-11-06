@@ -25,6 +25,7 @@ import { minimapOrigin } from './graphMiniMap.ts';
 import { LANE_ORDER, type GraphLayout } from './graphLayout.ts';
 import { countTypes, countVerdicts } from './graphFilter.ts';
 import { t } from '../../i18n.ts';
+import type { GraphSelection } from './useGraphSelection.ts';
 
 /** 视口兜底尺寸：容器尚未测量时用它算中心/适配（stub 环境也是这一档）。 */
 export const FALLBACK_SIZE = { width: 900, height: 560 };
@@ -148,6 +149,11 @@ export interface StageWiring {
   viewport: Viewport;
   size: { width: number; height: number };
   focusId: string | null;
+  /**
+   * 选区（cycle-109 · U1/U3）：舞台把钉住/id 集合写进 sr-only 锚点，供契约断言。
+   * 为什么是整块传入：图区只有一个 svg 停靠点，集合级读数只能挂在舞台这一层。
+   */
+  selection: GraphSelection;
   onFocusNode: (id: string | null) => void;
   onMinimapClick: (local: { x: number; y: number }) => void;
   dragging: boolean;
@@ -171,6 +177,8 @@ export function stagePropsOf(w: StageWiring): {
   graph: StageWiring['graph'];
   tooltip: { model: TooltipModel; at: { x: number; y: number } } | null;
   focusId: string | null;
+  pinnedId: string | null;
+  selectedIds: readonly string[];
   onFocusNode: StageWiring['onFocusNode'];
   onMinimapClick: StageWiring['onMinimapClick'];
   minimapOrigin: { x: number; y: number };
@@ -192,6 +200,8 @@ export function stagePropsOf(w: StageWiring): {
           at: tooltipPosition(anchorNode ?? { x: 0, y: 0, w: 90 }, w.viewport, w.size),
         },
     focusId: w.focusId,
+    pinnedId: w.selection.pinnedId,
+    selectedIds: w.selection.ids,
     onFocusNode: w.onFocusNode,
     onMinimapClick: w.onMinimapClick,
     minimapOrigin: minimapOrigin(w.size),

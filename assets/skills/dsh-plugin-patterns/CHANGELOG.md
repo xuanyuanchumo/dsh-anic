@@ -2,6 +2,28 @@
 
 格式遵循仓库纪律：版本锚点 + 起点/终点 + 证据。本技能由 cycle-107（v0.57.0）创建。
 
+## v0.1.1 — 2026-11-06（cycle-108：仅注册表/版本锚口径修正，无内容变更）
+
+> 本轮对 `dsh-plugin-patterns` **未发现已被证实的知识缺口**（P01-P14 与 `toolview-check.mjs`
+> 均与源码研究结论一致），按纪律「不为凑字数扩写」，正文一行未改。只做两件机械一致性动作：
+
+### 变更
+
+- `skills.index.json`：补显式 `dir: "dsh-plugin-patterns"`（此前 9 条叶技能全缺 `dir`，
+  按注册表遍历只能看到 1 个技能）。
+- `SKILL.md`：frontmatter 补 `version: 0.1.1`（此前未声明版本 ⇒ `anchor:version` 守卫休眠）。
+
+### 依据（可复验）
+
+```sh
+node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-manifest.mjs . --check
+node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-drift.mjs . --check
+```
+
+### 安全
+
+- 无令牌操作。
+
 ## v0.1.0 — 2026-11-06（cycle-107：dsh-ops/dsh-context 源码研究沉淀 + 命令窗口修复锚点）
 
 > 起点：两个研究子代理的源码研究报告（dsh-ops v0.4.4 / dsh-context v0.81.0）+

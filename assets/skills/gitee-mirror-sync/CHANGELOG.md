@@ -3,6 +3,52 @@
 本技能遵循 dsh-anic 内部技能库三锚一致纪律：`SKILL.md` 版本标注、
 `scripts/<primary>.mjs` 脚本版本串、本 CHANGELOG 顶层条目三处版本必须一致。
 
+## v0.1.1 — 2026-11-06（cycle-108：Gitee 账号态实测入册，把"未验证"拆成"已实测/未实测"两档）
+
+> 起点：v0.1.0（cycle-105，当时 Gitee 全为零覆盖、全部标「通用知识」）。
+
+### 新增
+
+- **§0 实测基线**（`SKILL.md`）：Gitee 侧从"完全没有实测"推进到"账号态可验证、镜像未建立"：
+
+  | 事实 | 实测 |
+  |---|---|
+  | 账号/令牌 | 可用：`login=xuanyuanchumo`、`name=轩辕初墨`、`id=12239874`（MCP `get_user_info`） |
+  | 账号下 `dsh-anic` | 不存在：`list_user_repos(q=dsh-anic)` → `[]` |
+  | 全站搜索 `dsh-anic` | 0 命中：`{"total_count":0,"data":[]}` |
+  | `gitee` remote | 未配置：`mirror-sync.mjs . --dry-run` → exit 2「target remote 'gitee' not found」 |
+  | 漂移检测 | 无对象：`drift-check.mjs .` → exit 2「'gitee' does not appear to be a git repository」 |
+
+- **§0 结论与第 0 步**：镜像处于"第 0 步"，正确动作是**先建仓 + `git remote add gitee`**，
+  不是跑实同步；并明确 `drift-check` 无 remote 时 exit 2 是**正确行为**（无对象 ≠ 零差异），
+  **不得**为了"跑绿"改成通过——那会制造假绿。
+- **R2 修正**：凭证库里 Gitee 令牌名是 `gitee`，而 `vault_run` 默认只映射
+  `github→GH_TOKEN` / `npm→NPM_TOKEN` ⇒ 用 Gitee 令牌**必须显式 `env_name: GITEE_TOKEN`**。
+  此前只写"走凭证库"，没写映射缺口，实际会让令牌注入不到预期变量名。
+- **MR 创建边界**：MCP 账号态已通（`get_user_info` 实测），但 `create_pull` 需目标仓存在
+  ⇒ MR 创建仍属**未实测**，给出"建仓 + 推 `feat/x` 后两种建法比对"的验证方法。
+
+### 变更
+
+- `SKILL.md`：frontmatter 补 `version: 0.1.1`（激活 `anchor:version` 锚）；R1 依据补 §0；
+  导航索引首行指向 §0。
+- `skills.index.json`：补显式 `dir` 字段。
+
+### 依据（可复验）
+
+```sh
+node assets/skills/gitee-mirror-sync/scripts/mirror-sync.mjs . --dry-run   # exit 2：remote 未配置
+node assets/skills/gitee-mirror-sync/scripts/drift-check.mjs .            # exit 2：target 不可达
+git remote -v                                                             # 只有 origin(GitHub SSH)
+vault_list                                                                # 只回名称：gitee/github/npm
+# MCP：get_user_info / list_user_repos / search_open_source_repositories
+```
+
+### 安全
+
+- 全程未打印令牌值；MCP 调用由 Host 侧注入凭据，`vault_list` 只返回名称。
+- 未创建任何 Gitee 仓库、未推送任何 refs、未改动 `origin`。
+
 ## v0.1.0 — 2026-11-05
 
 ### 新增（从零新建）

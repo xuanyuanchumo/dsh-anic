@@ -5,13 +5,17 @@
 //   node skill-lib-drift.mjs <projectDir> --report  只读报告 exit 0
 //
 // 四类守卫（E5 漂移守卫）：
+//   0. 注册表字段 —— `dir` 必填（缺字段即判红；曾 9 条叶技能全部隐身）
 //   1. 版本锚    —— 与 skill-lib-manifest 同语义（SKILL.md 推断版本 == 注册表版本）
 //   2. 词表绑定  —— 只许 A 族维度词（dimensions.mjs），禁 B 族旧称（S-2 漂移面）
 //   3. 原子写    —— 写 .cycles/** 必须原子（atomicWriteFileSync 或 temp+renameSync
 //                   模式），禁裸 writeFileSync 直达 .cycles（S-6）。
 //                   识别形态：脚本含 `renameSync`（tmp 写完再改名）即视为原子写，
 //                   与主干 fs-safe 的 temp+rename 语义同构。
-//   4. 配置入口  —— .cycles/config.yml 是唯一规范入口（INV-25），禁新造第二入口
+//   4. 配置入口  —— ⛔ **未实现**（本行曾是纯声明）。`.cycles/config.yml` 是唯一规范入口
+//                   （INV-25），但"禁新造第二入口"没有可机械判定的形态，硬写只会变成
+//                   误报源。要落地需先定义判据（例如：技能脚本出现 `config.yml` 之外的
+//                   `*.yml` 读点即报），否则保持"未实现"比假装有守卫更诚实。
 //
 // 零外部依赖。守卫必须能失败（E2）：每类都有反向自检（见 --selftest）。
 import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -70,6 +74,11 @@ function run(projectDir, mode) {
 
   for (const skill of skills) {
     const dir = skillDir(libRoot, skill);
+    // 注册表字段守卫（守卫必须能失败）：`dir` 缺失时 skillDir() 的兜底会静默兜住，
+    // 曾导致 9 条叶技能在"按注册表遍历"的机器面上全部隐身。所以缺失即判红。
+    if (!skill.dir) {
+      findings.push({ skill: skill.name, check: 'registry:dir', status: 'fail', detail: 'dir 字段缺失（注册表唯一事实源，禁止 dir ?? name 派生）' });
+    }
     if (!existsSync(dir)) continue;
     for (const f of ANCHOR_FILES) {
       if (!existsSync(join(dir, f))) {
@@ -111,11 +120,14 @@ function run(projectDir, mode) {
 function selftest() {
   // 反向自检（E2）：守卫必须能失败。用两个已知违规的临时库验证 vocabulary 与
   // atomic-write 守卫都会红；再用一个合规库验证它们不误报。
-  const makeLib = (name, skillMd, scriptBody) => {
+  const makeLib = (name, skillMd, scriptBody, withDir = true) => {
     const tmp = mkdtempSync(join(tmpdir(), 'skill-lib-drift-selftest-'));
     const lib = join(tmp, 'assets', 'skills');
     mkdirSync(join(lib, name), { recursive: true });
-    writeFileSync(join(lib, 'skills.index.json'), JSON.stringify({ version: '0.1.0', skills: [{ name, version: '0.1.0', anchors: [] }] }));
+    // dir 是本轮新增的注册表必填字段：合规用例必须带上，否则 registry:dir 会误报。
+    const entry = { name, version: '0.1.0', anchors: [] };
+    if (withDir) entry.dir = name;
+    writeFileSync(join(lib, 'skills.index.json'), JSON.stringify({ version: '0.1.0', skills: [entry] }));
     writeFileSync(join(lib, name, 'SKILL.md'), skillMd);
     writeFileSync(join(lib, name, 'CHANGELOG.md'), '# changelog\n');
     mkdirSync(join(lib, name, 'scripts'), { recursive: true });
@@ -141,10 +153,16 @@ function selftest() {
   rmSync(good.tmp, { recursive: true, force: true });
   const clean = r3.findings.length === 0;
 
-  const allPass = sawB && sawA && clean;
+  // 违规 3：注册表缺 dir（曾让 9 条叶技能在机器面隐身）
+  const bad3 = makeLib('bad-dir', '---\nname: bad-dir\n---\n# demo\n', '// no cycles write\n', false);
+  const r4 = run(bad3.tmp, 'check');
+  rmSync(bad3.tmp, { recursive: true, force: true });
+  const sawD = r4.findings.some(f => f.check === 'registry:dir');
+
+  const allPass = sawB && sawA && sawD && clean;
   process.stdout.write(JSON.stringify({
     selftest: allPass ? 'PASS' : 'FAIL',
-    reason: allPass ? 'B-family + atomic-write guards fire on tainted input; clean input passes' : `sawB=${sawB} sawA=${sawA} clean=${clean}`,
+    reason: allPass ? 'B-family + atomic-write + registry:dir guards fire on tainted input; clean input passes' : `sawB=${sawB} sawA=${sawA} sawD=${sawD} clean=${clean}`,
   }, null, 2) + '\n');
   process.exit(allPass ? 0 : 1);
 }

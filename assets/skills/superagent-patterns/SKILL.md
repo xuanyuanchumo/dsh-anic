@@ -1,5 +1,6 @@
 ---
 name: superagent-patterns
+version: 0.1.1
 whenToUse: >
    在 dsh-anic（或任何 DSH 插件）里需要参考 Superagent 研究原型的部署/授权/执行模式时使用：
    独立 profile 隔离、stateDir、每小时 check、四类退出码、Source/Policy/Executor、

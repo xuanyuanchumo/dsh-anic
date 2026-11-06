@@ -1,5 +1,6 @@
 ---
 name: skill-library-evolution
+version: 0.1.1
 whenToUse: >
    当 dsh-anic 的内部技能库需要制度化自我更新时使用：取证评估叶技能、生成/校验版本锚点、
    检测漂移、产出补丁提案并 keep/revert、跑聚合基准（with_skill vs without_skill）、做镜像同步。
@@ -25,7 +26,7 @@ description: >
 
 | 项 | 内容 |
 |---|---|
-| 对象 | `assets/skills/` 下全部技能（8 叶 + 1 元）+ `skills.index.json` 注册表 |
+| 对象 | `assets/skills/` 下全部技能（**9 叶 + 1 元**，与 `skills.index.json` 的 `skills[].tier` 一致）+ 注册表 |
 | 输入 | 库快照、调用历史、账本事件、漂移信号 |
 | 输出 | 补丁提案 / 升级 / 回滚 / 基准报告 / 账本新条目 |
 | 边界 | **不修改主干技能** `ai-native-iteration-cycle`（它是流程脊柱，由独立 cycle 治理） |
@@ -51,15 +52,36 @@ description: >
 → 端到端 A/B → 聚合基准 + 镜像同步
 ```
 
-| 步 | 动作 | 命令/脚本 | 守卫 |
+| 步 | 动作 | 现状（2026-11-06 实测） | 命令 / 替代 |
 |---|---|---|---|
-| 1 快照基线 | 冻结旧版（含 sha256 清单）到 `skill-snapshot/<skill>/` | `skill-lib-manifest.mjs --snapshot` | 快照可复现 |
-| 2 旧评测基线 | 跑旧版评测，记录通过率 | `skill-lib-bench.mjs --old` | 基线非零 |
-| 3 全文取证 | 读全部 references/scripts，列证据 | 人工/subagent | file:line 可查 |
-| 4 修技能 | 抽取共享库 → 改 SKILL.md/scripts | 编辑 | 单文件 ≤250 行 |
-| 5 契约双跑 | 新版 vs 快照场景化断言 | `skill-lib-manifest.mjs --contract` | 旧版必须复现缺陷 |
-| 6 端到端 A/B | 两个独立 subagent 走完整流程 | `skill-lib-bench.mjs --ab` | delta 不下降 |
-| 7 聚合基准 + 镜像 | with/without 对照 + 双副本逐字节比对 | `skill-lib-bench.mjs --aggregate` | 镜像 0 差异 |
+| 1 快照基线 | 冻结旧版（含 sha256 清单）到 `.cycles/skill-snapshot/` | ✅ **可执行** | `skill-lib-manifest.mjs <ws> --snapshot` |
+| 2 旧评测基线 | 跑旧版评测，记录通过率 | ⛔ **未实现**（无 `skill-lib-bench.mjs`） | 手工：`git stash`/`git switch` 到旧版 → 跑各叶技能 `scripts/*.mjs` → 把结果写进账本 `SKILL_EVIDENCE_LINK` |
+| 3 全文取证 | 读全部 references/scripts，列证据 | ✅ **人可执行**（确定性脚本不代做） | 人工/subagent；要求 file:line 可查 |
+| 4 修技能 | 抽取共享库 → 改 SKILL.md/scripts | ✅ **可执行** | 编辑；单文件 ≤250 行 |
+| 5 契约双跑 | 新版 vs 快照的"旧版必须复现缺陷" | ⚠️ **半实现**：无 `--contract` 旗标；反向证明由两个 `--selftest` 承担 | `skill-lib-manifest.mjs --selftest` + `skill-lib-drift.mjs --selftest`（守卫必须能失败） |
+| 6 端到端 A/B | 两个独立 subagent 走完整流程 | ⛔ **未实现**（无 `bench --ab`） | 手工 A/B + 账本 `SKILL_EVIDENCE_LINK` |
+| 7 聚合基准 + 镜像 | with/without 对照 + 双副本逐字节比对 | ⛔ **未实现**（无 `--aggregate`；本仓无 `.dsh/skills/` 镜像目录） | 手工：`diff -r assets/skills .dsh/skills`（镜像存在时）；差值写入账本 |
+
+> **诚实修正（v0.1.1）**：v0.1.0 的此表曾引用三个**从未存在**的脚本
+> （`skill-lib-bench.mjs --old/--ab/--aggregate` 与 `skill-lib-manifest.mjs --contract`），
+> 使七步看起来"全自动可跑"。实际只有第 1、3、4 步有可直接执行的载体，第 5 步靠自检，
+> 第 2/6/7 步仍是**人工程序**。这是"文档承诺 > 实现"的典型缺口，本轮改成如实标注，
+> 并把「未实现」写成可验证状态（跑给定命令会怎样）而不是含糊的"未来支持"。
+
+### 已实现的确定性能力（只有这三个脚本，别再引用别的）
+
+```sh
+S=assets/skills/_meta/skill-library-evolution/scripts
+node $S/skill-lib-manifest.mjs <ws> --check       # 三锚 + dir 字段（错误级 exit 1）
+node $S/skill-lib-manifest.mjs <ws> --report      # 只读报告（exit 0）
+node $S/skill-lib-manifest.mjs <ws> --snapshot    # 冻结 sha256 清单
+node $S/skill-lib-manifest.mjs --selftest         # 反向自检：缺 dir/形状不符必须红
+node $S/skill-lib-drift.mjs <ws> --check          # 漂移守卫（错误级 exit 1）
+node $S/skill-lib-drift.mjs --selftest            # 反向自检：三类违规必须红
+node $S/skill-lib-ledger.mjs <ws> --record <EVENT> --skill <name> [--detail "…"] [--extra-json '{}']
+node $S/skill-lib-ledger.mjs <ws> --verify        # 哈希链校验
+node $S/skill-lib-ledger.mjs <ws> --list          # 全部条目
+```
 
 ## 四、三锚一致（版本锚点）
 
@@ -77,14 +99,20 @@ node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-manifest.mjs 
 node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-manifest.mjs <workspace> --report
 ```
 
-## 五、漂移守卫（四类）
+## 五、漂移守卫（四类声明，实际实现三类 + 一项未实现）
 
-| 守卫 | 检查 | 失败动作 |
+| 守卫 | 检查 | 实现状态 |
 |---|---|---|
-| 版本锚 | 三锚一致 | exit 1 + 点名哪个技能哪个锚 |
-| 配置入口 | 唯一配置入口，无绕过 | 拒绝并记 `SKILL_DRIFT_ALARM` |
-| 原子写 | 写点走 `atomicWriteFileSync` | 拒绝 |
-| 词表绑定 | 用 A 族维度词，无 B 族残留 | 拒绝 |
+| 注册表字段 | `dir` 必填（缺字段曾让 9 条叶技能在机器面隐身） | ✅ `registry:dir` |
+| 版本锚 | SKILL.md frontmatter 版本 == 注册表版本 | ✅ `anchor:version` |
+| 词表绑定 | 用 A 族维度词，无 B 族残留 | ✅ `vocabulary:B-family` |
+| 原子写 | 写 `.cycles/**` 必须 `atomicWriteFileSync` 或 temp+rename | ✅ `atomic-write` |
+| 配置入口 | `.cycles/config.yml` 唯一入口，禁第二入口 | ⛔ **未实现**（无可机械判定的形态，不假装有） |
+
+**失败动作的真相**：`--check` 违规只做 `exit 1` + 点名技能与文件名，**不会**自动写
+`SKILL_DRIFT_ALARM`（脚本里没有这个动作）。要入账由人执行
+`skill-lib-ledger.mjs <ws> --record SKILL_DRIFT_ALARM --skill <name> --detail "…"`。
+把"自动入账"写成既有能力就是第二个假守卫。
 
 ## 六、补丁生命周期
 

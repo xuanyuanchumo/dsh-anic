@@ -1,5 +1,10 @@
 /**
- * 路径状态条 + 影响半径读数（cycle-95 · WS-C）——两个**零占位**的读数条。
+ * 图区读数条集合（cycle-95 · WS-C；cycle-109 把路径条搬去 `graphPathBar.ts`）——
+ * **本文件回答**："图区有哪几条读数条、什么时候整块不渲染"。
+ *
+ * 三条读数条：路径模式状态条（转出，实现在 graphPathBar）、影响半径、时间轴回放，
+ * 外加 cycle-109 的多选对比面板。共同纪律是**零占位**：未启用时整块不渲染，
+ * 不改变既有布局（否则"多了一条空条"会把图区往下推一级）。
  *
  * ## 为什么路径模式必须有状态条
  *
@@ -26,8 +31,10 @@
  */
 import { createElement, type ReactElement } from 'react';
 import { blastRadiusStats, buildTrace, type BlastRadiusStats, type TraceAdjacency } from './graphTrace.ts';
-import { MAX_PATH_HOPS } from './graphPathFind.ts';
 import type { PathModel } from './graphPathMode.ts';
+import { renderPathBar } from './graphPathBar.ts';
+import type { CompareMatrix } from './graphCompare.ts';
+import { renderComparePanel } from './graphComparePanel.ts';
 import { gt } from './graphText.ts';
 import { t } from '../../i18n.ts';
 import type { TimelineStep } from './graphTimeline.ts';
@@ -42,65 +49,6 @@ import type { TimelineStep } from './graphTimeline.ts';
 export function focusBlastOf(adjacency: TraceAdjacency, focusId: string | null): BlastRadiusStats | null {
   if (focusId === null || focusId === '') return null;
   return blastRadiusStats(buildTrace(adjacency, focusId));
-}
-
-/** 路径状态条要显示的文案（三种"还没结果"的状态各一句，理由见文件头）。 */
-function statusTextOf(model: PathModel): string {
-  switch (model.status) {
-    case 'pickStart': return gt('pathPickStart');
-    case 'pickEnd': return gt('pathPickEnd');
-    case 'duplicate': return t('graph.pathFindInvalid');
-    // 两种失败**必须分开说**：`unreachable` 该换端点，`tooLong` 该抬跳数上限。
-    // 合并成一句会让两种完全不同的补救动作得到同样的提示 —— 等于没有提示。
-    case 'unreachable': return t('graph.pathFindNoPath');
-    case 'tooLong': return t('graph.pathFindTooLong', { hops: String(MAX_PATH_HOPS) });
-    case 'found': return t('graph.pathFindResult', {
-      hops: String(model.length),
-      // 路径写进文本而不是只靠高亮：高亮在灰度/强制对比下会消失，文本不会。
-      path: [...model.highlight].join(' → '),
-    });
-  }
-}
-
-/**
- * 路径模式状态条（`role=status`：AT 自动播报模式切换与结果）。
- *
- * `data-anic-graph-path-*` 锚点把"当前在选择什么"写进 DOM —— 状态是异步交互的
- * 结果，没有锚点就只能靠肉眼验收。
- */
-export function renderPathBar(input: { model: PathModel; onExit: () => void }): ReactElement {
-  const { model } = input;
-  return createElement(
-    'div',
-    {
-      key: 'path-bar',
-      'data-anic-graph-path-bar': 'true',
-      'data-anic-graph-path-status': model.status,
-      'data-anic-graph-path-from': model.from ?? 'none',
-      'data-anic-graph-path-to': model.to ?? 'none',
-      'data-anic-graph-path-length': String(model.length),
-      role: 'status',
-      style: {
-        display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
-        fontSize: 10.5, padding: '2px 8px',
-      },
-    },
-    createElement('span', { key: 'label', 'data-anic-graph-path-label': 'true' }, statusTextOf(model)),
-    // 起点的影响半径：选好起点后"从这儿出发能波及多远"是下一步决定的依据。
-    model.blast === null || model.blast.down.total === 0
-      ? null
-      : createElement('span', { key: 'blast', 'data-anic-graph-path-blast': 'true' },
-          t('graph.traceDown', { count: String(model.blast.down.total) })),
-    createElement('button', {
-      key: 'exit', type: 'button', 'data-anic-graph-path-exit': 'true',
-      'aria-label': t('graph.pathFind'),
-      onClick: input.onExit,
-      style: {
-        fontSize: 10, padding: '0 8px', borderRadius: 8, cursor: 'pointer',
-        border: '1px solid currentColor', background: 'transparent',
-      },
-    }, gt('pathExit')),
-  );
 }
 
 /** 单方向的分档读数（形如「1 跳 2 · 2 跳 1 · 3 跳 0」）。 */
@@ -207,9 +155,12 @@ export function renderTimelineBar(input: {
 }
 
 /**
- * 两条读数条的合并入口（组件只调一次 ⇒ 组件少两行，而 250 行是硬限）。
+ * 三条读数条的合并入口（组件只调一次 ⇒ 组件少两行，而 250 行是硬限）。
  * 全空 → **整体不渲染**（零占位）。时间轴条挂在路径条之后：回放是"又一层观察"，
  * 路径是"正在进行的动作"——动作条在上可读性更高。
+ *
+ * cycle-109：对比面板挂最后（它是"看结论"，前三条是"做动作/读数"）。
+ * 未多选（< 2 个节点）时调用方传 null ⇒ 整块不渲染——这是零占位纪律的另一半。
  */
 export function renderGraphExtras(input: {
   path: PathModel;
@@ -225,6 +176,8 @@ export function renderGraphExtras(input: {
     onTogglePlay: () => void;
     onExit: () => void;
   };
+  /** cycle-109 多选对比（null = 选中集 < 2，面板不渲染）。 */
+  compare?: CompareMatrix | null;
 }): ReactElement[] | null {
   const items: ReactElement[] = [];
   /*
@@ -245,5 +198,16 @@ export function renderGraphExtras(input: {
   if (input.timeline !== undefined && input.timeline.steps.length > 0) {
     items.push(renderTimelineBar(input.timeline));
   }
+  if (input.compare !== undefined && input.compare !== null) {
+    items.push(renderComparePanel(input.compare));
+  }
   return items.length === 0 ? null : items;
 }
+
+/**
+ * 路径状态条转出（cycle-109 实现搬到 `graphPathBar.ts`）。
+ *
+ * 保留转出是因为调用面（面板/契约/可能的复用）此前都从本文件 import ——
+ * 拆文件不该让调用方改 import（本仓 `tokens.ts` / `graphToolbar.ts` 同形）。
+ */
+export { renderPathBar } from './graphPathBar.ts';

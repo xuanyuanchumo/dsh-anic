@@ -1,5 +1,6 @@
 ---
 name: git-branch-workflow
+version: 0.2.0
 whenToUse: >
   在 dsh-anic 及其衍生仓库里进行分支管理、提交编写、主干保护、版本收口或回退时使用。
   触发词：分支、分支策略、commit、提交规范、合并、revert、主干保护、worktree、多分支并行、
@@ -36,6 +37,10 @@ description: >
 | R6 | 回退用 revert | 主干回退用 `git revert <bad-commit>` 保历史；**禁止 force-push 主干** | `CI-CD与发布流程.md:118` |
 | R7 | CI 触发面 | `master`/`feat/**`/`fix/**`/`chore/**` 的 push 与所有 PR 触发 CI；大改动走 PR | `CI-CD与发布流程.md:17-18`；`.github/workflows/ci.yml:9-14` |
 | R8 | Windows 用 SSH remote | github.com 443 直连可能被重置；remote 用 `git@github.com:...` 形态，`gh` API 与 SSH 443 通 | `CI-CD与发布流程.md:123-125` |
+| R9 | 主干保护是**约定**不是**强制** | 本仓 `master` 无 classic protection（404 `Branch not protected`）也无 rulesets（`[]`）⇒「CI 绿才合并」只由人类门 + 纪律保证，`gh pr merge --admin` 永远能绕 | `gh api repos/xuanyuanchumo/dsh-anic/branches/master/protection`；`gh api repos/.../rulesets`（2026-11-06 实测） |
+| R10 | 合并方式与删分支按仓库设置走 | squash/merge/rebase 三法全开；`delete_branch_on_merge=false` ⇒ 网页合并**不删**远端分支，须 `gh pr merge --delete-branch` 或手工 `git push origin --delete` | `gh api repos/xuanyuanchumo/dsh-anic --jq '{s:.allow_squash_merge,m:.allow_merge_commit,r:.allow_rebase_merge,d:.delete_branch_on_merge}'` |
+| R11 | 追主干用 `--ff-only`；已共享分支不 rebase | 本仓 `pull.rebase=false`，裸 `git pull` 会生成 merge 提交；rebasing 已 push 且他人基于其工作的分支会改写别人的基 | `git config --get pull.rebase`；`git log --graph --oneline -10` |
+| R12 | 冲突解决后必须复验 | 解完冲突仍要跑 R3 三件套：冲突解决正确 ≠ 逻辑正确 | `references/branch-protection.md` §4 |
 
 ### 规则→脚本
 
@@ -46,6 +51,9 @@ description: >
 | R3 主干只进验证过的提交 | CLAUDE.md「验证你的工作」 | `pre-push-verify.mjs` | push 前 |
 | R6 回退 | operations.md §回退 | — | 人工门 |
 | R8 SSH | operations.md §Windows | — | 自检 `ssh -T git@github.com` |
+| R9/R10 保护与合并设置 | branch-protection.md §0-§1 | — | 合并前 `gh api` 回读 |
+| R11 变基纪律 | branch-protection.md §2 | — | `git config --get pull.rebase` |
+| R12 冲突复验 | branch-protection.md §4 | — | `git diff --diff-filter=U` 空 + 三件套 |
 
 ## 二、快速启动
 
@@ -100,11 +108,34 @@ ssh -T git@github.com     # 期望输出 Hi <user>!
 git remote -v             # 期望 origin 为 git@github.com:<owner>/<repo>.git
 ```
 
+### 7. 合并前查保护与合并设置（R9/R10）
+
+```sh
+# 保护：404 = 没开保护（本仓现状）；有输出 = 开了，逐字段读 required checks
+gh api repos/xuanyuanchumo/dsh-anic/branches/master/protection
+# rulesets：[] = 无规则集（本仓现状）
+gh ruleset list -R xuanyuanchumo/dsh-anic
+gh ruleset check master -R xuanyuanchumo/dsh-anic   # 看哪些规则会作用到 master
+# 合并设置：三法全开 + 不自动删分支
+gh api repos/xuanyuanchumo/dsh-anic --jq '{s:.allow_squash_merge,m:.allow_merge_commit,r:.allow_rebase_merge,d:.delete_branch_on_merge}'
+```
+
+### 8. 冲突收尾（R12）
+
+```sh
+git diff --name-only --diff-filter=U   # 解完应为空
+git ls-files -u | head                 # 仍有输出 = 没 add 干净
+pnpm run typecheck && pnpm run test && pnpm run build   # 冲突解对 ≠ 逻辑对
+```
+
+完整序列（含 rebase 下 ours/theirs 反转）见 `references/branch-protection.md` §4。
+
 ## 三、导航索引
 
 | 需要了解 | 读取 |
 |---|---|
-| 分支/提交操作手册（含 worktree、变基、冲突处理） | `references/operations.md` |
+| 分支/提交操作手册（含 worktree、常用命令） | `references/operations.md` |
+| 保护分支 / required checks / rebase vs merge / 冲突处理 | `references/branch-protection.md` |
 | 分支命名冲突、commit 类型违规、SSH 失败等 | `references/troubleshooting.md` |
 | 分支命名 + commit 类型守卫 | `scripts/branch-lint.mjs` |
 | 主干 push 前门禁（含 `--run-gates`） | `scripts/pre-push-verify.mjs` |

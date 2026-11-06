@@ -1,5 +1,6 @@
 ---
 name: ci-cd-release
+version: 0.3.0
 whenToUse: >
    在 dsh-anic（或任何 DSH 插件）仓库里需要设计/修改 GitHub Actions 工作流、发布流水线、
    tag/版本收口、artifact 上传、回滚预案或 marketplace 收录条目时使用。触发词（中文）：
@@ -41,6 +42,9 @@ dsh-anic 的 **GitHub Actions 工作流与发布流水线操作知识叶技能**
 | R10 | 播种先于测试 | `init-cycle` → 四门锚点 → `coverage` → `generate-snapshot` → `workflow-state` → 重建 dist | `.github/workflows/ci.yml:88-123` |
 | R11 | 回滚矩阵逐场景 | npm deprecate / 删 release 重打 tag / revert / reload | `docs/agents/CI-CD与发布流程.md:112-119` |
 | R12 | marketplace 数字与代码一致 | 描述数字必须 `grep` 核实，夸大是唯一被打回原因 | `docs/agents/CI-CD与发布流程.md:102-106` |
+| R13 | secrets 落点分级 | job 级 `env` 只用于**判空**（`NPM_TOKEN`），凭据本体放 step 级 `env`（`NODE_AUTH_TOKEN`）；`GITHUB_TOKEN` 自动签发不建 secret | `release.yml:34,145,160` |
+| R14 | OIDC 最小权限 | `id-token: write` 只给发布作业（provenance）；CI 作业严禁开 | `ci.yml:21-22`；`release.yml:14-16`（`workflow-lint` ⑪ 机械校验） |
+| R15 | 超时与重跑幂等 | job 级 `timeout-minutes: 30`（实测耗时 3m14s/3m18s，≈10 倍余量）；重跑靠 `gh run rerun --failed` + `gh release delete … \|\| true` 保证幂等 | `ci.yml:28`；`release.yml:26,148-149`；`gh run list -R xuanyuanchumo/dsh-anic` |
 
 ## 触发面与执行顺序
 
@@ -80,7 +84,9 @@ pnpm run build            # generate-snapshot 重写了快照源，dist 必须�
 
 ## 版本与 tag 规范
 
-- 版本号唯一事实源：`package.json` 的 `version`（当前 `0.56.0`，`package.json:3`）。
+- 版本号唯一事实源：`package.json` 的 `version`（2026-11-06 实测 `0.58.0`，`package.json:3`）。
+  **文档里不要写死版本号**——读的时候现算：`node -p "require('./package.json').version"`。
+  本轮就抓到两处残留 `0.56.0`（本文件与 `references/operations.md`），已修正。
 - CHANGELOG 必须有对应 `## vX.Y.Z` 段落（标题形如 `## v0.55.2 — 2026-11-03（cycle-103：…）`，
   `.github/workflows/release.yml:70-79`）。
 - tag 形如 `vX.Y.Z`，与 `package.json.version` **完全一致**（`release.yml:59-68` 硬校验）。
@@ -106,6 +112,7 @@ pnpm run build            # generate-snapshot 重写了快照源，dist 必须�
 |---|---|
 | CI/发布完整操作手册（含 npm 发布、marketplace、Windows 网络） | `references/operations.md` |
 | CI 红、发布失败、回滚失败的分诊与修复 | `references/troubleshooting.md` |
+| workflow 语法面：触发器/matrix/并发/缓存/artifacts/OIDC/权限/钉版本/secrets/重试超时 | `references/actions-authoring.md` §1-§16 |
 | 工作流结构校验 + 发布前四项卫生校验 | `scripts/README.md` |
 
 ## 与主干技能的对接

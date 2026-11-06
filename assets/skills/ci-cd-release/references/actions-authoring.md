@@ -165,3 +165,78 @@ node assets/skills/ci-cd-release/scripts/release-check.mjs <workspace>   # 发�
 - [ ] 新增 `actions/*` 版本与仓库既有风格一致
 - [ ] 改了测试/构建命令 ⇒ 同步 `.cycles/config.yml` 的 `build.*`（双真相源）
 - [ ] 改了工具/路由数字 ⇒ 同步 README + 市场条目 yml（**两份都无自动守卫**，见 doc 26 §3 B4）
+
+## 13. matrix：本仓不用，但要知道代价与验证法
+
+本仓两份工作流**都没有 matrix**（`grep -n 'matrix\|strategy:' .github/workflows/*.yml` → 无命中），
+`runs-on: ubuntu-latest` 单点。**理由**：只有一个 node 承诺（`engines.node >=22.19`）和一个 OS
+（`scripts/` 全是纯 Node，见 `ci.yml:4-6`），加维度只会把 2 分钟的门禁乘成 N 倍。
+
+真要加时的形状（**本仓未实测，属通用 YAML 语法**）：
+
+```yaml
+strategy:
+  fail-fast: false          # 一个维度挂了不要取消其他维度，否则看不到全貌
+  matrix:
+    node: ['22', '24']
+```
+```yaml
+- uses: actions/setup-node@v4
+  with:
+    node-version: ${{ matrix.node }}
+```
+
+**验证方法**（写完必须回读，不能只看 YAML 通过）：matrix 会把 job **展开成多个**，
+`gh run view <run-id> --json jobs --jq '.jobs[].name'` 能看到 `name (22)` / `name (24)` 两条。
+`workflow-lint.mjs` 的步骤顺序检查只按第一个 job 的步骤名走，加 matrix 后要人工复核顺序结论。
+
+## 14. secrets 注入面：三种落点，各管各的范围
+
+本仓 `release.yml` 里三个 token 落在三个不同层级，**不是随手写的**：
+
+| 落点 | 写法 | 作用范围 | 证据 |
+|---|---|---|---|
+| job 级 `env` | `NPM_TOKEN: ${{ secrets.NPM_TOKEN }}` | 该 job 的**所有 step**都能读到，故能被 `if:` 判断 | `release.yml:34` |
+| step 级 `env` | `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` | 只有发布那一步拿得到凭据 | `release.yml:160` |
+| step 级 `env` | `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` | `gh release` 用；`GITHUB_TOKEN` 由 Actions 自动签发，无需自建 secret | `release.yml:145` |
+
+**可以判空的是 env，不是 secret 本身**：本仓用 job 级 `NPM_TOKEN` 中转，再
+`if: env.NPM_TOKEN != ''` 决定跑不跑发布（`release.yml:157-158`）；未配置时另有一条
+`if: env.NPM_TOKEN == ''` 的说明步骤（`release.yml:166-167`）——**显式 skip，不是静默成功**。
+（`secrets.*` 能否在 `if:` 里直接比较：本仓未验证，别当结论；用 env 中转是已验证可跑的形态。）
+
+**反面形态**：给 publish 加 `continue-on-error: true` 会把"真发失败"吞成绿。本仓该步显式写
+`continue-on-error: false`（`release.yml:164`）——默认值也这么写，是为了**明示意图**，
+防止后来人误以为可以放宽。
+
+## 15. OIDC 与 provenance：只在 CI 里成立
+
+- `id-token: write` 只开在 release job（`release.yml:14-16`），普通 CI job **不开**
+  （`ci.yml:21-22` 只有 `contents: read`）——最小权限的判据是"这一步真的需要 OIDC 吗"。
+- `pnpm publish --provenance`（`release.yml:163`）会向 npm 提交**可验证的构建来源**，
+  这正是 marketplace/审计能追"这个 tarball 是谁在哪个 commit 上打的"的凭据；因此该步运行在
+  GitHub Actions 里才有意义。
+- **未验证**：本地手工 `npm publish --provenance` 的行为（本机没有可信 OIDC 身份源）。
+  验证方法：在临时包上跑 `npm publish --dry-run --provenance` 看是否报 provenance 相关错误，
+  报错即证明 provenance 依赖 CI 环境；**不要把"本地也能带 provenance"写成结论**。
+
+## 16. 失败重试与超时：重跑要幂等，超时要有头
+
+| 项 | 本仓现状 | 证据 |
+|---|---|---|
+| job 超时 | 两份都是 `timeout-minutes: 30`（job 级） | `ci.yml:28`、`release.yml:26` |
+| step 超时 | **未设**（无 step 级 `timeout-minutes`） | `grep -n timeout-minutes .github/workflows/*.yml` → 仅 2 处 |
+| 超时余量 | 实测 CI `3m14s`（run 42156424415）、Release `3m18s`（run 42155819302）⇒ 30 分钟≈10 倍余量 | `gh run list -R xuanyuanchumo/dsh-anic --limit 6` |
+| 自动重试 | **无 `retry` 类 action，靠重跑整个 run** | 两份 workflow 全文 |
+| 重跑命令 | `gh run rerun <run-id> --failed`（只重跑失败 job 及其依赖） | `gh run rerun --help` 实测 |
+
+**重跑幂等**是发布作业能安全重跑的前提，本仓靠两处：
+
+```sh
+# release.yml:148-149 —— 先删同名 release（不存在则忽略），重跑不撞车
+gh release delete "$TAG" --yes --cleanup-tag=false 2>/dev/null || true
+# release.yml:156-168 —— npm 步骤按 NPM_TOKEN 显式 skip，重跑不会误发
+```
+
+**纪律**：给 CI 加 step 级 `timeout-minutes` 只在**已知会挂死**的步骤上（如等待外部服务）；
+盲目给每步设短超时会把偶发慢网络判成红，反而制造假失败。本仓不加是有意的选择，不是遗漏。

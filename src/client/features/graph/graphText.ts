@@ -44,8 +44,14 @@ export type GraphTextSuffix =
   // cycle-94：节点角色（hub/orphan/leaf/entry）与测试健康度标题
   | 'nodeRoleLabel' | 'healthLabel'
   // cycle-94：两点最短路径（根因定位从「三次双击」降为「一次输入」）
-  | 'pathFind' | 'pathFindPlaceholder' | 'pathFindHint'
+  // cycle-109（U4）：`pathFindPlaceholder` 已删除——它承诺的"输入两个节点的文本框"
+  //   在交互模型上不存在（模式是"在图上点节点"），一个无人能实现的词条只会让
+  //   读者按键名去找不存在的 UI。`pathFindHint` 保留并**接线**到路径开关的 title。
+  | 'pathFind' | 'pathFindHint'
   | 'pathFindNoPath' | 'pathFindResult' | 'pathFindInvalid'
+  // cycle-109（U4 ③）：反向可达——"正向不通但反向通"与"真的不连通"必须两态可分，
+  //   合并成一句会让用户去换端点，而正确答案是把端点对调。
+  | 'pathReverseOnly'
   // cycle-95（WS-C）：路径**选择模式**的状态条文案与退出键
   //   消费点：graphExtras.renderPathBar / graphToolbarPath（模式必须可见、必须可退）
   //   ⚠️ 这三个键**尚待 WS-D 合并进 locale/zh.json + en.json**（本文件只声明短名）。

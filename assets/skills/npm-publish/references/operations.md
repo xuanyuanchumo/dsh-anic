@@ -8,13 +8,13 @@
 
 | 事实 | 值 | 证据 |
 |---|---|---|
-| 当前版本 | `0.56.0` | `package.json:3` |
+| 当前版本 | `0.58.0`（读时现算：`node -p "require('./package.json').version"`） | `package.json:3` |
 | 包名 | `dsh-anic` | `package.json:2` |
-| 发布文件清单 | `dist/ assets/skill/ assets/skills/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE` | `package.json:36-46` |
+| 发布文件清单 | `dist/ assets/skill/ assets/skills/ assets/index/ assets/icon-180.png bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE` | `package.json:44-56` |
 | repository | `git+https://github.com/xuanyuanchumo/dsh-anic.git` | `package.json:12-15` |
-| engines.node | `>=22.19` | `package.json:48-49` |
-| engines.dsh | `>=0.2.0-rc.2 <0.4.0-0` | `package.json:50` |
-| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:51-59` |
+| engines.node | `>=22.19` | `package.json:58` |
+| engines.dsh | `>=0.2.0-rc.2 <0.3.0-0 \|\| >=0.3.0-rc.1 <0.4.0-0`（两段显式） | `package.json:59` |
+| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:61-64` |
 | `.npmrc` | `auto-install-peers=false`（旧版回退注释） | `.npmrc:1-5` |
 | `.npmrc-publish` | `registry=` + `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` + `always-auth=true` | `.npmrc-publish:1-5` |
 | gitignore 保护 | `.npmrc-publish` 被忽略 | `.gitignore:19-20` |
@@ -50,9 +50,12 @@ EXPECTED="v${PKG_VERSION}"
 打 tag 与推送（只推 tag，release.yml 自动接手，`docs/agents/CI-CD与发布流程.md:51-56`）：
 
 ```sh
-git tag v0.56.0
-git push origin v0.56.0
+git tag "v$(node -p 'require("./package.json").version')"
+git push origin "v$(node -p 'require("./package.json").version')"
 ```
+
+> 现算 tag 而不是抄文档里的版本号：本轮审计就抓到 SKILL/operations 里残留 `v0.56.0`
+> （当时真实版本已是 `0.58.0`），抄错即等于把 tag 打到不存在的版本上。
 
 ## 3. 稳定名 tarball + sha256（R04）
 
@@ -170,8 +173,8 @@ CI 侧等价写法（`release.yml:156-164`）：`NODE_AUTH_TOKEN: ${{ secrets.NP
 自动化核对：
 
 ```sh
-node assets/skills/npm-publish/scripts/release-check.mjs D:\Projects\TraeProjects\dsh-anic v0.56.0
-node assets/skills/npm-publish/scripts/release-check.mjs D:\Projects\TraeProjects\dsh-anic v0.56.0 --report
+node assets/skills/npm-publish/scripts/release-check.mjs D:\Projects\TraeProjects\dsh-anic "v$(node -p 'require("./package.json").version')"
+node assets/skills/npm-publish/scripts/release-check.mjs D:\Projects\TraeProjects\dsh-anic "v$(node -p 'require("./package.json").version')" --report
 ```
 
 ## 6. GitHub Release 面（R04 配套）

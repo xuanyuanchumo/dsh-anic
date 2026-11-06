@@ -191,8 +191,31 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   直接 `t()`），且每一条对应一个**可独立出现的判据码**——合并任何两条都会让
      *   面板把"状态机落后"和"HEAD 超前"显示成同一句话，白盒区分度归零。
      *   实测 601 = 上限（继续零余量纪律）。
+     *
+     *   cycle-109：601 → 609。技能**注册面**两行读数新增 8 键（`health.runtimeSkill*` /
+     *   `health.library*` / `health.skillsChangeEmits`），全部由
+     *   `src/client/features/skillhealth/renderSkillFace.ts` 消费：
+     *     - `runtimeSkillLabel` / `libraryLabel`：两行的行名（没有它们，读者看到一个
+     *       裸技能名与裸版本号，无法判断这是"脚本健康"还是"注册面"）。
+     *     - `runtimeSkillActive` / `Absent` / `Unknown`：**三态必须各自可读** ——
+     *       `active` 与 `absent` 合并会抹掉本轮修的 D2（注册了但被同名压制）；
+     *       `unknown` 并入 `absent` 会把"观测不完整"误报成"缺失"（本仓硬纪律：
+     *       没有证据 ≠ 失败）。
+     *     - `librarySummary`：版本/技能数/问题数一行三占位（拆成三键会多 2 键且排版更差）。
+     *     - `libraryOk`：**正面结论必须显式**（与 `org.cycleDriftAligned` 同一条纪律 ——
+     *       沉默会让读者把"没报错"当成"没检查"）。
+     *     - `skillsChangeEmits`：目录变更计数（0 时不渲染，故它不是噪声键）。
+     *   实测 609 = 上限（继续零余量纪律）。
+     *
+     *   cycle-109 二次追加：609 → 610。`graph.compareLimit`（对比上限读数）。
+     *   消费点：`src/client/features/graph/graphComparePanel.ts`（列头下方一行，
+     *   仅 `columns.length >= MAX_SELECTION` 时渲染 —— 零占位）。
+     *   为什么**必须**有它：第 9 次点击是**被拒绝**的（`limitHit`），没有这条读数
+     *   用户看到的只是"点了没反应"，无法区分"上限"与"没点中" —— 静默失约。
+     *   文案与实现**同口径**（"再多选不会加入"，不是"替换最早"）：承诺一个不存在的
+     *   交互比不提示更糟（本仓"静默失约"同族纪律）。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(601);
+    expect(zhKeys.length).toBeLessThanOrEqual(610);
   });
 });

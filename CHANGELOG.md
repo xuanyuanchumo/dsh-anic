@@ -1,5 +1,94 @@
 # dsh-anic CHANGELOG
 
+## v0.59.0 — 2026-11-06（cycle-109：运行时取证 · 技能库消费 · 图谱交互三件套）
+
+> 起点：commit `8d57068`（v0.58.0，cycle-108 收口）。
+> 本轮：doc 27 §6 的两项 P1（R1 披露取证 / R2 技能可见性）+ 研究输入 L 的建议 1/2 +
+> 图谱 U1/U3/U4 + 内部技能库内容补齐与消费通路。
+> 终点：**四层 ALL GREEN**（validate + vitest 3776 + smoke + trigger）。
+> 固化文档：`docs/anic/28-cycle-109运行时取证与技能库消费.md`；
+> 开发文档：`docs/agents/运行时注册取证与技能库消费.md`。
+
+### ① 披露取证化：把「我们施加了什么」升级为「宿主真的少给了什么」（R1）
+
+- **旧事实**：`disclosureReadout.ts` 文件头自认「不证明宿主按 deny 生效」；
+  `src/` 里 `ctx.tools.schemas(` 调用数 = **0** ⇒ `wired:true` 只等于「调用没抛」。
+- 新增 `src/host/runtime/disclosureVerdict.ts`：纯函数三态 `verified / partial / unverified`，
+  并把 `partial` 拆成 `leaked`（该遮蔽却仍在 = 越权暴露）与 `missing`（该可见却不见了 = 遮蔽过头/自锁）
+  —— 两者补救动作**相反**，合并会让读者不知道该往哪边改。
+- 新增 `src/host/runtime/disclosureHostCapture.ts`：`captureHostVisibility`（从 `disclosureActivation.ts`
+  沿「动作/观测」拆出）—— **restrict 成功之后**才采（反序会采到全量视图），一次/agent，失败即 `unverified`、
+  **绝不**因取证失败回退 full（观测故障不得升级成行为变更）。
+- 读数：`GET /anic/api/disclosure` 增 `hostVerdict/hostVisible/hostLeaked/hostMissing` 与
+  `hostVerifiedAgents / hostPartialAgents / hostUnverifiedAgents`（三态**分开**计数）。
+- **A0″ 白盒依据**（不再跑黑盒探针）：KB `subsystems/tools.md:512`「one visibility resolver feeds
+  presentation, lookup, and dispatch」+ `:566` `get` 契约 + A0′ 真机（视图 25→24、`get` 归 absent）⇒
+  `schemas(agent)` 必然同样排除 deny 项。**实现坑成文**：`schemas()` 不传参 = 全局视图，判 scoped 遮蔽恒 partial。
+- 契约：`tests/unit/disclosureVerdict.test.ts`（11）+ `tests/contract/disclosureHostEvidenceContract.test.ts`（8，
+  含「桩撒谎必须判红」「schemas 缺失/抛错 ⇒ unverified 且 wired 不变」）。
+
+### ② 技能可见性证据化：注册 ≠ 模型可见（R2）
+
+- **旧事实**：`skillRegistration.ts` 无条件 `log.info('已注册')`；官方语义里 **project 层同名条目直接赢得**
+  runtime 条目 ⇒ 工作区放一个同名 `.dsh/skills/<name>.md` 就能静默压制，日志照绿。
+- 新增 `src/host/runtime/skillVisibility.ts`：`classifySkillVisibility` 三态
+  （`snap:null` / `complete:false` ⇒ `unknown`，**绝不**谎报成 absent；命中 ⇒ `active` 带 source/provider；否则 `absent`）。
+- `skillRegistration.ts`：解析 `disable-model-invocation` / `user-invocable`，**缺键不传** `invocation`
+  （两键默认 true，缺键仍传等于把「没表态」写死成「表过态」）；`verifyRuntimeSkillVisibility` 异步回读，失败只 warn。
+- 新增 `src/host/runtime/skillsChangeCounter.ts`（与 `toolsChangeCounter.ts` 同构的零依赖叶子）+
+  新增 `src/host/runtime/skillVisibilityState.ts`（回读结论的**状态**而非日志）。
+- 契约：`tests/unit/skillRegistration.test.ts`（24）+ `tests/unit/skillVisibilityState.test.ts`（5）。
+
+### ③ 内部技能库：从「零引用」到「被读、可判红」
+
+- **旧事实**：`assets/skills/`（1 主干 + 9 叶 + 1 元技能 + 注册表 + 三脚本）在 `src/` 里**零引用**；
+  闭环体检第四族只扫 `assets/skill/scripts/*.mjs`（主干脚本）⇒ 整个库不在任何扫描面内。
+- 新增 `src/host/runtime/skillLibrary.ts`：**只读**对账（注册表 ⇄ 目录 / `SKILL.md` / `anchors` + 反向查未登记目录），
+  六种 `issue.kind` 分流（补救动作不同，不合并），5s TTL 缓存（4s 轮询面防 fs churn）。
+- 出口：`GET /anic/skill/health` 的 `library` 段 + `anic_status` 的 `skillLibrary` 字段 + 面板技能健康分区两行。
+- **首跑即抓到真实缺陷**：`skills.index.json` 10 条里 **9 条缺 `dir`**（只有 meta 那条有）⇒ 机器面只能识别 1 个技能。
+  决策：**不从 `name` 派生**（注册表是唯一事实源，派生会让缺字段永久隐身）⇒ 报 `registry-parse` 逼人补表。
+- 契约：`tests/unit/skillLibrary.test.ts`（11，六种 issue 各一条会判红）+
+  `tests/contract/skillLibraryRegistryContract.test.ts`（7：真实库全绿 + `src` 真的读了注册表 + 路由真的消费）。
+
+### ④ 内部技能库内容补齐（skills teammate）
+
+- 9 条叶技能补显式 `dir`；10 个 `SKILL.md` 补 `version`（激活休眠的 `anchor:version` 守卫）；库版本 0.3.0 → **0.4.0**。
+- 知识缺口逐条闭（每条可当场复验）：git 分支保护/required checks 实测（本仓 `protection` → 404、`rulesets` → `[]`
+  ⇒「CI 绿才合并」是**约定不是强制**）、rebase vs merge 五场景、冲突处理序列；PR draft→ready→review→merge 全链 +
+  「无保护时 `--request-changes` 不阻塞合并」；Actions §13 matrix / §14 secrets 三落点 / §15 OIDC+provenance /
+  §16 超时与重跑幂等（逐条对照本仓 `ci.yml` / `release.yml`）；npm registry 纪律（默认 npmmirror vs `.npmrc-publish`
+  → npmjs 官方）；Gitee 账号态实测（镜像仓**不存在**）；token→env 映射边界（gitee 需显式 `env_name`）。
+- 脚本加守卫 + 反向自检：manifest 增 `dir` 必填 + `field:dir-shape` + `--selftest`；drift 增 `registry:dir` 守卫；
+  `workflow-lint` 增 ⑩timeout ⑪OIDC 最小权限 ⑫release `cancel-in-progress=false`。
+- 自进化留痕真实入账 4 条（PROPOSED / VERSION_BUMP / PATCH_KEPT / EVIDENCE_LINK），`ledger --verify` 链完整。
+
+### ⑤ 图谱交互三件套（graph teammate）
+
+- **U1 选中钉住 / 悬停预览分离**：`graphFocusResolve.ts` 唯一决定优先级（`pin ?? hover`），预览**不并**钉住
+  （否则 pointerout 不消失）。新增 `data-anic-graph-pinned/-selected/-selected-count` 锚点。
+- **U3 多选与属性对比**：`graphSelection.ts`（上限 8、点选顺序）+ `graphCompare.ts`（5 行矩阵 + `diff`）
+  + `graphComparePanel.ts`（≥2 才渲染，零占位）；`graph.compareLimit` 读数在选满时出现（第 9 次点击被拒**必须可见**，
+  文案与实现同口径：「再多选不会加入」而不是「替换最早」）。
+- **U4 路径模式补完**：`clearFilter` 补 `path.exit()`（Esc 可退）；`pathModelOf` 增 `reverseOnly`
+  （正向不可达但反向可达 —— 与「两向都不通」**两态可分**）；`findPathCandidates(≤3)` 与 `findPathAvoiding`
+  单一 BFS；`renderPathBar` 拆至 `graphPathBar.ts`（`graphExtras` 249 → 214）；消费死键 `pathFindHint`、删 `pathFindPlaceholder`。
+- 视觉小步 + **修一个从未生效的缺陷**：`graphInteractStyle.ts` 的 LOD 选择器指向不存在的 `data-anic-node-sub`
+  （实际是 `-meta`）⇒「缩放 ≤0.6 收起次标签」从未生效。
+- 契约：`graphFocusPinContract`（7）+ `graphMultiSelectContract`（16）+ `graphPathModeUxContract`（14）；
+  基线 420 → **461** graph 用例。
+
+### ⑥ 面板与文档
+
+- 技能健康分区增「注册面」两行（runtime 可见性三态 + 库对账），零占位，字形+色双通道。
+- 新增 `docs/agents/运行时注册取证与技能库消费.md`（开发文档）+ `docs/anic/28-cycle-109运行时取证与技能库消费.md`（落地记录）；
+  更新 `docs/agents/README.md`、`docs/anic/README.md`、`README.md`、`docs/agents/marketplace-提交草稿.md`。
+
+### ⑦ 明确不做（防漂移）
+
+- R3 每会话 FIFO 调用预算（改变并发语义，需一轮经验证据）；`assets/skills/` 改 `registerProvider`（新子系统）；
+  U2 右键菜单 / U5 触控（独立风险与预算）。全部写入 doc 28 §5 与 cycle-109 任务清单 §6「后续裁决」。
+
 ## v0.58.0 — 2026-11-06（cycle-108：闭环补链 · 循环坐标漂移根除 · 图谱四缺陷 · 市场收录就绪）
 
 > 起点：commit `02b958c`（v0.57.0）。

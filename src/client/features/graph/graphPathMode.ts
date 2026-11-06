@@ -31,7 +31,7 @@
  */
 import type { TraceAdjacency } from './graphTrace.ts';
 import { buildTrace, blastRadiusStats, type BlastRadiusStats } from './graphTrace.ts';
-import { findPath, MAX_PATH_HOPS, type PathResult } from './graphPathFind.ts';
+import { findPath, findPathCandidates, MAX_PATH_HOPS, type PathResult } from './graphPathFind.ts';
 import type { FilterView } from './graphFilter.ts';
 
 /** 选择状态：`active` = 处于路径模式；`from`/`to` = 已选的端点。 */
@@ -88,8 +88,20 @@ export function pathPickOf(sel: PathSelection, id: string): PathSelection {
  * 判据（本仓既有教训「数据源 A 与视图 B 一致吗要用跨源对账」的同族）：
  * 视图层的失败分类**不得比数据层更粗**。`statusOf` 必须消费 `result.reason`，
  * 而不是只看 `found === false`。
+ *
+ * ## 第三种"没找到"：`reverseOnly`（cycle-109 · U4 ③）
+ *
+ * 有向图里"a 走不到 b"与"a 其实被 b 走到"是两个完全不同的结论：前者可能是
+ * 因果方向反了（"它导致它" vs "它被它导致"），后者才是真的不连通。此前两者都
+ * 报 `unreachable`，用户看到"不可达"就去换端点——而正确答案是**把端点对调**。
+ *
+ * 判据的边界（写死，不许含糊）：
+ *   - 只有正向 `reason === 'unreachable'`（结构性不可达）才试反向。正向"超上限"
+ *     说明那条路**真的存在**，只是太远；此时展示反向路径会把"太远"误报成
+ *     "反向才通"——正是上一条纪律禁止的"视图比数据更粗"。
+ *   - 反向也找不到 ⇒ 仍是 `unreachable`（两向都不通才是真的不连通）。
  */
-export type PathStatus = 'pickStart' | 'pickEnd' | 'found' | 'unreachable' | 'tooLong' | 'duplicate';
+export type PathStatus = 'pickStart' | 'pickEnd' | 'found' | 'unreachable' | 'tooLong' | 'duplicate' | 'reverseOnly';
 
 /**
  * 把 `findPath` 的结果分类成视图状态（**唯一**分类点）。
@@ -117,14 +129,34 @@ export interface PathModel {
   blast: BlastRadiusStats | null;
   /** 原始的 findPath 结果（面板/契约可读 reason / path）。 */
   result: PathResult | null;
+  /**
+   * 候选路径（≤3，含第一条；found / reverseOnly 时非空，其余为空数组）。
+   *
+   * 为什么必填而不是可选：可选会让面板无法区分"没算过"与"只有一条"，
+   * 于是要么静默漏渲染候选、要么渲染一个空列表占位（本仓零占位纪律不许）。
+   */
+  candidates: readonly PathResult[];
 }
 
 /** 不在模式里的空模型（**不共享可变 Set**，避免调用方误改）。 */
 export function idlePathModel(): PathModel {
   return {
     active: false, from: null, to: null, status: 'pickStart',
-    highlight: new Set<string>(), length: 0, blast: null, result: null,
+    highlight: new Set<string>(), length: 0, blast: null, result: null, candidates: [],
   };
+}
+
+/**
+ * 反向路径的翻转（节点序反转；`found` / `length` / `reason` 不变）。
+ *
+ * 为什么必须翻转再交给渲染层：高亮与状态文字都按"用户选的起点 → 终点"读。
+ * 若把 `to → from` 的原始顺序直接塞进去，读者会以为高亮方向就是用户点选的顺序
+ * ——而"因果方向"正是这个功能要说清的东西（见 PathStatus 的 reverseOnly 段）。
+ */
+function flippedOf(result: PathResult): PathResult {
+  const flipped: PathResult = { found: result.found, path: [...result.path].reverse(), length: result.length };
+  if (result.reason !== undefined) flipped.reason = result.reason;
+  return flipped;
 }
 
 /**
@@ -143,24 +175,43 @@ export function pathModelOf(sel: PathSelection, adjacency: TraceAdjacency): Path
   const to = sel.to;
   const blast = from === null ? null : blastRadiusStats(buildTrace(adjacency, from));
   if (from === null) {
-    return { active: true, from: null, to: null, status: 'pickStart', highlight: new Set<string>(), length: 0, blast: null, result: null };
+    return { active: true, from: null, to: null, status: 'pickStart', highlight: new Set<string>(), length: 0, blast: null, result: null, candidates: [] };
   }
   if (to === null) {
-    return { active: true, from, to: null, status: 'pickEnd', highlight: new Set<string>(), length: 0, blast, result: null };
+    return { active: true, from, to: null, status: 'pickEnd', highlight: new Set<string>(), length: 0, blast, result: null, candidates: [] };
   }
   // 两端相同：findPath 会返回 length=0 的"路径"，但那不是用户要的东西。
   if (from === to) {
-    return { active: true, from, to, status: 'duplicate', highlight: new Set<string>(), length: 0, blast, result: null };
+    return { active: true, from, to, status: 'duplicate', highlight: new Set<string>(), length: 0, blast, result: null, candidates: [] };
   }
   const result = findPath(adjacency, from, to, MAX_PATH_HOPS);
   if (!result.found) {
+    /*
+     * 反向可达（cycle-109 · U4 ③）：只在**结构性不可达**时试。
+     * 正向"超上限"意味着那条路真的存在，只是太远；此时给反向路径会把
+     * "太远"误报成"反向才通"（视图比数据更粗）。理由全文见 PathStatus 段。
+     */
+    if (result.reason === 'unreachable') {
+      const reversed = findPathCandidates(adjacency, to, from, 3, MAX_PATH_HOPS).map(flippedOf);
+      const first = reversed[0];
+      if (first !== undefined) {
+        return {
+          active: true, from, to, status: 'reverseOnly',
+          highlight: new Set(first.path), length: first.length, blast, result: first, candidates: reversed,
+        };
+      }
+    }
     // 失败分类走 `classifyPathResult`（**唯一**分类点）——不在此处重写判据，
     // 否则"不可达"与"超上限"又会在这里被揉回同一态（见 PathStatus 头注）。
-    return { active: true, from, to, status: classifyPathResult(result), highlight: new Set<string>(), length: 0, blast, result };
+    return { active: true, from, to, status: classifyPathResult(result), highlight: new Set<string>(), length: 0, blast, result, candidates: [] };
   }
+  const candidates = findPathCandidates(adjacency, from, to, 3, MAX_PATH_HOPS);
   return {
     active: true, from, to, status: 'found',
     highlight: new Set(result.path), length: result.length, blast, result,
+    // 候选必含首条（同一实现 ⇒ 第一条恒等于 result）；空数组只可能是实现漂移，
+    // 此时退回 `[result]` 而不是渲染一个"有路径但没有候选"的矛盾读数。
+    candidates: candidates.length === 0 ? [result] : candidates,
   };
 }
 

@@ -114,14 +114,71 @@ gh pr checkout <N>
 2. **建议项**（≤5 条 nit）：措辞/命名/小重构
 3. **确认项**：行为已正确的部分
 
-## 5. 合并策略
+## 5. 合并策略：三法全开，但有两个连带后果
 
-- `--squash`：把分支历史压成一条提交，适合功能分支（主干历史线性）。
-- `--rebase`：保留每个提交，适合小提交系列。
-- `--merge`：保留分支结构。
-- 合并前必须确认 CI 全绿（R3）与门禁表已填（R6）。
+本仓实测（2026-11-06）：
 
-## 6. 确定性脚本
+```sh
+gh api repos/xuanyuanchumo/dsh-anic --jq \
+  '{s:.allow_squash_merge,m:.allow_merge_commit,r:.allow_rebase_merge,d:.delete_branch_on_merge,a:.allow_auto_merge}'
+# → {"s":true,"m":true,"r":true,"d":false,"a":false}
+```
+
+| 策略 | 命令 | 主干历史形状 | 代价（真会踩到） |
+|---|---|---|---|
+| squash（本仓约定） | `gh pr merge <N> --squash` | 一条提交一功能，线性 | 原分支提交**不再是** `master` 的祖先 ⇒ `git branch -d <branch>` 拒绝（"not fully merged"），须 `-D` 或先比对内容 |
+| rebase | `gh pr merge <N> --rebase` | 保留分支内每个提交，线性 | 提交 SHA 全变；分支若还活着再 push 会分叉 |
+| merge | `gh pr merge <N> --merge` | 保留分支结构 + merge 提交 | `git log --graph` 里出现 `Merge branch …`，与本仓 `--ff-only` 线性纪律冲突 |
+
+两个连带后果（都是仓库设置直接导致的，不是 Git 玄学）：
+
+1. **远端分支不会自动消失**：`delete_branch_on_merge: false` ⇒ 网页点「Merge」**不删**远端分支。
+   要删必须 `gh pr merge <N> --squash --delete-branch`，或事后 `git push origin --delete <branch>`。
+2. **auto-merge 在本仓不可用**：`allow_auto_merge: false` ⇒ `gh pr merge --auto` 会失败。
+   要用得先开 Settings → Allow auto-merge；这是仓库设置，不是命令写法问题。
+
+## 6. PR 生命周期（draft → ready → review → merge）
+
+| 阶段 | 命令（`gh` 2.92.0 实测 flag） | 语义 / 本仓现状 |
+|---|---|---|
+| 起草 | `gh pr create --base master --draft --title … --body-file …` | draft PR **不会被评审请求**，CI 照样跑（`ci.yml:12-13` 对 PR 全量触发），适合"先看 CI 绿不绿" |
+| 转正 | `gh pr ready <N>`（转回 draft：`gh pr ready <N> --undo`） | 转正后才该请求评审 |
+| 评审 | `gh pr review <N> --approve` / `--request-changes` / `--comment`（正文用 `-b` 或 `-F`） | 三种 review 状态；见下方「review 语义」 |
+| 看检查 | `gh pr checks <N> --watch --fail-fast`；`--required` 只看必需检查 | 本仓无 required checks ⇒ `--required` 过滤后为空 |
+| 合并 | `gh pr merge <N> --squash --delete-branch` | 前提是 CI 全绿（R3，人类门） |
+
+**review 语义**（通用 GitHub 语义，本仓无保护时三者**都不阻塞合并**）：
+
+| review 状态 | 意图 | 有无分支保护时的实际效果 |
+|---|---|---|
+| `--approve` | 认可，可合并 | 无保护：仅记录；有保护「Require approvals」：计数达标才能合 |
+| `--request-changes` | 阻断，必须先改 | **无保护：仍可直接合**（这是 R3 的真实风险面）；有保护：会被挡住 |
+| `--comment` | 只评论，不表态 | 永远不阻塞 |
+
+**本仓现状（重要）**：`gh pr list --state all --limit 10` **空输出**，`gh api …/branches` 只有
+`["master"]` —— PR 通道从未被使用过，全部提交直接 push `master`（`docs/agents/CI-CD与发布流程.md:18`
+允许单人仓库直推）。因此本节的命令是**为将来多人协作准备的**：本仓没有任何"PR 强制"的机器保证，
+`--admin`、`--request-changes` 后强合、`--auto` 之外的一切都只是纪律。
+
+## 7. 合并队列（merge queue）：本仓不可用，别写进流程
+
+**判据**：merge queue 是 **ruleset 上的 `merge_queue` 规则**，没有 ruleset 就没有队列。
+本仓 `gh api repos/xuanyuanchumo/dsh-anic/rulesets` → `[]` ⇒ **合并队列不可用**。
+
+`gh pr merge --help` 原文（gh 2.92.0 实测）已经把行为说清：
+
+```text
+When targeting a branch that requires a merge queue, no merge strategy is required.
+If required checks have not yet passed, auto-merge will be enabled.
+If required checks have passed, the pull request will be added to the merge queue.
+To bypass a merge queue and merge directly, pass the `--admin` flag.
+```
+
+⇒ 在**有**队列的仓库里，`gh pr merge <N>` 的语义会从「立即合并」变成「入队/开 auto-merge」——
+同一个命令在不同仓库设置下含义不同。迁移仓库时先 `gh ruleset check <branch> --repo <o>/<r>`
+确认有没有队列规则，再决定写不写 `--squash`。本仓不适用。
+
+## 8. 确定性脚本
 
 | 脚本 | 用途 | 退出码 |
 |---|---|---|
@@ -135,13 +192,17 @@ node assets/skills/github-pr-actions/scripts/pr-check.mjs <workspace> [--pr N] [
 node assets/skills/github-pr-actions/scripts/evidence-collect.mjs <workspace> [--out <workspace-relative>] [--json]
 ```
 
-## 7. 与主干技能的对接
+## 9. 与主干技能的对接
 
-本技能喂 G0-G3 门禁（`skills.index.json:44` gates = G0-G3）：PR 的门禁表、CI 状态、
-评审证据都成为 `eval-runner` / `gate-check --record` 的输入；发布卫生由 `npm-publish` 承接。
+本技能喂 G0-G3 门禁（`skills.index.json` 中 `github-pr-actions` 的 gates = G0-G3）：PR 的门禁表、
+CI 状态、评审证据都成为 `eval-runner` / `gate-check --record` 的输入；发布卫生由 `npm-publish` 承接。
 
-## 8. 通用 Git 知识（非本仓实证）
+## 10. 通用 Git/GitHub 知识（非本仓实证，标注以便区分）
 
 以下为通用实践，非本仓实测，仅作参考：
-- `gh pr merge --auto` 的自动合并需分支保护规则配合；本仓未启用。
-- 行级评审的 diff 坐标（`startLine`/`line`/`side`）语义见 GitHub REST/GraphQL 文档。
+- 行级评审的 diff 坐标（`startLine`/`line`/`side`）语义见 GitHub REST/GraphQL 文档；
+  本仓 `add_comment_to_pending_review` 走 MCP 工具而非手工拼 API。
+- required checks 的匹配键是**检查名**（本仓为 `ci.yml:26` 的
+  `typecheck / lint / test (node 22)`）——改名即等于改规则匹配键，属未在本仓验证的写侧动作。
+- 合并队列的规则细节（`merge_queue` 的 `max_entries_to_build` 等参数）本仓无 ruleset，
+  未实测；验证方法：在测试仓库建 ruleset 后 `gh ruleset view <id> --repo <o>/<r>` 回读。

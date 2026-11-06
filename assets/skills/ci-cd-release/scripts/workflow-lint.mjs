@@ -15,6 +15,9 @@
 //   Release ⑦ 触发面含 v* tag 或 workflow_dispatch
 //         ⑧ 有 tag↔version 校验步、CHANGELOG 校验步
 //         ⑨ 有 pnpm pack + dsh-anic.tgz 稳定名
+//  公共  ⑩ job 级 timeout-minutes 必须存在（挂死的 job 不该烧满默认 360 分钟）
+//         ⑪ OIDC 最小权限：CI 严禁 id-token: write；Release 必须 id-token: write（provenance）
+//         ⑫ Release 的 concurrency 必须 cancel-in-progress: false（发布是原子动作，取消会留半发布）
 //
 // 退出码: 0 = 通过 / 无工作流可查；1 = 存在违规；2 = 用法错误。
 
@@ -107,6 +110,10 @@ for (const file of files) {
       }
     }
     if (!/ANIC_SELF_AUDIT:\s*'0'/.test(text)) findings.push(`${rel}: 缺少 job 级 ANIC_SELF_AUDIT: '0'`);
+    // ⑩ 超时：job 挂死时默认上限是 6 小时，量化门禁不该占满
+    if (!/^\s*timeout-minutes:\s*\d+\s*$/m.test(text)) findings.push(`${rel}: 缺少 job 级 timeout-minutes`);
+    // ⑪ OIDC 最小权限：普通 CI 不需要任何 OIDC 身份，开了就是把签发能力白送
+    if (/id-token:\s*write/.test(text)) findings.push(`${rel}: CI job 不应申请 id-token: write（OIDC 只给发布作业）`);
   }
 
   if (/^\s*name:\s*Release\s*$/m.test(text)) {
@@ -119,6 +126,12 @@ for (const file of files) {
     if (!/CHANGELOG\.md/.test(text)) findings.push(`${rel}: Release 缺少 CHANGELOG 版本段校验`);
     if (!/pnpm pack/.test(text)) findings.push(`${rel}: Release 缺少 pnpm pack`);
     if (!/dsh-anic\.tgz/.test(text)) findings.push(`${rel}: Release 缺少稳定名 dsh-anic.tgz`);
+    // ⑩ 超时（发布作业同样必须设上限）
+    if (!/^\s*timeout-minutes:\s*\d+\s*$/m.test(text)) findings.push(`${rel}: 缺少 job 级 timeout-minutes`);
+    // ⑪ provenance 需要 OIDC 签发身份；缺 id-token: write 时 --provenance 步骤会拿不到凭据
+    if (!/id-token:\s*write/.test(text)) findings.push(`${rel}: Release 缺少 id-token: write（--provenance 需要 OIDC）`);
+    // ⑫ 发布是原子动作：被新 push 取消会留下半发布状态（tag 已建、附件/registry 未完成）
+    if (!/cancel-in-progress:\s*false/.test(text)) findings.push(`${rel}: Release 的 concurrency 必须 cancel-in-progress: false`);
   }
 }
 

@@ -1,5 +1,6 @@
 ---
 name: dsh-plugin-patterns
+version: 0.1.1
 whenToUse: >
    在 dsh-anic（或任何 DSH 插件）里需要设计工具注册面、写 client 半部 UI、处理生命周期
    拆卸、防御式错误处理、分层持久化与可观测性时使用。沉淀自 dsh-ops v0.4.4 与

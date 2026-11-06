@@ -17,6 +17,13 @@ import { createScoped, newRequestId } from '../logger.ts';
 import { loadFlowTracker } from '../runtime/flowTracker.ts';
 import { analyzeSkillHealth } from '../runtime/continuousLearning.ts';
 import { persistHealthSuggestionsAsDebt } from '../evolution/healthDebtBridge.ts';
+// cycle-109：runtime 技能的**可见性**读数（注册 ≠ 模型可见，见 skillRegistration.ts 文件头）。
+// ★必须经 wire 投影：直发 readout 会把 {last:{…}} 的嵌套形状给客户端（沙箱实测缺陷）。
+import { buildSkillVisibilityReadout, toSkillVisibilityWire } from '../runtime/skillVisibilityState.ts';
+// cycle-109：**内部技能库**对账读数（assets/skills 此前零消费，见 skillLibrary.ts 文件头）。
+// ★同理必须经 wire 投影：直发 readout 给的是数组，客户端要的是计数。
+import { readSkillLibraryCached } from '../runtime/skillLibrary.ts';
+import { toSkillLibraryWire } from '../runtime/skillLibraryWire.ts';
 
 const log = createScoped('anic:route:skill-health');
 export const SKILL_HEALTH_ROUTE = '/anic/skill/health';
@@ -60,6 +67,13 @@ export function registerSkillHealthRoute(
       const reportJson = {
         ...report,
         scripts: report.scripts.map((s) => ({ ...s, recentSuccessRate: s.recentSuccessRate === undefined ? null : s.recentSuccessRate })),
+        // cycle-109：回答「本插件的 runtime 技能现在**模型可见吗**」（三态，不是布尔）。
+        // 与 scripts 健康度是**两个面**：前者是官方技能注册面的可见性（project 层同名
+        // 可静默压制），后者是本插件脚本调用面的成功率。合并会让两种失败原因混淆。
+        runtimeSkill: toSkillVisibilityWire(buildSkillVisibilityReadout()),
+        // cycle-109：内部技能库（1 主干 + 9 叶 + 1 元）注册表 ⇄ 磁盘对账。
+        // 它是**包内资产**的读数，与工作区 .cycles 无关，故不需要 rootDir。
+        library: toSkillLibraryWire(readSkillLibraryCached()),
       };
       // cycle-55（T-5501）：健康建议落 tech-debt 提案（写面合流——改进建议
       // 从「看完即散」变工作队列承载）。同日幂等：重复轮询不堆重复提案；

@@ -38,6 +38,10 @@ export interface StageInput {
   tooltip: TooltipState | null;
   /** 悬停/聚焦节点的 id（null = 无）。 */
   focusId: string | null;
+  /** 钉住的节点（cycle-109 · U1；null = 未钉住）。 */
+  pinnedId: string | null;
+  /** 整个选中集（cycle-109 · U3；空数组 = 未多选）。 */
+  selectedIds: readonly string[];
   onFocusNode: (id: string | null) => void;
   /** 小地图点击（**局部坐标**，未换算成世界坐标）。 */
   onMinimapClick: ((local: { x: number; y: number }) => void) | undefined;
@@ -94,7 +98,7 @@ export function nodeIdFromTarget(
 
 export function renderStage(input: StageInput): ReactElement {
   const {
-    graph, tooltip, focusId, onFocusNode, onMinimapClick, minimapOrigin, dragging, onKeyDown,
+    graph, tooltip, focusId, pinnedId, selectedIds, onFocusNode, onMinimapClick, minimapOrigin, dragging, onKeyDown,
     onBackgroundDoubleClick,
   } = input;
   return createElement(
@@ -145,5 +149,19 @@ export function renderStage(input: StageInput): ReactElement {
       'data-anic-graph-focus': focusId ?? 'none',
       className: 'anic-sr-only',
     }, focusId ?? ''),
+    /*
+     * 选区集合进 DOM（cycle-109 · U1/U3）：钉住与多选都是**异步点击**的结果，
+     * 而它们的视觉（描边加粗 / 高亮环）是 AT 读不到的通道。集合级读数必须有一个
+     * 可断言的落点——否则"点了两下选中两个"只能靠肉眼看，契约无处落地。
+     * 挂在舞台（而非 svg）里：svg 的子树只放图元，任何额外元素都会撞
+     * 「单 svg + 每节点固定元素数」这条既有不变量。
+     */
+    createElement('span', {
+      key: 'selection-flag',
+      'data-anic-graph-pinned': pinnedId ?? 'none',
+      'data-anic-graph-selected': selectedIds.join(' '),
+      'data-anic-graph-selected-count': String(selectedIds.length),
+      className: 'anic-sr-only',
+    }, selectedIds.join(' ')),
   );
 }

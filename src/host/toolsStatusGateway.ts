@@ -9,6 +9,10 @@ import { makeToolOutput } from './toolsSlot.ts';
 import { inlineSkillRoot } from './skillInvoker.ts';
 import { skillIntegritySummary } from './skillIntegrity.ts';
 import { readConvergeOutcome } from './skillConverge.ts';
+// cycle-109：两个此前**零出口**的读数（技能可见性 / 内部技能库对账）。
+import { buildSkillVisibilityReadout } from './runtime/skillVisibilityState.ts';
+import { readSkillLibraryCached } from './runtime/skillLibrary.ts';
+import { summarizeSkillLibrary } from './runtime/skillLibrary.ts';
 import { loadFlowTracker, recentFlows, flowStats } from './runtime/flowTracker.ts';
 import { projectFlowTrackerView, renderFlowViewMarker, projectStatusDistribution } from './flowTrackerProjection.ts';
 import { analyzeSkillHealth, formatHealthSummary } from './runtime/continuousLearning.ts';
@@ -76,6 +80,16 @@ export function registerStatusTool(
         const skillConverge = existsSync(join(root, '.cycles'))
           ? readConvergeOutcome(join(root, '.cycles'))
           : null;
+        /*
+         * cycle-109：技能面的两个**新事实类别**（此前 LLM 面完全看不到）：
+         *   - runtimeSkill：本插件 runtime 技能**是否真的模型可见**（三态，不是布尔）；
+         *   - skillLibrary：内部技能库（1 主干 + 9 叶 + 1 元）注册表 ⇄ 磁盘对账。
+         * 为什么放进 anic_status 而不是只放 HTTP 路由：LLM 是最需要这两条事实的消费者
+         * （它要决定「该不该信这个技能」「库里有没有对应操作知识」），而 LLM 读不到
+         * 面板。只给字符串/小对象，不给明细数组 —— 状态面要省 token。
+         */
+        const runtimeSkill = buildSkillVisibilityReadout();
+        const library = readSkillLibraryCached();
         return {
           statusUrl: `/anic/org-status?workspace=${encodeURIComponent(root)}`,
           desktopNote: 'URL routes are served by the dsh web host; desktop (Electron) reaches them via the dsh-app:// IPC bridge.',
@@ -83,6 +97,20 @@ export function registerStatusTool(
           flowView, flowMarker, flowDistribution,
           flows, flowStats: stats,
           health, healthSummary, skillIntegrity, skillConverge,
+          runtimeSkill: {
+            name: runtimeSkill.last?.name ?? null,
+            state: runtimeSkill.last?.state ?? 'unknown',
+            reason: runtimeSkill.last?.reason ?? 'visibility not read back yet',
+            skillsChangeEmits: runtimeSkill.skillsChangeEmits,
+          },
+          skillLibrary: {
+            ok: library.ok,
+            version: library.version,
+            updatedAt: library.updatedAt,
+            skills: library.skills.length,
+            issues: library.issues.length,
+            summary: summarizeSkillLibrary(library),
+          },
         };
       },
     }) ?? null,

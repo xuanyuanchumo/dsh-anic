@@ -61,13 +61,15 @@ export function resolvePluginRoot(startUrl?: string): string {
 }
 
 /**
- * 插件 assets 子目录（assets/skill、assets/agents）。
+ * 插件 assets 子目录（assets/skill、assets/skills、assets/agents、assets/index）。
  *
- * @param asset 'skill' | 'agents' | 'index'
+ * @param asset 'skill' | 'skills' | 'agents' | 'index'
+ *   - `skill`  = 主干技能（ai-native-iteration-cycle，经 ctx.skills.register 暴露）
+ *   - `skills` = **内部技能库**（1 主干 + 9 叶 + 1 元技能；cycle-109 起可被读数消费）
  * @returns 目录绝对路径；根未解析时返回 ''（与旧 defaultAgentCardsDir 缺省语义一致：
  *   调用方以 falsy 跳过注册）
  */
-export function pluginAssetDir(asset: 'skill' | 'agents' | 'index', startUrl?: string): string {
+export function pluginAssetDir(asset: 'skill' | 'skills' | 'agents' | 'index', startUrl?: string): string {
   const root = resolvePluginRoot(startUrl);
   return root ? join(root, 'assets', asset) : '';
 }

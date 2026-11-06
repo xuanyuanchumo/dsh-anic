@@ -49,6 +49,10 @@ import { renderGraphExtras, focusBlastOf } from './graphExtras.ts';
 // cycle-99：时间轴回放（hook 状态壳 + 纯函数可见集）。
 import { buildTimeline, composeWithTimeline, visibleSetAtStep } from './graphTimeline.ts';
 import { useGraphTimeline } from './useGraphTimeline.ts';
+// cycle-109（U1/U3）：选中集动作与对比矩阵（纯函数，本层只接线）。
+import { compareMatrixOf } from './graphCompare.ts';
+import type { ModKeyState } from './graphSelection.ts';
+import type { GraphSelection } from './useGraphSelection.ts';
 
 /** 组合层的入参（组件提供全部状态；本层不持有它们）。 */
 export interface GraphInteractionInput {
@@ -67,6 +71,15 @@ export interface GraphInteractionInput {
   onViewportChange: (next: Viewport) => void;
   /** 面板原生的节点点击（路径模式下会被改写，见文件头）。 */
   onNodeClick: ((node: WorkflowNode) => void) | undefined;
+  /**
+   * 选区（cycle-109 · U1/U3）：钉住 + 选中集 + 点击动作，整块透传。
+   *
+   * 为什么是**一个对象**而不是三个字段：三处消费面（点击改写 / 对比矩阵 / 读数条）
+   * 用的都是同一份选区，拆成三个字段就要在组件里逐个转发（而组件贴着 250 行硬限）。
+   * 为什么放本层裁决"点击要不要顺便选中"：路径模式下点击 = 设端点，不该顺带改
+   * 选区——这个判断只有本层同时看得到模式与选区。
+   */
+  selection: GraphSelection;
   /** 拖拽越界时不触发点击（手势层提供）。 */
   hasMoved: () => boolean;
   /** 邻接高亮开关（决定 focusId 是否参与 highlight）。 */
@@ -85,8 +98,8 @@ export interface GraphInteraction {
   filterView: FilterView;
   /** 时间轴回放（cycle-99；steps 空 = 无链，控件不渲染）。 */
   timeline: ReturnType<typeof useGraphTimeline>;
-  /** 改写后的节点点击（路径模式 → 设端点；否则 → 原回调）。 */
-  nodeClick: ((node: WorkflowNode) => void) | undefined;
+  /** 改写后的节点点击（路径模式 → 设端点；否则 → 选中 + 原回调）。恒存在。 */
+  nodeClick: (node: WorkflowNode, mods?: ModKeyState) => void;
   /** 两条读数条（未启用时 null ⇒ 零占位）。 */
   extras: ReactElement[] | null;
   /** 节点角色计数（工具栏角色图例的读数）。 */
@@ -158,26 +171,40 @@ export function useGraphInteraction(input: GraphInteractionInput): GraphInteract
   });
 
   // ── 点击改写（路径模式优先，见文件头裁决）────────────────────
-  const nodeClick = input.onNodeClick === undefined && !path.model.active
-    ? undefined
-    : (node: WorkflowNode): void => {
-        if (input.hasMoved()) return; // 拖拽越界不算点击（与装配层同一判据）
-        if (path.model.active) { path.pick(node.id); return; }
-        input.onNodeClick?.(node);
-      };
+  /*
+   * 恒存在：点击的第一件事是"选中"（pin），它不依赖面板是否传了 onNodeClick。
+   * 改造前这里在没有回调时返回 undefined ⇒ 节点连 role=button 都没有，
+   * "点一下钉住"对"面板没接详情抽屉"的挂载形态直接不存在。
+   */
+  const nodeClick = (node: WorkflowNode, mods?: ModKeyState): void => {
+    if (input.hasMoved()) return; // 拖拽越界不算点击（与装配层同一判据）
+    // 路径模式里点击是"设端点"：此时**不**动选区（否则每选一个端点都会顺便
+    // 钉住它，钉住描边会盖住路径高亮，用户看到的颜色说不清是谁给的）。
+    if (path.model.active) { path.pick(node.id); return; }
+    input.selection.onNodeSelect(node.id, mods);
+    input.onNodeClick?.(node);
+  };
 
   // ── 读数条 ──────────────────────────────────────────────────
   const blast = focusBlastOf(traceAdjacency, input.focusId);
+  // cycle-109（U3）：选中集 ≥2 才算矩阵（单列对比只是噪声——零占位）。
+  const compare = input.selection.ids.length < 2
+    ? null
+    : compareMatrixOf({
+        ids: input.selection.ids, nodes, verdicts: input.verdicts,
+        adjacency: traceAdjacency, roles: roleHit.roles,
+      });
   const extras = renderGraphExtras({
     path: path.model, focusId: input.focusId, blast, onPathExit: path.exit,
     timeline: {
       steps: timelineSteps, index: timeline.index, playing: timeline.playing,
       onSeek: timeline.seek, onTogglePlay: timeline.togglePlay, onExit: timeline.exit,
     },
+    compare,
   });
 
   return {
-    view, path, filterView, nodeClick: nodeClick ?? undefined, extras, roleStats, timeline,
+    view, path, filterView, nodeClick, extras, roleStats, timeline,
     // cycle-100：角色筛选维——roles 键在 filter 上时启用（旧字面量无该键 ⇒ undefined
     // ⇒ 图例保持纯展示，零行为变化）。
     activeRoles: input.filter.roles,

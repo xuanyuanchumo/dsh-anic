@@ -3,6 +3,30 @@
 本文件记录 `assets/skills/superagent-patterns/` 叶技能的变更。版本锚点三处一致：
 `SKILL.md` frontmatter、`scripts/<primary>.mjs` 版本串、本文件顶层条目。
 
+## v0.1.1 — 2026-11-06（cycle-108：仅注册表/版本锚口径修正，无内容变更）
+
+> 本轮对 `superagent-patterns` **未发现已被证实的知识缺口**，按纪律「不为凑字数扩写」，
+> 正文一行未改。只做两件机械一致性动作：
+
+### 变更
+
+- `skills.index.json`：补显式 `dir: "superagent-patterns"`（此前 9 条叶技能全缺 `dir`，
+  任何「按注册表遍历」的工具只能看到 1 个技能，其余 8 条在机器面等于不存在）。
+- `SKILL.md`：frontmatter 补 `version: 0.1.1`——此前 SKILL.md **不声明版本**，导致
+  `skill-lib-manifest.mjs` 的 `anchor:version` 与 `skill-lib-drift.mjs` 的版本锚守卫
+  **无处可比**（形同休眠）。补上后，注册表版本与 SKILL.md 版本由脚本机械比对。
+
+### 依据（可复验）
+
+```sh
+node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-manifest.mjs . --check
+node assets/skills/_meta/skill-library-evolution/scripts/skill-lib-drift.mjs . --check
+```
+
+### 安全
+
+- 无令牌操作。
+
 ## v0.1.0 — 2026-11-05
 
 **新增**：从零创建 `superagent-patterns` 叶技能（`assets/skills/superagent-patterns/`）。

@@ -26,6 +26,7 @@
 | [UI功能域与界面组件规划.md](UI功能域与界面组件规划.md) | 14 分区现状矩阵、数据面演进（ETag/304/可见性暂停/store 化 §2.4）、组件层清单（panelStore/panelSections）、缺口排期、设计令牌约束 | 新增/修改面板分区、规划 UI 工作、判断某分区该接哪个数据源时 |
 | [工程脚本与场地自洽.md](工程脚本与场地自洽.md) | scripts/ 域 5 个开发脚本的职责与解析序（快照生成/测试宿主启动/J0 探针/同步拷贝）、cycle-43 场地自洽化裁决（默认数据源=本仓 .cycles/）、init-cycle ↔ workflow-state 联动契约（T-4302 根因与防御线） | 改 scripts/ 默认值、排查快照数据来源、理解技能状态机如何跟循环对齐时 |
 | [CI-CD与发布流程.md](CI-CD与发布流程.md) | 分支策略、commit/tag 规范、ci.yml 四层检查项与两步播种（coverage + init-cycle，自审计契约的显式前置）、release.yml 发布链（tag/CHANGELOG 校验→tarball→可选 npm）、npm 手动发布核对单、marketplace 收录要求、回滚手册、Windows git 网络实测 | 推 master、打 tag 发版、配 CI、提 marketplace PR、网络被重置时 |
+| [运行时注册取证与技能库消费.md](运行时注册取证与技能库消费.md) | **宿主侧取证**（`schemas(agent)` 三态裁决 `verified/partial/unverified`、A0″ 白盒来源、接线顺序与三条纪律）· **技能可见性三态**（注册≠可见、`invocation` 缺键不传、`skills/change` 计数）· **内部技能库从零引用到被读**（六种 issue、首跑抓到的 9 条缺 `dir` 注册表缺陷）· 三条验证命令与未验证项 | 改披露/技能注册、排查「注册了但没激活」、判断技能库是否完整、新增读数出口时 |
 
 ## 三条必读前提
 

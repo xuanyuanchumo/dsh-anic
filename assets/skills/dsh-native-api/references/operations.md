@@ -12,8 +12,8 @@
 | manifest 键 | `dsh.manifestVersion: 1`、`dsh.bundle.patch`、`dsh.client` | `package.json:78-90` |
 | bundle patch 文件 | `./cordis.patch.yml`（13 行，单条 `insert` + `!!js` 防双挂载） | `package.json:81`；`cordis.patch.yml:10-13` |
 | client 注入 | `@deepseek-ai/dsh-client-ui-conversation`、`@deepseek-ai/dsh-client-locale` | `package.json:84-89` |
-| engines.dsh | `>=0.2.0-rc.2 <0.4.0-0` | `package.json:49` |
-| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:51-59` |
+| engines.dsh | `>=0.2.0-rc.2 <0.3.0-0 \|\| >=0.3.0-rc.1 <0.4.0-0`（两段显式） | `package.json:59` |
+| peer | `@deepseek-ai/cordis ^4.0.1`；`@deepseek-ai/dsh` optional | `package.json:61-64` |
 | inject | `['tools','sessions','skills']`（webServer 已移交子 fiber） | `src/index.ts:125` |
 | deferLoading 契约 | `src/host/toolsSlot.ts:152` 声明；当前工具都不带 | `src/host/toolsSlot.ts:140-152`；`tests/contract/nativeDeferLoadingContract.test.ts:34-39` |
 
@@ -104,9 +104,9 @@ dsh plugin --profile demo add ./hello-plugin
 
 证据：`kb/publish.md:69`；`kb/extra/upgrade-guide/v0.2.1-alpha.3/plugin-engines-dsh/guide.zh.md:12-21`。
 
-本仓现状：`engines.dsh: ">=0.2.0-rc.2 <0.4.0-0"`，peer `@deepseek-ai/dsh` optional
-（`package.json:47-59`）。差距：上界 `<0.4.0-0` 在新规则下会被严格执行，可能阻塞后续 DSH——
-逐版本核对上界，建立 0.2.x→0.3.x 升级 checklist（`B-dsh-native-api-baseline.md` §2.1、§3 P-N9）。
+本仓现状：`engines.dsh: ">=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0"`（两段显式），peer `@deepseek-ai/dsh` optional
+（`package.json:59,61-64`）。差距：上界 `<0.4.0-0` 在新规则下会被严格执行，可能阻塞后续 DSH——逐版本核对上界，建立
+0.2.x→0.3.x 升级 checklist（`B-dsh-native-api-baseline.md` §2.1、§3 P-N9）。
 
 ## 5. git 安装：prepare + allowBuilds（R06）
 

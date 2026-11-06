@@ -3,6 +3,46 @@
 本文件记录 `assets/skills/token-ssh-security/` 叶技能的变更。版本锚点三处一致：
 `SKILL.md` frontmatter、`scripts/<primary>.mjs` 版本串、本文件顶层条目。
 
+## v0.1.1 — 2026-11-06（cycle-108：补令牌→env 映射表两条硬边界 + `.env` 裸奔确证）
+
+> 起点：v0.1.0（cycle-105）。本轮补的是**实测出来的机制缺口**，不是措辞修订。
+
+### 新增
+
+- **令牌 ↔ 环境变量映射表（`SKILL.md`「DSH 凭证库」节）**：凭证库现役 **三个**令牌
+  （`github` / `npm` / `gitee`，`vault_list` 只回名称），逐个写清默认注入的 env 与复验命令。
+- **两条硬边界**：
+  1. **`gitee` 没有默认 env 映射**——`vault_run` 只自动映射 `github→GH_TOKEN`、`npm→NPM_TOKEN`。
+     用 Gitee 令牌必须显式 `env_name: 'GITEE_TOKEN'`，否则子进程拿不到令牌而报 401，
+     **且不会提示"映射缺失"**（这是静默失败面）。
+  2. **命令白名单只有 `gh`/`npm`/`npx`/`node`/`git`** ⇒ 不能用 `vault_run` 跑 `curl` 打 Gitee API。
+     Gitee 侧要么走 MCP 连接器（账号态已实测），要么用 `node` 脚本读 `process.env.GITEE_TOKEN`。
+     附反例：`vault_run(... command:'curl')` 被拒是白名单问题、不是令牌问题。
+- **`.env` 裸奔确证**：原句是"建议补一行 `.env`"，本轮把它变成实测结论——`.gitignore` 共 21 行、
+  `grep '.env'` **零命中**（只有 `.npmrc-publish` 命中"npmrc"）⇒ 现在没 `.env` 文件所以无风险，
+  **一旦引入就裸奔**；给出复验命令与补法，并标注 `.gitignore` 属其他写域（人工门）。
+
+### 变更
+
+- `SKILL.md`：frontmatter 补 `version: 0.1.1`（激活此前休眠的 `anchor:version` 锚）；
+  R02 由「github/npm 两个」改为「现役三个 + 见映射表」。
+- `skills.index.json`：补显式 `dir` 字段。
+
+### 依据（可复验）
+
+```sh
+vault_list                                                    # 只回名称：gitee / github / npm
+Select-String -Path .gitignore -Pattern '\.env'                # 零命中
+(Get-Content .gitignore).Count                                 # 21
+git ls-files .npmrc .npmrc-publish                             # 只有 .npmrc 被跟踪
+vault_run(name:'github', command:'gh', args:['run','list','-R','xuanyuanchumo/dsh-anic'])   # 映射可用实证
+```
+
+### 安全
+
+- 未 `vault_show` 任何令牌、未打印任何令牌值；表中只有**名称**与 env 变量名。
+- 未修改 `.gitignore`（属其他写域）；只记录缺口与补法。
+
 ## v0.1.0 — 2026-11-05
 
 **新增**：从零创建 `token-ssh-security` 叶技能（`assets/skills/token-ssh-security/`）。

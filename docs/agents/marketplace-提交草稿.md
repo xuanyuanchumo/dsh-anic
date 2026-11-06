@@ -1,8 +1,20 @@
-# awesome-dsh-plugin 收录条目（cycle-108 校准版）
+# awesome-dsh-plugin 收录条目（cycle-109 校准版）
 
 > 本文件是**投稿素材与状态记录**。PR 已提交：**#12071**
-> （`state: OPEN` / `mergeable_state: clean` / Submission gate `success @2026-11-06T00:58:55Z`）。
+> （`state: OPEN` / `mergeable: MERGEABLE` / `mergeStateStatus: CLEAN` / `changedFiles: 1`；
+> cycle-109 实取复核：`gh pr view 12071`）。
 > 规则来源：`awesome-dsh-plugin/awesome-dsh-plugin` 的 `contributing.md`（cycle-108 实取原文核对）。
+
+## 0. cycle-109 复核结论（数字未变）
+
+| 项 | 状态 |
+|---|---|
+| PR #12071 | OPEN / CLEAN / 1 file（**无需改动**——工具数 24 与路由数 77 本轮均未变） |
+| npm `dsh-anic@latest` | 0.58.0 → 本轮发 0.59.0 后需复核（见 §6 用户动作项） |
+| 条目描述里的 24/77 | 仍与源码一致（`tests/contract/readmeNumbers.test.ts` 机器复算） |
+
+本轮新增能力**不改变**条目里的数字契约：`disclosureVerdict` / `skillVisibility` /
+`skillLibrary` 三个读数是**既有路由与既有工具的字段扩展**，没有新增工具或路由。
 
 ## 1. 提交方式
 

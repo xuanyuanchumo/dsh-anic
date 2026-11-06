@@ -66,6 +66,29 @@ export function findPath(
   to: string,
   maxHops = MAX_PATH_HOPS,
 ): PathResult {
+  return findPathAvoiding(adjacency, from, to, maxHops, EMPTY_BLOCKED);
+}
+
+/** 空屏蔽集（模块级常量：`findPath` 每次调用不新造一个 Set）。 */
+const EMPTY_BLOCKED: ReadonlySet<string> = new Set<string>();
+
+/**
+ * 双向 BFS，但**绕开**给定节点集（候选路径的第二/三条靠它算）。
+ *
+ * 为什么把实现放在这里、让 `findPath` 当薄包装：`findPath` 已有 20 条单测钉着
+ * 四种边界（不可达 / 超上限 / 空 id / from===to）。若为候选路径再写一份 BFS，
+ * 两份迟早漂移——而漂移的表现是"第一条路径对、第二条路径莫名少一跳"，这种
+ * 差异在任何截图里都看不出来。单一实现 + 一个屏蔽参数，漂移面为零。
+ *
+ * @param blocked 屏蔽节点（**不得**包含 from / to：那是端点，屏蔽了就无解）
+ */
+export function findPathAvoiding(
+  adjacency: TraceAdjacency,
+  from: string,
+  to: string,
+  maxHops = MAX_PATH_HOPS,
+  blocked: ReadonlySet<string> = EMPTY_BLOCKED,
+): PathResult {
   if (typeof from !== 'string' || typeof to !== 'string' || from === '' || to === '') {
     return notFound('empty id');
   }
@@ -91,6 +114,7 @@ export function findPath(
       const next: string[] = [];
       for (const id of fwdFrontier) {
         for (const nb of adjacency.forward.get(id) ?? []) {
+          if (blocked.has(nb)) continue;
           if (fwdPrev.has(nb)) continue;
           fwdPrev.set(nb, id);
           // 相遇：反向已从这个点出发过 ⇒ 两侧路径可缝合（首遇即最短）。
@@ -104,6 +128,7 @@ export function findPath(
       const next: string[] = [];
       for (const id of bwdFrontier) {
         for (const nb of adjacency.reverse.get(id) ?? []) {
+          if (blocked.has(nb)) continue;
           if (bwdPrev.has(nb)) continue;
           bwdPrev.set(nb, id);
           if (fwdPrev.has(nb)) return finish(nb, limit, fwdPrev, bwdPrev);
@@ -158,4 +183,43 @@ function assemble(
   const head = chainOf(fwdPrev, meet).reverse();
   const tail = chainOf(bwdPrev, meet).slice(1);
   return head.concat(tail);
+}
+
+/**
+ * 前 k 条**互不相同**的候选路径（cycle-109 · U4 ③）。
+ *
+ * ## 为什么是"屏蔽首条路径的中间节点再求一次"
+ *
+ * 真实图里等价路径常见（同一对端点有 2–3 条不同中继）。只给一条时，用户无法判断
+ * 「为什么偏选这条」——而"最短"在有向图里常有多解。做法是**绕开**已得路径的
+ * 中间节点重求（首尾不能屏蔽，它们是端点）：这样第 2 条一定与第 1 条占用不同的
+ * 中继，也就一定不同。k 上限 3 是产品裁决（面板上再多也读不动）。
+ *
+ * ## 三条边界（都写死）
+ *
+ *   前一条都没有 → 空数组（不是"一条 found:false"：调用方要知道"没候选"）
+ *   算不出新路径   → 提前停（不为了凑 k 条给重复路径）
+ *   `k = 1`       → 与 `findPath` **逐字段相等**（同一条实现路径，见该文件头）
+ */
+export function findPathCandidates(
+  adjacency: TraceAdjacency,
+  from: string,
+  to: string,
+  k = 3,
+  maxHops = MAX_PATH_HOPS,
+): PathResult[] {
+  const limit = Math.max(1, Math.min(3, Math.floor(k)));
+  const blocked = new Set<string>();
+  const out: PathResult[] = [];
+  for (let i = 0; i < limit; i += 1) {
+    const r = findPathAvoiding(adjacency, from, to, maxHops, blocked);
+    if (!r.found) break;
+    // 与已收结果同路径 ⇒ 再算下去只会重复（零跳 / 无中间节点时必然发生）。
+    if (out.some((o) => o.path.join('>') === r.path.join('>'))) break;
+    out.push(r);
+    // 屏蔽本条路径的中间节点后重求；没有中间节点 ⇒ 不可能再变出新路径。
+    for (const id of r.path.slice(1, -1)) blocked.add(id);
+    if (blocked.size === 0) break;
+  }
+  return out;
 }

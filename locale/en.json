@@ -296,7 +296,15 @@
     "levelUnused": "Unused",
     "recentVsOverall": "Recent success {recent} · overall {overall}",
     "noRecentData": "No gateway calls in the last 7 days; current state undetermined (showing all-time value)",
-    "lastInvoked": "Last invoked: {at}"
+    "lastInvoked": "Last invoked: {at}",
+    "runtimeSkillLabel": "Runtime skill",
+    "runtimeSkillActive": "visible to model",
+    "runtimeSkillAbsent": "not visible (possibly shadowed by a same-name skill)",
+    "runtimeSkillUnknown": "undetermined (incomplete observation)",
+    "libraryLabel": "Internal skill library",
+    "librarySummary": "v{version} · {skills} skills · {issues} issues",
+    "libraryOk": "registry matches disk",
+    "skillsChangeEmits": "catalog changed {count} time(s)"
   },
   "budget": {
     "title": "Governance budget (.cycles/ workspace)",
@@ -499,7 +507,6 @@
     "edgeLegendHint": "Line style key for the six edge semantics (same source as the graph)",
     "nodeRoleLabel": "Node roles",
     "pathFind": "Find path",
-    "pathFindPlaceholder": "From… to… (label or id)",
     "pathFindHint": "Enter two nodes (separated by → or a comma) to find the shortest path",
     "pathFindNoPath": "No path between those nodes",
     "pathFindResult": "Path of {hops} hop(s): {path}",
@@ -516,7 +523,9 @@
     "pathPickStart": "Pick a start node: press Enter on a node",
     "pathPickEnd": "Pick an end node: select another node",
     "pathExit": "Exit path mode",
-    "pathFindTooLong": "Path exceeds {hops}-hop limit (may be farther)"
+    "pathFindTooLong": "Path exceeds {hops}-hop limit (may be farther)",
+    "pathReverseOnly": "Reverse reachable only: {hops} hop(s) (swap the two endpoints)",
+    "compareLimit": "Up to {max} to compare (extra picks are not added)"
   },
   "config": {
     "title": "Configuration & Paths",

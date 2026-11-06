@@ -80,7 +80,15 @@ export const VERDICT_SHAPE: Record<string, { dash: string | undefined; glyph: st
 
 /* ── 卡片几何（世界坐标，相对卡片左缘 / 垂直中心）────────────────── */
 
-export const CARD_RADIUS = 6;
+/**
+ * 卡片圆角。
+ *
+ * cycle-109（视觉现代化）7px：卡片高 34–46px，6px 时圆角只占 13–18%，读起来仍像
+ * 「切了角的长方框」；7px 是"卡片"与"方框"的临界档，且不会吃掉左侧 3px 类型色条
+ * （色条是独立 rect，圆角在它右侧起效）。几何量不影响布局（`graphLayout` 只算
+ * x/y/w/h），所以这条改动**不碰任何不变量**。
+ */
+export const CARD_RADIUS = 7;
 /** 左侧类型色条宽 3px（非文本角色：3.3 阈值）。 */
 export const BAR_W = 3;
 /** 色条上下内缩：贴满整高会在圆角处露尖。 */
@@ -96,7 +104,13 @@ export const LABEL_PAD = 8;
 /** 主标签字号：见文件头「标签宽度预算」。 */
 export const LABEL_PX = 10.5;
 /** 次标签字号。 */
-export const META_PX = 8.6;
+/*
+ * cycle-109（视觉现代化）：8.6 → 9.0。次标签是「类型 · 裁决 · 测试摘要」三条信息
+ * 的载体，8.6px 在 1080p 缩放下实测只有 7 个物理像素高（笔画粘连），9.0px 是
+ * 等宽字体在非 Retina 屏上仍可辨的最小档。宽度预算由 `fitLabel` 动态收敛，
+ * 所以抬字号不会导致标签越界（只是截断更早一点）。
+ */
+export const META_PX = 9;
 /** 主标签**绝对**上限（即使卡片够宽也不超过 22 字，防超长 label 吃掉整个卡片）。 */
 export const LABEL_MAX = 22;
 

@@ -31,7 +31,8 @@ import { wireRoutes } from './host/anicRoutesPlugin.ts';
 import { registerAnicTools } from './host/tools.ts';
 import { createInvocationFeed, attachInvocationFeed } from './host/runtime/invocationFeed.ts';
 import { createInvocationAttributor } from './host/runtime/invocationAttribution.ts';
-import { registerRuntimeSkill } from './host/skillRegistration.ts';
+import { registerRuntimeSkill, verifyRuntimeSkillVisibility, wireSkillsChange } from './host/skillRegistration.ts';
+import { recordSkillVisibility } from './host/runtime/skillVisibilityState.ts';
 import { convergeSkill, describeConverge, persistConvergeOutcome } from './host/skillConverge.ts';
 import { registerBuiltinFlows } from './host/flows/builtin.ts';
 import { wireToolDisclosureFromConfig } from './host/toolDisclosureWiringRuntime.ts';
@@ -137,7 +138,21 @@ export function apply(ctx: unknown): void {
   if (typeof c.effect === 'function') {
     // runtime 技能注册（静态 inject 保证 skills 已就绪；stub 宿主无 skills 时
     // registerRuntimeSkill 内部探测跳过，返回 null 即无需清理）。
-    c.effect(() => registerRuntimeSkill(ctx) ?? undefined, 'dsh-anic: runtime skill (ctx.skills.register)');
+    // cycle-109：注册 → 订阅 skills/change → **回读可见性**（三者都是旁路，
+    // 回读失败只 warn，绝不改变注册结果）。
+    c.effect(() => {
+      const d = registerRuntimeSkill(ctx);
+      wireSkillsChange(ctx);
+      // 回读结论必须**落到可读状态**（不是只进日志）：`GET /anic/skill/health`
+      // 的 runtimeSkill 段直接消费它。
+      void verifyRuntimeSkillVisibility(ctx)
+        .then((r) => { if (r !== null) recordSkillVisibility(r); })
+        .catch((e: unknown) => {
+          convergeLog.warn('skill visibility readback failed (registration unaffected): '
+            + (e instanceof Error ? e.message : String(e)));
+        });
+      return d ?? undefined;
+    }, 'dsh-anic: runtime skill (ctx.skills.register + visibility readback)');
     // cycle-74 P0 修复：路由走**独立子 fiber**（只有它声明 inject webServer）。
     c.effect(() => wireRoutes(ctx, { invocationFeed: feed }) ?? undefined, 'dsh-anic: routes (child fiber, webServer-scoped)');
     c.effect(() => registerAnicTools(ctx), 'dsh-anic: tools (anic_evaluate/iterate/gate_check/bootstrap/snapshot/self_check)');
@@ -151,6 +166,10 @@ export function apply(ctx: unknown): void {
     c.effect(() => { runSkillConverge(ctx); }, 'dsh-anic: skill convergence (verify → repair drifted live copy)');
   } else {
     registerRuntimeSkill(ctx);
+    wireSkillsChange(ctx);
+    void verifyRuntimeSkillVisibility(ctx)
+      .then((r) => { if (r !== null) recordSkillVisibility(r); })
+      .catch(() => { /* 回读是旁路，失败不冒泡 */ });
     wireRoutes(ctx, { invocationFeed: feed });
     registerAnicTools(ctx);
     registerBuiltinFlows();

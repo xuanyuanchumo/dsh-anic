@@ -142,9 +142,32 @@ describe('③ 读数（status / length / highlight / blast）', () => {
     expect(model.result?.reason).toBe('unreachable');
   });
 
-  it('反向方向不可达（d 走不到 a）→ unreachable（有向可达，不是无向连通）', () => {
+  /*
+   * cycle-109（U4 ③）语义升级：d → a **正向**不可达，而 a → b → c → d 是通的。
+   *
+   * 旧断言把它记成 `unreachable` —— 那是把"方向反了"与"真的不连通"揉成一态。
+   * 两种结论的补救动作完全不同：前者该**把端点对调**，后者该换节点。
+   * 所以这一条改为 `reverseOnly`，并由下一条"两向都不通仍必须是 unreachable"
+   * 守住反向自检：若实现写成"只要正向不通就 reverseOnly"，下一条必红。
+   */
+  it('正向不通但反向可达 → reverseOnly（有向可达，不是无向连通）', () => {
     const model = pathModelOf({ active: true, from: 'd', to: 'a' }, ADJ);
+    expect(model.status).toBe('reverseOnly');
+    // 高亮按**用户选的** from → to 方向给出（翻转过的反链，不是原始的 a→…→d 顺序）。
+    expect(model.result?.path).toEqual(['d', 'c', 'b', 'a']);
+    expect(model.length).toBe(3);
+    expect([...model.highlight]).toEqual(['d', 'c', 'b', 'a']);
+    // 反向自检：反向通 ≠ 正向通 —— 状态绝不能塌成 found。
+    expect(model.status).not.toBe('found');
+  });
+
+  it('两向都不通 → unreachable（若把 reverseOnly 写成"正向不通就 reverseOnly"，这条会红）', () => {
+    // z 是孤立节点：z → a 不通，反向 a → … → z 同样不通。
+    const model = pathModelOf({ active: true, from: 'z', to: 'a' }, ADJ);
     expect(model.status).toBe('unreachable');
+    expect(model.result?.found).toBe(false);
+    // 没有候选路径：reverseOnly 只允许在"反向真的找到"时出现。
+    expect(model.candidates).toEqual([]);
   });
 
   it('超跳数上限 → tooLong（**不是** unreachable：路径可能存在，只是超预算）', () => {

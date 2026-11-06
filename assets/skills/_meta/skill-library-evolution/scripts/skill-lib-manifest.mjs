@@ -9,9 +9,11 @@
 //
 // 三锚一致（E1）：SKILL.md / scripts/<primary>.mjs / CHANGELOG.md / skills.index.json
 // 四处版本必须一致。找不齐即报错——守卫必须能失败（E2）。
-import { existsSync, readFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, relative, sep, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // 原子写复用主干 fs-safe（写 .cycles/** 必须走 atomicWriteFileSync——drift 守卫第 3 类检查的
@@ -23,7 +25,10 @@ const FS_SAFE = pathToFileURL(
 const { atomicWriteFileSync } = await import(FS_SAFE);
 
 const ANCHOR_SCRIPTS = ['skill-lib-manifest.mjs', 'skill-lib-drift.mjs', 'skill-lib-ledger.mjs'];
-const REQUIRED_FIELDS = ['name', 'version', 'tier', 'summary', 'triggers', 'dependsOn', 'anchors'];
+// `dir` 必须显式落表（注册表是唯一事实源）。曾漏掉 9 条叶技能的 dir，导致按注册表
+// 遍历的工具只能认出 1 个技能（机器面上 9 个技能"等于不存在"）。派生 `dir ?? name`
+// 会把「表缺字段」永久隐身，所以这里**硬要求**显式字段，缺了即判红。
+const REQUIRED_FIELDS = ['name', 'dir', 'version', 'tier', 'summary', 'triggers', 'dependsOn', 'anchors'];
 
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex');
@@ -92,6 +97,16 @@ function main() {
       if (skill[f] === undefined) findings.push({ skill: skill.name, check: `field:${f}`, status: 'fail', detail: 'missing' });
     }
     const dir = skillDir(libRoot, skill);
+    // dir 形状：叶技能必须与 name 同名；meta 技能必须落在 _meta/ 下。二者都不成立时，
+    // 即使目录"碰巧存在"也判红——否则改名/挪目录会静默通过。
+    if (skill.dir) {
+      const expectedShape = skill.tier === 'meta'
+        ? skill.dir === `_meta/${skill.name}`
+        : skill.dir === skill.name;
+      if (!expectedShape) {
+        findings.push({ skill: skill.name, check: 'field:dir-shape', status: 'fail', detail: `dir='${skill.dir}' 与 tier=${skill.tier} 约定不符（期望 ${skill.tier === 'meta' ? `_meta/${skill.name}` : skill.name}）` });
+      }
+    }
     if (!existsSync(dir) || !statSync(dir).isDirectory()) {
       findings.push({ skill: skill.name, check: 'dir', status: 'fail', detail: `missing ${relative(libRoot, dir)}` });
       continue;
@@ -167,4 +182,41 @@ function main() {
   process.exit(0);
 }
 
-main();
+// 反向自检（E2「守卫必须能失败」）：用两例违规输入证明新守卫（dir 必填 + dir 形状）
+// 确实能判红，再用一例合规输入证明不误报。子进程跑本脚本自身，避免自调用搅乱主流程；
+// 用例建在系统临时目录（os.tmpdir），不写项目目录。
+function selftest() {
+  const selfPath = fileURLToPath(import.meta.url);
+  const build = (dirField) => {
+    const tmp = mkdtempSync(join(tmpdir(), 'skill-lib-manifest-selftest-'));
+    const lib = join(tmp, 'assets', 'skills');
+    mkdirSync(join(lib, 'demo', 'scripts'), { recursive: true });
+    const entry = {
+      name: 'demo', version: '0.1.0', tier: 'leaf', summary: 'demo',
+      triggers: [], dependsOn: [], anchors: ['SKILL.md', 'CHANGELOG.md'],
+    };
+    if (dirField !== null) entry.dir = dirField;
+    writeFileSync(join(lib, 'skills.index.json'), JSON.stringify({ version: '0.1.0', skills: [entry] }));
+    writeFileSync(join(lib, 'demo', 'SKILL.md'), '---\nname: demo\nversion: 0.1.0\n---\n# demo\n');
+    writeFileSync(join(lib, 'demo', 'CHANGELOG.md'), '# changelog\n');
+    return tmp;
+  };
+  const runCase = (tmp) => {
+    const res = spawnSync(process.execPath, [selfPath, tmp, '--check'], { encoding: 'utf-8' });
+    rmSync(tmp, { recursive: true, force: true });
+    return res.status;
+  };
+  const missingDir = runCase(build(null));
+  const wrongShape = runCase(build('not-the-name'));
+  const good = runCase(build('demo'));
+  const allPass = missingDir === 1 && wrongShape === 1 && good === 0;
+  process.stdout.write(JSON.stringify({
+    selftest: allPass ? 'PASS' : 'FAIL',
+    reason: allPass
+      ? 'dir 缺失与 dir 形状不符均判红(exit 1)；合规注册表 exit 0'
+      : `missingDir=${missingDir} wrongShape=${wrongShape} good=${good}（期望 1/1/0）`,
+  }, null, 2) + '\n');
+  process.exit(allPass ? 0 : 1);
+}
+
+if (process.argv.includes('--selftest')) selftest(); else main();

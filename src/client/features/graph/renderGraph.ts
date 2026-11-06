@@ -37,6 +37,7 @@ import { renderCanvas } from './graphCanvas.ts';
 import { renderLaneHeaders } from './graphLaneHeader.ts';
 import { traceDepthOf, traceRoleOf, type TraceResult } from './graphTrace.ts';
 import { buildNodeRoles, roleOf, type NodeRole } from './graphNodeRole.ts';
+import type { ModKeyState } from './graphSelection.ts';
 import { t } from '../../i18n.ts';
 
 export interface GraphData {
@@ -118,12 +119,12 @@ export { canonicalVerdict as verdictKey } from './gateColors.ts';
  * 数据 → SVG 元素树。M3：三态色 + FAIL 脉冲 + 节点点击。
  *
  * @param verdicts nodeId → verdict（PASS/FAIL/doubt/pending/skip），来自 step-trace
- * @param onNodeClick 节点点击回调（面板传入以打开详情抽屉）
+ * @param onNodeClick 节点点击回调（面板传入以打开详情抽屉）。`mods` 用于多选（U3）。
  * @param opts cycle-82/83 渲染选项（视口/筛选/焦点/布局/尺寸），缺省等价于改造前行为
  */
 export function renderGraph(  data: GraphData,
   verdicts?: Map<string, string>,
-  onNodeClick?: (node: WorkflowNode) => void,
+  onNodeClick?: (node: WorkflowNode, mods?: ModKeyState) => void,
   opts?: GraphRenderOptions,
 ): ReactElement {
   const { nodes, edges } = data;
