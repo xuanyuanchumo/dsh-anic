@@ -244,9 +244,18 @@ describe('cycle-85：双击空白适配视图（真实 DOM）', () => {
     // 适配是"回到合适比例"，不是"换了个随机视角"
     expect(fitted ?? '').toMatch(/^translate\(/);
 
-    // 反向自检：双击节点**不**应触发适配（只进追溯）——否则两个动作互相打断
+    // 反向自检：双击节点**不**应触发适配（只进追溯）——否则两个动作互相打断。
+    //
+    // cycle-108 修正：原断言在"刚刚适配过"的视口上取值，而适配是幂等的 ——
+    // 即使节点双击真的触发了 doFit，transform 也**不会变**，于是断言恒真（假绿）。
+    // 必须先放大一次让视口离开适配态，才能区分"没触发适配"与"触发了但幂等"。
+    act(() => {
+      svg.dispatchEvent(new KeyboardEvent('keydown', { key: '+', bubbles: true }));
+      svg.dispatchEvent(new KeyboardEvent('keydown', { key: '+', bubbles: true }));
+    });
     const node = host.querySelector('[data-anic-node]') as unknown as HTMLElement;
     const beforeNodeDbl = host.querySelector('[data-anic-graph-world]')?.getAttribute('transform');
+    expect(beforeNodeDbl).not.toBe(fitted);
     act(() => { node.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     expect(host.querySelector('[data-anic-graph-trace-bar]')).not.toBeNull();
     // 节点双击后视口不变（追溯只改描边/状态条，不改视口）

@@ -79,6 +79,9 @@ export function GraphInteractive(props: GraphInteractiveProps): ReactElement {
     setFocusId(null);
     setTraceRoot(null);
     interactionRef.current?.timeline.exit();
+    // cycle-108：Esc 必须能退出**路径模式**（此前只退时间轴与筛选，路径模式
+    // 只能点条上的 ✕ 退出——键盘用户没有等价通道，且 Esc 语义是"退出所有观察模式"）。
+    interactionRef.current?.path.exit();
   }, []);
 
   const gestures = useViewportGestures(layout, { sizeOf, onEscape: clearFilter });

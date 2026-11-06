@@ -6,7 +6,10 @@
  * 渲染面（renderTimelineBar）在 graphExtras 内，锚点由 DOM 契约覆盖。
  */
 import { describe, it, expect } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { buildTimeline, visibleSetAtStep, composeWithTimeline } from '../../src/client/features/graph/graphTimeline.ts';
+import { renderGraphExtras } from '../../src/client/features/graph/graphExtras.ts';
+import { idlePathModel } from '../../src/client/features/graph/graphPathMode.ts';
 import type { WorkflowEdge, WorkflowNode } from '../../src/client/workflowGraphData.ts';
 
 const NODES: WorkflowNode[] = [
@@ -74,5 +77,45 @@ describe('cycle-99 时间轴回放', () => {
     expect([...composed.matching].sort()).toEqual(['a', 'c']);
     expect(composed.highlight).toBe(base.highlight); // 引用保留（不重建）
     expect(composed.active).toBe(true); // 回放本身是一种激活态
+  });
+
+  /*
+   * cycle-108 缺陷回归：时间轴回放此前**零入口**——渲染条件是 `index >= 0`，
+   * 而 index 初值 -1，把 index 推上去的 seek/togglePlay 又只由这条永不渲染的
+   * 条调用。三段代码（hook/条/visibleSetAtStep）在产品内从未执行。
+   * 判据：steps 非空 + index=-1 ⇒ 条必须已渲染（用户看得见入口，按播放才开始）。
+   */
+  function renderExtras(index: number): string {
+    const out = renderGraphExtras({
+      path: idlePathModel(),
+      focusId: null,
+      blast: null,
+      onPathExit: () => { /* noop */ },
+      timeline: {
+        steps: STEPS, index, playing: false,
+        onSeek: () => { /* noop */ }, onTogglePlay: () => { /* noop */ }, onExit: () => { /* noop */ },
+      },
+    });
+    // 本用例的前提就是"必须渲染"：null 说明修复被回退，直接响亮失败（不静默给空串）。
+    if (out === null) throw new Error('renderGraphExtras returned null for a non-empty timeline');
+    return renderToStaticMarkup(out);
+  }
+
+  it('④ 入口可达：index=-1 时条已渲染（修复前此处为空 → 整条回放链死代码）', () => {
+    const html = renderExtras(-1);
+    expect(html).toContain('data-anic-graph-timeline="true"');
+    expect(html).toContain('0/2'); // 未开始读数：第 0 步 / 共 2 步
+    expect(html).toContain('data-anic-graph-timeline-play="true"');
+  });
+
+  it('⑤ 无可回放链（steps 空）→ 整条不渲染（零占位）', () => {
+    const out = renderGraphExtras({
+      path: idlePathModel(), focusId: null, blast: null, onPathExit: () => { /* noop */ },
+      timeline: {
+        steps: [], index: 0, playing: false,
+        onSeek: () => { /* noop */ }, onTogglePlay: () => { /* noop */ }, onExit: () => { /* noop */ },
+      },
+    });
+    expect(out).toBeNull();
   });
 });

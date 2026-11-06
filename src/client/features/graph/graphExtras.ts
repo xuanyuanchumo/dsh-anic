@@ -208,10 +208,8 @@ export function renderTimelineBar(input: {
 
 /**
  * 两条读数条的合并入口（组件只调一次 ⇒ 组件少两行，而 250 行是硬限）。
- *
- * 三者都为 null/空（未进入路径模式、没有选中节点、未启用回放）→ **整体不渲染**
- * （零占位）。时间轴条挂在路径条之后：两者同时活跃时时间轴在下方（回放是
- * "又一层观察"，路径是"正在进行的动作"——动作条在上可读性更高）。
+ * 全空 → **整体不渲染**（零占位）。时间轴条挂在路径条之后：回放是"又一层观察"，
+ * 路径是"正在进行的动作"——动作条在上可读性更高。
  */
 export function renderGraphExtras(input: {
   path: PathModel;
@@ -239,7 +237,12 @@ export function renderGraphExtras(input: {
   if (input.focusId !== null && input.blast !== null) {
     items.push(renderBlastBar({ focusId: input.focusId, blast: input.blast }));
   }
-  if (input.timeline !== undefined && input.timeline.steps.length > 0 && input.timeline.index >= 0) {
+  /*
+   * cycle-108：渲染条件原为 `index >= 0`，而 index 初值 -1 且 seek/togglePlay 只由
+   * 这条永不渲染的条调用 ⇒ 整条回放链（hook + 条 + visibleSetAtStep）在产品内从未执行。
+   * 入口改由"有链"给出：steps 非空即显示（index=-1 读数 0/N，播放从 0 起）。
+   */
+  if (input.timeline !== undefined && input.timeline.steps.length > 0) {
     items.push(renderTimelineBar(input.timeline));
   }
   return items.length === 0 ? null : items;

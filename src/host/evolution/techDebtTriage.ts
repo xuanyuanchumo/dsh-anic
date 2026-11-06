@@ -24,7 +24,13 @@
  *   `health-fix-<script>-*`   stale ⇔ 该脚本 level === 'healthy'
  *   `health-speed-<script>-*` stale ⇔ level !== 'slow' 且 timeoutRate ≤ 0.2
  *   `health-perf-<script>-*`  stale ⇔ avgDurationMs < 30000（EXPENSIVE 阈值）
- *   其余（debt-* / Q7 / 非 skill 维度）  ⇒ unverifiable
+ *   `E1-E8` / `Q1-Q8` 维度债务   stale ⇔ 最新活跃循环评估报告里该维度 = PASS
+ *                              reproduced ⇔ FAIL；SKIP/无行/无报告 ⇒ unverifiable
+ *   其余（debt-F07 之类的自由维度）  ⇒ unverifiable
+ *
+ * cycle-108（doc 26 §3 B1 闭环）：维度债务此前一律 unverifiable，于是
+ * `debt-E4-*`（根因早已修复、E4 实测 PASS）永远悬着并污染下一轮自举判断。
+ * 评估维度债务的裁决者就是**评估本身**——与 health 债务的裁决者是健康读数是同一结构。
  *
  * 纯函数判定（`triageTechDebt`）与落盘（`applyTriage`）分离：判定可单测，
  * 落盘复用 `techDebtQueue` 的文件改写纪律（原子写 + 形态保持 + 审计字段）。
@@ -34,6 +40,7 @@ import { join } from 'node:path';
 import { atomicWriteFileSync } from '../../shared/fs-safe.ts';
 import type { TechDebtEntry } from './patchEngine.ts';
 import type { SkillHealthReport, ScriptHealth } from '../runtime/continuousLearning.ts';
+import type { DebtFacts } from './debtFacts.ts';
 
 /** 与 continuousLearning 的阈值同源（不 import 私有常量，数值对齐由测试钉住）。 */
 const SLOW_TIMEOUT_RATE = 0.2;
@@ -55,10 +62,32 @@ function scriptOf(entry: TechDebtEntry): string | null {
   return null;
 }
 
+/** 评估维度（E1-E8 / Q1-Q8）——只有这两族可以用「评估报告」裁决。 */
+const DIMENSION_RE = /^[EQ][1-8]$/;
+
+/** 维度债务证据：必须点名**是哪份报告**（路径 + 内容摘要），否则不可复算。 */
+function dimensionEvidence(dim: string, verdict: string, facts: DebtFacts): string {
+  const where = facts.reportPath === null ? '无活跃评估报告' : facts.reportPath;
+  const digest = facts.digest === null ? '—' : facts.digest;
+  const gates = facts.gatesAllPass ? '；G0-G3 全 PASS（佐证）' : '';
+  return `${facts.cycle ?? '未知循环'} 维度 ${dim} = ${verdict}（${where} · sha256:${digest}）${gates}`;
+}
+
 /** 单条提案的分诊判定（纯函数）。 */
-export function triageOne(entry: TechDebtEntry, health: SkillHealthReport): TriageVerdict {
+export function triageOne(
+  entry: TechDebtEntry,
+  health: SkillHealthReport,
+  facts?: DebtFacts,
+): TriageVerdict {
   const script = scriptOf(entry);
-  if (script === null) return 'unverifiable';
+  if (script === null) {
+    // 维度债务：没有事实（未读报告 / 非维度）时保持 unverifiable —— 不猜。
+    if (facts === undefined || !DIMENSION_RE.test(entry.dimension)) return 'unverifiable';
+    const v = facts.dimensions[entry.dimension];
+    if (v === 'PASS') return 'stale';
+    if (v === 'FAIL') return 'reproduced';
+    return 'unverifiable'; // SKIP / 报告缺行：没证据不等于通过
+  }
   const h: ScriptHealth | undefined = health.scripts.find((x) => x.script === script);
   if (h === undefined) return 'unverifiable';
 
@@ -91,16 +120,26 @@ function evidenceOf(h: ScriptHealth): string {
     + `平均耗时 ${String(h.avgDurationMs)}ms，有效负裁决 ${String(h.validVerdicts)}，用法错误 ${String(h.usageErrors)}`;
 }
 
-/** 对 open 提案做分诊（纯读；不改盘）。 */
+/** 对 open 提案做分诊（纯读；不改盘）。`facts` 缺省 = 只有 health 判据（旧行为，向后兼容）。 */
 export function triageTechDebt(
   open: Array<{ file: string; entry: TechDebtEntry }>,
   health: SkillHealthReport,
+  facts?: DebtFacts,
 ): TriageDecision[] {
   return open.map(({ file, entry }) => {
-    const verdict = triageOne(entry, health);
+    const verdict = triageOne(entry, health, facts);
     const script = scriptOf(entry);
     const h = script === null ? undefined : health.scripts.find((x) => x.script === script);
-    return { id: entry.id, file, verdict, evidence: h === undefined ? '非 health 维度——需要人工判定' : evidenceOf(h) };
+    let evidence: string;
+    if (h !== undefined) {
+      evidence = evidenceOf(h);
+    } else if (facts !== undefined && DIMENSION_RE.test(entry.dimension)) {
+      const v = facts.dimensions[entry.dimension] ?? '缺行';
+      evidence = dimensionEvidence(entry.dimension, v, facts);
+    } else {
+      evidence = '非 health / 非评估维度——需要人工判定';
+    }
+    return { id: entry.id, file, verdict, evidence };
   });
 }
 

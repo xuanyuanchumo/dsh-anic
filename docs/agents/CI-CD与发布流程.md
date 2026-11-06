@@ -142,3 +142,22 @@ dsh.bundle.patch 已声明、仓库满 1 天、topic 已加、npm 0.56.0 已发�
   而 `gh` API 与 SSH 443 通——**remote 用 SSH 形态**（`git@github.com:...`），
   `gh auth setup-git` 对 HTTPS 形态无效时这是唯一稳定通道。
 - SSH 认证自检：`ssh -T git@github.com` → `Hi <user>!` 即通。
+
+## 10. 发布状态（cycle-108 复核）
+
+| 项 | 状态 |
+|---|---|
+| 远端 PR（awesome-dsh-plugin #12071） | **已提交**，`state: OPEN`，`mergeable_state: clean`，Submission gate `success @2026-11-06T00:58:55Z` |
+| GitHub Release `v0.57.0` + 稳定名 `dsh-anic.tgz` | ✅ 已发布（`releases/latest/download/dsh-anic.tgz` HTTP 200） |
+| npm registry `dsh-anic@latest` | ⚠️ 曾滞后于 0.56.0（B4 缺口）；cycle-108 收口时随 0.58.0 同步，发布后必核 |
+| `engines.dsh` 双分支 | ✅ `package.json` 与 README 均已为 `>=0.2.0-rc.2 <0.3.0-0 \|\| >=0.3.0-rc.1 <0.4.0-0` |
+| 市场条目 `icon:` | ✅ `assets/icon-180.png`（列表只收位图，SVG 会被拒收） |
+
+**数字同步纪律**：工具的 24 / 路由的 77 只有 README 侧有契约守卫
+（`tests/contract/readmeNumbers.test.ts`）；列表条目 yml、PR 正文、本文档**无守卫**，
+数量变动时必须手工同步这三处（本轮已同步）。
+
+## 11. Actions 编写面
+
+见 `assets/skills/ci-cd-release/references/actions-authoring.md`（cycle-108 新增）：
+触发面/并发/权限/缓存/作业内定序/artifacts/reusable 取舍/action 版本钉法/tarball 稳定名/自检清单。

@@ -79,6 +79,49 @@ describe('triageOne：三态判定', () => {
       .toBe<TriageVerdict>('unverifiable');
   });
 
+  /*
+   * cycle-108（doc 26 §3 B1）：维度债务的裁决者是**评估报告本身**。
+   * 没有 facts 时保持 unverifiable（上一条用例钉死）；有 facts 时按当前裁决行判。
+   */
+  it('维度债务 + 当前评估 PASS → stale（附报告路径与摘要证据）', () => {
+    const facts = {
+      cycle: 'cycle-108', reportPath: '.cycles/cycles/cycle-108/项目评估报告.md', digest: 'deadbeef',
+      dimensions: { E4: 'PASS' as const }, gates: { G0: 'PASS' as const, G1: 'PASS' as const, G2: 'PASS' as const, G3: 'PASS' as const }, gatesAllPass: true,
+    };
+    const dec = triageTechDebt([{ file: 'debt-E4-2026-11-05.json', entry: entry('debt-E4-2026-11-05', 'E4') }], health, facts)[0];
+    expect(dec?.verdict).toBe<TriageVerdict>('stale');
+    expect(dec?.evidence).toContain('sha256:deadbeef');
+    expect(dec?.evidence).toContain('cycle-108');
+  });
+
+  it('维度债务 + 当前评估 FAIL → reproduced（条件仍在）', () => {
+    const facts = {
+      cycle: 'cycle-108', reportPath: 'r.md', digest: 'x',
+      dimensions: { E3: 'FAIL' as const }, gates: {}, gatesAllPass: false,
+    };
+    expect(triageTechDebt([{ file: 'f.json', entry: entry('debt-E3-x', 'E3') }], health, facts)[0]?.verdict)
+      .toBe<TriageVerdict>('reproduced');
+  });
+
+  it('维度债务 + 当前评估 SKIP / 报告缺行 → unverifiable（没证据不等于通过）', () => {
+    const facts = {
+      cycle: 'cycle-108', reportPath: 'r.md', digest: 'x',
+      dimensions: { E5: 'SKIP' as const }, gates: {}, gatesAllPass: false,
+    };
+    expect(triageTechDebt([{ file: 'f.json', entry: entry('debt-E5-x', 'E5') }], health, facts)[0]?.verdict)
+      .toBe<TriageVerdict>('unverifiable');
+    expect(triageTechDebt([{ file: 'f.json', entry: entry('debt-E6-x', 'E6') }], health, facts)[0]?.verdict)
+      .toBe<TriageVerdict>('unverifiable');
+  });
+
+  it('非评估维度（自由维名）有 facts 仍 unverifiable —— 判据只对 E1-E8/Q1-Q8 生效', () => {
+    const facts = {
+      cycle: 'c', reportPath: 'r.md', digest: 'x', dimensions: {}, gates: {}, gatesAllPass: false,
+    };
+    expect(triageTechDebt([{ file: 'f.json', entry: entry('debt-X9-y', 'F07') }], health, facts)[0]?.verdict)
+      .toBe<TriageVerdict>('unverifiable');
+  });
+
   it('insufficient（无近期数据）→ unverifiable：没数据证明不了问题没了', () => {
     // org-status 全史 2 次、近期无数据
     expect(triageTechDebt([{ file: 'a.json', entry: entry('health-fix-org-status-2026-10-18', 'skill:org-status') }], health)[0]?.verdict)

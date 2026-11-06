@@ -102,4 +102,23 @@ describe('静态守卫：三个 runtime 编排文件不得再有第二份默认�
     expect(invoker).toMatch(/resolveSkillInvokeTimeout/);
     expect(codeOnly).toMatch(/from\s*'\.\/runtime\/bootstrapBudget\.ts'/);
   });
+
+  /*
+   * cycle-108 回归钉（真机实测发现）：`bootstrapTrackedRunners.ts` 在 cycle-96 下沉时
+   * 把 `60000` 作为**位置参数**搬了过来 —— 它不是 `timeoutMs = 60000` 形态，所以上面
+   * `findBare60000Defaults` 扫不到，P0-BOOTSTRAP-STEP-TIMEOUT 在 HTTP 路由路径静默复发。
+   * 证据：沙箱真机 `POST /anic/self/evaluate` → durationMs=60028 / exit=-1 /
+   * outcome.state='not-run'（而工具路径用 240s 正常）。
+   */
+  it('tracked runners（HTTP 路由执行体）必须用单一预算常量，不得有位置参数裸 60000', () => {
+    const rel = 'src/host/runtime/bootstrapTrackedRunners.ts';
+    const src = readFileSync(join(ROOT, rel), 'utf-8');
+    // 注释里允许出现 60000（历史记录），只看代码
+    const codeOnly = src.replace(/^\s*\/\/[^\n]*/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(codeOnly).toMatch(/import\s*\{[^}]*\bBOOTSTRAP_STEP_TIMEOUT_MS\b[^}]*\}/);
+    expect(codeOnly).toMatch(/\bBOOTSTRAP_STEP_TIMEOUT_MS\b/);
+    // 反向前提：旧违例形态必须能被这条正则命中
+    expect(/,\s*60000\s*,/.test('target.roots, 60000, trackerState')).toBe(true);
+    expect(/,\s*60000\s*,/.test(codeOnly), '路由执行体仍把 60000 当位置参数传 —— 自举每步预算被砍到 1/4').toBe(false);
+  });
 });

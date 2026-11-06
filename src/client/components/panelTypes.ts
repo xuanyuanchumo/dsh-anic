@@ -14,7 +14,36 @@
 
 /** 组织全景一站式观测面（org-status 路由响应形状——org/autonomy 双域消费）。 */
 export interface OrgStatusJson {
-  cycles: { total: number; latest: string | null; converged: number; failed: number };
+  /**
+   * cycle-108 新增**可选** `drift`：循环坐标漂移（HEAD / 状态机 / 目录三源比对）。
+   *
+   * 缺陷实证：HEAD 已是 `cycle-107`，而 `workflow-state.currentCycle` 停在 `cycle-105`、
+   * `cycles/` 只有 `cycle-105` —— 于是 cycle-106/107 两轮的测试报告**全写进了 cycle-105**，
+   * 全程无一步报错。证据与轮次错配是"观测面看起来正常"的最危险形态。
+   *
+   * 全部可选：旧宿主 / 坏响应不得因此断渲染（缺失即整段不渲染）。
+   */
+  cycles: {
+    total: number;
+    latest: string | null;
+    converged: number;
+    failed: number;
+    drift?: {
+      drift: boolean;
+      headCycle: number | null;
+      stateCycle: string | null;
+      liveLatest: string | null;
+      archivedLatest: string | null;
+      suggestedCycle: string;
+      reasons?: Array<{
+        code: string;
+        head?: number;
+        state?: number;
+        live?: number;
+        archived?: number;
+      }>;
+    };
+  };
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
   /**

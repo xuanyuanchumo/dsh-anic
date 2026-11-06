@@ -33,6 +33,7 @@ import {
 import { loadFlowTracker } from './flowTracker.ts';
 import { invokeTracked } from './selfBootstrapFlow.ts';
 import { applyPhase } from './bootstrapPhase.ts';
+import { BOOTSTRAP_STEP_TIMEOUT_MS } from './bootstrapBudget.ts';
 import type { InvokeResult } from '../skillInvoker.ts';
 
 /** 已解析的自举靶标（与 routes/selfBootstrapShared.ts 的 SelfTarget 同形）。 */
@@ -68,7 +69,12 @@ export interface GateTrackedResult {
 export function runEvalTracked(target: TrackTarget, state: BootstrapState): EvalTrackedResult {
   const trackerState = loadFlowTracker(target.cyclesDir);
   const { result, flowId } = invokeTracked(
-    target.scriptsDir, 'eval-runner', [], target.roots, 60000, trackerState, target.cyclesDir,
+    // cycle-108：预算取**单一事实源**（240s）。cycle-96 把这份执行体从 routes 下沉到
+    // runtime 时，位置参数 `60000` 被原样搬过来——它不是"函数默认值"形态，所以
+    // bootstrapBudget 的静态守卫（扫 `timeoutMs = 60000`）**扫不到**，于是 P0-BOOTSTRAP-STEP-TIMEOUT
+    // 在 HTTP 路由路径上静默复发（真机实测：POST /anic/self/evaluate 恰在 60.03s 被掐断，
+    // outcome=not-run / exit=-1）。工具路径用的是 240s，两条路径预算不一致 = 同一语义两份真相。
+    target.scriptsDir, 'eval-runner', [], target.roots, BOOTSTRAP_STEP_TIMEOUT_MS, trackerState, target.cyclesDir,
   );
   const score = parseEvalScore(result);
   const outcome = parseEvalOutcome(result);
@@ -80,7 +86,8 @@ export function runEvalTracked(target: TrackTarget, state: BootstrapState): Eval
 export function runGateTracked(target: TrackTarget, args: string[]): GateTrackedResult {
   const trackerState = loadFlowTracker(target.cyclesDir);
   const { result, flowId } = invokeTracked(
-    target.scriptsDir, 'gate-check', args, target.roots, 60000, trackerState, target.cyclesDir,
+    // 同上：gate-check 会跑构建（单次 120s 上限）+ 读全部门禁证据，60s 同样不够。
+    target.scriptsDir, 'gate-check', args, target.roots, BOOTSTRAP_STEP_TIMEOUT_MS, trackerState, target.cyclesDir,
   );
   const outcome = parseGateOutcome(result);
   return { result, flowId, verdict: outcome.verdict, outcome };

@@ -205,18 +205,28 @@ describe('④ 角色特征与裁决特征不相交（同一圆点上两个形状
 
 describe('⑥ 真实快照：角色分布如实（不是只在夹具上成立）', () => {
   /**
-   * 为什么要在真实快照上断言：夹具能让任何判据成立。真实快照里 `aux:auto` 是
-   * 度 0 的标量节点（O-94-08 登记过它在"孤立=缺陷"的直觉下会误导）——本轮正是
-   * 要把它显式标成 orphan，从"疑似缺陷"变成"预期形态"。
+   * 为什么要在真实快照上断言：夹具能让任何判据成立。
+   *
+   * cycle-108 修正：原断言把「真实快照里 aux:auto 是度 0」当成**产品不变量**钉死，
+   * 但它其实是**数据事实**——一旦 `.cycles/incidents/` 出现一条 incident，
+   * 快照就会生成 `inc:… --reports--> aux:auto` 这条边，aux:auto 的度变 1，
+   * 角色从 orphan 变 leaf，断言就红（本轮实测：incidents 0→1 直接触发）。
+   * 正确形态是把「度数 ↔ 角色」的**全称不变量**钉住：度为 0 的节点必须恰好是
+   * orphan 集合（一个不多一个不少）。夹具层的反向自检（②）继续保证判据有牙。
    */
-  it('aux:auto（度 0 标量节点）在真实快照里判 orphan —— 显式标注而非默认缺陷', () => {
-    const roles = buildNodeRoles(SNAPSHOT.edges, SNAPSHOT.nodes.map((n) => n.id));
-    if (!SNAPSHOT.nodes.some((n) => n.id === 'aux:auto')) {
-      // 夹具变了（快照随 .cycles 增长）⇒ 用「至少有一个 orphan」而不是硬编码 id
-      expect(roleStatsOf(roles).orphan).toBeGreaterThanOrEqual(0);
-      return;
+  it('真实快照：度 0 节点集合 ≡ orphan 集合（全称不变量，不钉具体 id）', () => {
+    const ids = SNAPSHOT.nodes.map((n) => n.id);
+    const roles = buildNodeRoles(SNAPSHOT.edges, ids);
+    const deg = new Map<string, number>(ids.map((id) => [id, 0]));
+    for (const e of SNAPSHOT.edges) {
+      if (deg.has(e.from)) deg.set(e.from, (deg.get(e.from) ?? 0) + 1);
+      if (deg.has(e.to)) deg.set(e.to, (deg.get(e.to) ?? 0) + 1);
     }
-    expect(roleOf(roles, 'aux:auto')).toBe('orphan');
+    const expected = [...deg.entries()].filter(([, d]) => d === 0).map(([id]) => id).sort();
+    const actual = ids.filter((id) => roleOf(roles, id) === 'orphan').sort();
+    expect(actual).toEqual(expected);
+    // 记录当前数据形态（不参与断言）：incidents 存在时 aux:auto 被 reports 边接走 ⇒ 本轮 0 孤儿。
+    expect(roleStatsOf(roles).total).toBe(ids.length);
   });
 
   it('门禁节点入度 ≥ 8 ⇒ 判 hub（"被 8 条证据支撑的门禁"终于与普通门禁可分）', () => {
@@ -232,7 +242,7 @@ describe('⑥ 真实快照：角色分布如实（不是只在夹具上成立）
 });
 
 describe('⑦ 真实 DOM 锚点：角色进 DOM 且与形状通道并存', () => {
-  it('每个节点都带 data-anic-node-role；role=orphan / hub 在真实快照里真实出现', () => {
+  it('每个节点都带 data-anic-node-role；orphan 与 hub 在真实 DOM 里与数据真值一致', () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -248,11 +258,26 @@ describe('⑦ 真实 DOM 锚点：角色进 DOM 且与形状通道并存', () =>
     expect(nodes.every((n) => n.getAttribute('data-anic-node-role') !== null)).toBe(true);
 
     const roleSet = new Set(nodes.map((n) => n.getAttribute('data-anic-node-role')));
-    // 真实快照有 4 个 hub（gate-g0..g3）与 1 个 orphan（aux:auto）⇒ 这两个值必须出现
+    // 真实快照有 4 个 hub（gate-g0..g3）⇒ 该值必须出现
     expect(roleSet.has('hub')).toBe(true);
-    if (SNAPSHOT.nodes.some((n) => n.id === 'aux:auto')) {
-      const orphanEl = host.querySelector('[data-anic-node="aux:auto"]');
-      expect(orphanEl?.getAttribute('data-anic-node-role')).toBe('orphan');
+    /*
+     * orphan 按**度数真值**断言（cycle-108 修正）：钉具体 id 会把"incidents 存在
+     * ⇒ aux:auto 被 reports 边接走"这条数据事实当成产品缺陷。这里改为：
+     * 有度 0 节点 ⇒ 它们必须带 orphan；没有 ⇒ 任何节点都不许带 orphan（防误标）。
+     */
+    const ids = SNAPSHOT.nodes.map((n) => n.id);
+    const deg = new Map<string, number>(ids.map((id) => [id, 0]));
+    for (const e of SNAPSHOT.edges) {
+      if (deg.has(e.from)) deg.set(e.from, (deg.get(e.from) ?? 0) + 1);
+      if (deg.has(e.to)) deg.set(e.to, (deg.get(e.to) ?? 0) + 1);
+    }
+    const orphanIds = [...deg.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+    if (orphanIds.length === 0) {
+      expect(roleSet.has('orphan')).toBe(false);
+    } else {
+      for (const id of orphanIds) {
+        expect(host.querySelector(`[data-anic-node="${id}"]`)?.getAttribute('data-anic-node-role')).toBe('orphan');
+      }
     }
 
     // 角色标记是 <path>（不是 circle/rect：后两者有计数不变量）

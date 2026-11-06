@@ -20,6 +20,7 @@ import { token } from '../../../shared/tokens.ts';
 import { t } from '../../i18n.ts';
 import type { OrgStatusJson } from '../../components/panelTypes.ts';
 import { renderOrgReload } from './renderOrgReload.ts';
+import { renderOrgCycles } from './renderOrgCycles.ts';
 
 export type { OrgStatusJson } from '../../components/panelTypes.ts';
 
@@ -151,16 +152,7 @@ export function renderOrgStatus(status: OrgStatusJson): ReactElement {
   return createElement(
     'div',
     { 'data-anic-org': 'section', style: { padding: '8px 10px', borderTop: `1px solid ${token('anic-border')}` } },
-    createElement(
-      'section',
-      { className: 'anic-org-cycles' },
-      createElement('h4', { style: H4 }, t('org.cyclesTitle')),
-      createElement(
-        'p',
-        { style: P },
-        t('org.cyclesLine', { total: status.cycles.total, latest: status.cycles.latest ?? '—', converged: status.cycles.converged, failed: status.cycles.failed }),
-      ),
-    ),
+    renderOrgCycles(status.cycles),
     // P1-5：门禁账本两字段此前被丢弃（服务端返回了 entries/valid 但没渲染）——
     // 账本完整性是自主级升降的信任根基，不可见 = 不可审计。
     createElement(

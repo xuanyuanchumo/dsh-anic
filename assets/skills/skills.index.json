@@ -1,7 +1,7 @@
 {
   "$schema": "./skills.schema.json",
   "library": "dsh-anic-internal-skills",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "updatedAt": "2026-11-06",
   "description": "dsh-anic 内部技能库注册表（唯一事实源）：主干技能 + 9 叶技能 + 1 元技能。叶技能只提供操作知识与确定性脚本，不互相 import；主干技能（ai-native-iteration-cycle）充当流程脊柱。自进化由 _meta/skill-library-evolution 承载。",
   "spine": {
@@ -17,10 +17,26 @@
       "version": "0.1.0",
       "tier": "meta",
       "summary": "技能库元技能：取证→评估→补丁→基准→留痕七步，承载自进化演化能力",
-      "triggers": ["自进化", "技能更新", "版本锚", "漂移守卫", "补丁回滚", "聚合基准", "镜像同步"],
-      "dependsOn": ["*"],
-      "anchors": ["SKILL.md", "scripts/skill-lib-manifest.mjs", "CHANGELOG.md"],
-      "gates": ["G3"],
+      "triggers": [
+        "自进化",
+        "技能更新",
+        "版本锚",
+        "漂移守卫",
+        "补丁回滚",
+        "聚合基准",
+        "镜像同步"
+      ],
+      "dependsOn": [
+        "*"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/skill-lib-manifest.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G3"
+      ],
       "evidenceSink": ".cycles/tech-debt/ + gates/ledger.json"
     },
     {
@@ -28,9 +44,20 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "分支策略、提交规范、主干保护、revert 红线、多分支并行的操作知识",
-      "triggers": ["分支", "commit", "合并", "revert", "主干保护", "worktree"],
+      "triggers": [
+        "分支",
+        "commit",
+        "合并",
+        "revert",
+        "主干保护",
+        "worktree"
+      ],
       "dependsOn": [],
-      "anchors": ["SKILL.md", "scripts/branch-lint.mjs", "CHANGELOG.md"],
+      "anchors": [
+        "SKILL.md",
+        "scripts/branch-lint.mjs",
+        "CHANGELOG.md"
+      ],
       "gates": [],
       "evidenceSink": ".cycles/cycles/cycle-*/"
     },
@@ -39,10 +66,28 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "PR 生命周期、CI 失败分诊、gh 操作、评审协议、合并策略、G0-G3 映射",
-      "triggers": ["PR", "评审", "CI 红", "gh", "合并", "证据"],
-      "dependsOn": ["git-branch-workflow"],
-      "anchors": ["SKILL.md", "scripts/pr-check.mjs", "CHANGELOG.md"],
-      "gates": ["G0", "G1", "G2", "G3"],
+      "triggers": [
+        "PR",
+        "评审",
+        "CI 红",
+        "gh",
+        "合并",
+        "证据"
+      ],
+      "dependsOn": [
+        "git-branch-workflow"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/pr-check.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G0",
+        "G1",
+        "G2",
+        "G3"
+      ],
       "evidenceSink": ".cycles/gates/ledger.json"
     },
     {
@@ -50,9 +95,22 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "GitHub↔Gitee 镜像与 MR 同步、收录规则、漂移检测、中文协作面差异（全仓零覆盖，新建）",
-      "triggers": ["Gitee", "镜像", "MR", "同步", "双托管", "开源中国"],
-      "dependsOn": ["git-branch-workflow"],
-      "anchors": ["SKILL.md", "scripts/mirror-sync.mjs", "CHANGELOG.md"],
+      "triggers": [
+        "Gitee",
+        "镜像",
+        "MR",
+        "同步",
+        "双托管",
+        "开源中国"
+      ],
+      "dependsOn": [
+        "git-branch-workflow"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/mirror-sync.mjs",
+        "CHANGELOG.md"
+      ],
       "gates": [],
       "evidenceSink": ".cycles/"
     },
@@ -61,21 +119,55 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "npm 版本号/打包/发布/回滚：唯一事实源、tag 一致性、tarball 稳定名、vault_run 注入、deprecate",
-      "triggers": ["npm", "publish", "版本号", "tag", "deprecate", "tarball"],
-      "dependsOn": ["github-pr-actions", "ci-cd-release"],
-      "anchors": ["SKILL.md", "scripts/release-check.mjs", "CHANGELOG.md"],
-      "gates": ["G3"],
+      "triggers": [
+        "npm",
+        "publish",
+        "版本号",
+        "tag",
+        "deprecate",
+        "tarball"
+      ],
+      "dependsOn": [
+        "github-pr-actions",
+        "ci-cd-release"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/release-check.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G3"
+      ],
       "evidenceSink": ".cycles/gates/ledger.json"
     },
     {
       "name": "ci-cd-release",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "tier": "leaf",
       "summary": "GitHub Actions 与发布流水线设计：触发面、依赖顺序、secrets 最小化、artifact、回滚矩阵、marketplace",
-      "triggers": ["CI", "workflow", "release", "回滚", "marketplace", "ACTIONS"],
-      "dependsOn": ["git-branch-workflow"],
-      "anchors": ["SKILL.md", "scripts/workflow-lint.mjs", "CHANGELOG.md"],
-      "gates": ["G0", "G1", "G2", "G3"],
+      "triggers": [
+        "CI",
+        "workflow",
+        "release",
+        "回滚",
+        "marketplace",
+        "ACTIONS"
+      ],
+      "dependsOn": [
+        "git-branch-workflow"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/workflow-lint.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G0",
+        "G1",
+        "G2",
+        "G3"
+      ],
       "evidenceSink": ".cycles/gates/ledger.json"
     },
     {
@@ -83,20 +175,45 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "凭据/令牌/SSH 安全操作：DSH 凭证库、gh auth、.npmrc-publish 保护、脱敏、H1 检查点",
-      "triggers": ["token", "凭据", "SSH", "gh auth", "secret", "脱敏", "vault"],
+      "triggers": [
+        "token",
+        "凭据",
+        "SSH",
+        "gh auth",
+        "secret",
+        "脱敏",
+        "vault"
+      ],
       "dependsOn": [],
-      "anchors": ["SKILL.md", "scripts/secret-scan.mjs", "CHANGELOG.md"],
-      "gates": ["G3"],
+      "anchors": [
+        "SKILL.md",
+        "scripts/secret-scan.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G3"
+      ],
       "evidenceSink": ".cycles/"
     },
     {
       "name": "dsh-native-api",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "tier": "leaf",
       "summary": "DSH 打包/安装/插件原生面：manifest、cordis.patch.yml、engines.dsh、层顺序、不变量探测",
-      "triggers": ["dsh plugin", "bundle", "profile", "engines.dsh", "cordis.patch", "manifest"],
+      "triggers": [
+        "dsh plugin",
+        "bundle",
+        "profile",
+        "engines.dsh",
+        "cordis.patch",
+        "manifest"
+      ],
       "dependsOn": [],
-      "anchors": ["SKILL.md", "scripts/dsh-manifest-check.mjs", "CHANGELOG.md"],
+      "anchors": [
+        "SKILL.md",
+        "scripts/dsh-manifest-check.mjs",
+        "CHANGELOG.md"
+      ],
       "gates": [],
       "evidenceSink": ".cycles/"
     },
@@ -105,9 +222,23 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "Superagent 部署/授权/执行模式：独立 profile、stateDir、hourly check、准入表、Mandate、退出码",
-      "triggers": ["superagent", "部署模型", "stateDir", "hourly check", "准入", "Mandate"],
-      "dependsOn": ["ci-cd-release", "dsh-native-api"],
-      "anchors": ["SKILL.md", "scripts/superagent-status-probe.mjs", "CHANGELOG.md"],
+      "triggers": [
+        "superagent",
+        "部署模型",
+        "stateDir",
+        "hourly check",
+        "准入",
+        "Mandate"
+      ],
+      "dependsOn": [
+        "ci-cd-release",
+        "dsh-native-api"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/superagent-status-probe.mjs",
+        "CHANGELOG.md"
+      ],
       "gates": [],
       "evidenceSink": ".cycles/"
     },
@@ -116,10 +247,29 @@
       "version": "0.1.0",
       "tier": "leaf",
       "summary": "DSH 插件工程模式（P01-P14）：工具注册面/toolview 席位/client UI 纪律/safeDispose/失败为值/分层持久化，沉淀自 dsh-ops 与 dsh-context 源码研究",
-      "triggers": ["工具注册", "toolview", "slots", "生命周期", "拆卸", "防御式", "失败为值", "持久化", "可观测", "插件模式"],
-      "dependsOn": ["dsh-native-api"],
-      "anchors": ["SKILL.md", "scripts/toolview-check.mjs", "CHANGELOG.md"],
-      "gates": ["G0"],
+      "triggers": [
+        "工具注册",
+        "toolview",
+        "slots",
+        "生命周期",
+        "拆卸",
+        "防御式",
+        "失败为值",
+        "持久化",
+        "可观测",
+        "插件模式"
+      ],
+      "dependsOn": [
+        "dsh-native-api"
+      ],
+      "anchors": [
+        "SKILL.md",
+        "scripts/toolview-check.mjs",
+        "CHANGELOG.md"
+      ],
+      "gates": [
+        "G0"
+      ],
       "evidenceSink": ".cycles/tech-debt/"
     }
   ],
@@ -131,10 +281,17 @@
   },
   "selfEvolution": {
     "metaSkill": "skill-library-evolution",
-    "threeAnchors": ["SKILL.md", "scripts/<primary>.mjs", "CHANGELOG.md"],
+    "threeAnchors": [
+      "SKILL.md",
+      "scripts/<primary>.mjs",
+      "CHANGELOG.md"
+    ],
     "gate": "skill-lib --check (错误级 exit 1)",
     "patchLifecycle": "proposed → human-approved → applied → benchmarked → kept|reverted",
-    "trustThresholds": { "L2-L3": 70, "L3-L4": 85 },
+    "trustThresholds": {
+      "L2-L3": 70,
+      "L3-L4": 85
+    },
     "breakerRule": "先修复后降级；升级需人类、降级可自动（12 号宪章）"
   }
 }

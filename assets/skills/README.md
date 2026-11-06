@@ -5,13 +5,13 @@
 
 ## 定位
 
-把 git / GitHub / Gitee / npm / CI-CD / Token-SSH 的操作知识与 dsh-anic 已有技能整理为
-**可自进化的技能库**：8 个叶技能 + 1 个元技能。
+把 git / GitHub / Gitee / npm / CI-CD / Token-SSH / DSH 原生面 / 插件工程模式的操作知识整理为
+**可自进化的技能库**：9 个叶技能 + 1 个元技能。
 
 | 层 | 数量 | 职责 |
 |---|---|---|
 | **主干** `ai-native-iteration-cycle` | 1（既有） | 流程脊柱：六阶段 / 七步 / G0-G3 / L1-L4 |
-| **叶技能** | 8 | 操作知识与确定性脚本 |
+| **叶技能** | 9 | 操作知识与确定性脚本 |
 | **元技能** `skill-library-evolution` | 1 | 自进化：取证→评估→补丁→基准→留痕 |
 
 叶技能与主干**不互相 import**，只通过四类契约咬合：词表契约、账本契约、脚本契约、路径契约。
@@ -32,10 +32,11 @@ assets/skills/
 ├── github-pr-actions/         # PR 生命周期与 CI 门禁
 ├── gitee-mirror-sync/         # GitHub↔Gitee 镜像与 MR 同步
 ├── npm-publish/               # npm 版本/打包/发布/回滚
-├── ci-cd-release/             # GitHub Actions 与发布流水线
+├── ci-cd-release/             # GitHub Actions 与发布流水线（含 references/actions-authoring.md）
 ├── token-ssh-security/        # 凭据/令牌/SSH 安全
-├── dsh-native-api/            # DSH 打包/安装/插件原生面
-└── superagent-patterns/       # Superagent 部署/授权/执行模式
+├── dsh-native-api/            # DSH 打包/安装/插件原生面（含 references/runtime-registration.md）
+├── superagent-patterns/       # Superagent 部署/授权/执行模式
+└── dsh-plugin-patterns/       # 插件工程模式 P01-P14（toolview/席位/safeDispose/失败为值）
 ```
 
 ## 叶技能清单
@@ -48,8 +49,11 @@ assets/skills/
 | 4 | `npm-publish` | npm 版本/打包/发布/回滚 |
 | 5 | `ci-cd-release` | GitHub Actions 与发布流水线设计 |
 | 6 | `token-ssh-security` | 凭据/令牌/SSH 安全操作 |
-| 7 | `dsh-native-api` | DSH 打包/安装/插件原生面 |
+| 7 | `dsh-native-api` | DSH 打包/安装/插件原生面 + **运行时注册面**（工具/技能/路由三面） |
 | 8 | `superagent-patterns` | Superagent 部署/授权/执行模式 |
+| 9 | `dsh-plugin-patterns` | DSH 插件工程模式 P01-P14（toolview 席位 / safeDispose / 失败为值 / 分层持久化） |
+
+> 版本锚：注册表 `skills.index.json`（库版本 **0.3.0**，cycle-108）。叶技能与主干**不互相 import**。
 
 ## 自进化（元技能）
 

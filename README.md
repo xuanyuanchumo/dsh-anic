@@ -1,24 +1,29 @@
 # dsh-anic — AI-Native Iteration Cycle（DSH 插件）
 
 ANIC 技能（`.dsh/skills/ai-native-iteration-cycle/`）插件化的**独立工程**。可行性研究、
-需求分析、架构与里程碑见 [`docs/anic/`](../docs/anic/)（README + 01–25 + spike 报告）。
+需求分析、架构与里程碑见 [`docs/anic/`](docs/anic/README.md)（README + 01–26 + spike 报告）。
 
 > **内部技能库（cycle-106）**：`assets/skills/` 是 dsh-anic 的自进化操作知识库——8 个叶技能
 > （git 分支 / GitHub PR / Gitee 镜像 / npm 发布 / CI-CD / Token-SSH / DSH 原生 API / superagent 模式）
 > + 元技能 `skill-library-evolution`（自进化七步）。注册表 `assets/skills/skills.index.json` 是唯一事实源；
-> 研究与裁决见 [`docs/anic/25-原生优化与内部技能库研究.md`](../docs/anic/25-原生优化与内部技能库研究.md)。
+> 研究与裁决见 [`docs/anic/25-原生优化与内部技能库研究.md`](docs/anic/25-原生优化与内部技能库研究.md)；
 
 > 定位：通用插件（零项目假设）。本仓库只是它的第一个验证场——快照数据来自本仓库真实的
 > `.cycles/`，但生成器只读结构化字段（INV-21 合规），不解析自由文本。
 
-## 安装（DSH ≥ 0.2.0-rc.2，网页端与桌面端）
+## 安装（DSH 0.2.0-rc.2+ 或 0.3.0-rc.1+，网页端与桌面端）
 
 ```sh
-dsh plugin --profile <你的 profile> add github:<owner>/dsh-anic
+# 方式一：从 GitHub 装（推荐，最新）
+dsh plugin --profile <你的 profile> add github:xuanyuanchumo/dsh-anic
+# 方式二：从 npm 装（版本可能滞后于 GitHub Release，见 CHANGELOG）
+dsh plugin --profile <你的 profile> add dsh-anic
+# 方式三：从 Release 的稳定 tarball 装（无 npm 账号也能装；release.yml 每次发布覆盖同名资产）
+dsh plugin --profile <你的 profile> add https://github.com/xuanyuanchumo/dsh-anic/releases/latest/download/dsh-anic.tgz
 ```
 
 安装后重启对应宿主（bundle 在启动时装载），会话页即出现 `ANIC` 顶层标签。插件声明
-`engines.dsh: ">=0.2.0-rc.2 <0.4.0-0"` 与 `peerDependencies: @deepseek-ai/dsh`——
+`engines.dsh: ">=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0"` 与 `peerDependencies: @deepseek-ai/dsh`——
 宿主不在该范围时 pnpm 会先拒绝。首次使用时插件会把内联技能（`assets/skill/`，含
 SHA-256 安装清单）自动安装到工作区 `.dsh/skills/ai-native-iteration-cycle/`；`anic_install`
 工具与 `POST /anic/skill/install` 路由提供等价的显式安装 / 状态查询 / 损坏修复入口。

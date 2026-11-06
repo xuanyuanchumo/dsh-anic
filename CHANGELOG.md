@@ -1,5 +1,63 @@
 # dsh-anic CHANGELOG
 
+## v0.58.0 — 2026-11-06（cycle-108：闭环补链 · 循环坐标漂移根除 · 图谱四缺陷 · 市场收录就绪）
+
+> 起点：commit `02b958c`（v0.57.0）。
+> 本轮：doc 26 的「轮 A 闭环补链」落地 + 三路只读研究（J 图谱交互 / K 市场收录 /
+> L 运行时注册）+ 图谱四个实证缺陷修复 + 收录面元数据校准。
+> 终点：**四层 ALL GREEN**（validate + vitest 3669 + smoke + trigger）。
+> 研究输入 → 固化文档：`docs/anic/27-cycle-108闭环补链与可观测性升级.md`。
+
+### ① 循环坐标漂移（生产事故级，根除 + 机器守卫）
+
+- **事故**：HEAD `cycle-107`，而 `workflow-state.currentCycle` 停在 `cycle-105`、
+  `cycles/` 只有 `cycle-105` ⇒ `run-tests.mjs` 把 106/107 两轮测试报告**全写进 cycle-105**，
+  全程零报错（证据与轮次错配）。
+- **根因**：`init-cycle.mjs` 的 `getNextCycleNum` 只数目录，从不读 HEAD；而 106/107 从未建目录。
+- **修复三层**：判据 `src/host/evolution/cycleDrift.ts`（纯函数，5 原因码 + `suggestedCycle`）
+  → 观测 `orgStatus.cycles.drift` + `renderOrgCycles.ts`（漂移 `role="alert"`，一致给显式 ✓）
+  → 事实（归档 `cycle-105`、`init-cycle --cycle 108`、状态机推到 108）。
+- 契约：`tests/unit/cycleDrift.test.ts`（10）+ `tests/unit/orgCycleDrift.test.ts`（4，真实 DOM）。
+
+### ② 技术债提案永不关闭（doc 26 §3 B1）
+
+- `debt-E4-2026-11-05` 根因早已修复、E4 当前评估 PASS，却因「非 health 维度一律 unverifiable」
+  永远悬着并污染下轮判断。
+- **修复**：`src/host/evolution/debtFacts.ts` 读最新**活跃**循环评估报告 + 账本门裁决
+  （证据 = 报告路径 + `sha256:8`）；分诊新增维度判据 `PASS→stale / FAIL→reproduced /
+  SKIP·缺行·无报告→unverifiable`。**不要求四门全绿**（无关的 G3 红不得掩盖已修好的维度）。
+- 响应新增 `facts` 段（只增字段）；契约：`tests/unit/debtFacts.test.ts`（6）+ 分诊 +4 用例。
+
+### ③ 图谱交互四个实证缺陷
+
+- **时间轴回放零入口**（268 行产品内从未执行）：渲染条件 `index >= 0`，初值 `-1`，
+  而推 index 的 seek/togglePlay 只由这条永不渲染的条调用 ⇒ 改为「有链即渲染」。
+- **双击节点同时触发全局适配**：容器级 `onDoubleClick: doFit` 与 stage 的空白判定冲突 ⇒ 删除容器级。
+- **该缺陷的契约恒真**（假绿）：原断言在刚适配过的视口取值，而 fit 幂等 ⇒ 先放大再断言
+  （实测回退修复后真红）。
+- **Esc 退不出路径模式**：`clearFilter` 补 `path.exit()`。
+- 契约：`tests/unit/graphTimeline.test.ts` ④⑤、`tests/contract/graphTraceContract.test.ts` 反向自检。
+
+### ④ 市场收录就绪 + 运行时注册研究
+
+- README：安装命令去占位（`github:xuanyuanchumo/dsh-anic` + npm + tarball 三入口）、
+  `engines.dsh` 双分支逐字同步、`../docs/anic/` 死链改仓内相对链接。
+- `package.json`：`keywords` 12→20（补 sdlc/hitl/autonomy/graph/mcp 等检索词）、
+  `files` 增 `assets/icon-180.png`（列表只收位图，SVG 会被拒收）。
+- 内部技能库 v0.3.0：`ci-cd-release` v0.2.0 增 `references/actions-authoring.md`、
+  `dsh-native-api` v0.2.0 增 `references/runtime-registration.md`；
+  技能库 README 叶技能数 8→9（补 `dsh-plugin-patterns`，此前注册表与 README 漂移）。
+- 研究校正（入 doc 27）：`availability` **非官方字段**；图区**无**异步数据链；
+  `shouldAdvanceEpoch` **全仓零调用点**；P13 账本分层已存在（缺口在 append 全量读）。
+
+### ⑤ 契约基线的合法抬升（每条都有理由，非放水）
+
+- `i18nDeadKeyContract` 词表棘轮 593 → 601（8 条 `org.cycleDrift*`，逐条有 `t()` 消费点，零余量）；
+- `closureEvidenceAnchorContract` `gate.pending` 251 → 259（org 段新增 8 键，行号真值同步）；
+- `graphNodeRoleContract` 两处：把「aux:auto 恒 orphan」这个**数据事实**改为**全称不变量**
+  （度 0 集合 ≡ orphan 集合）——一旦 `.cycles/incidents/` 出现 incident，快照会生成
+  `inc → aux:auto` 边，钉具体 id 就会把正常数据当成缺陷。
+
 ## v0.57.0 — 2026-11-06（cycle-107：命令窗口显示修复落地收口 · 内部技能库 v0.2.0 · 沙箱用户旅程全 PASS）
 
 > 起点：commit `3c752b9`（v0.56.0 后 toolview 接线闭环 WIP）。

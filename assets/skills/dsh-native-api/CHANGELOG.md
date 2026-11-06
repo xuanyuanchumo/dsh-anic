@@ -3,6 +3,20 @@
 本文件记录 `assets/skills/dsh-native-api/` 叶技能的变更。版本锚点三处一致：
 `SKILL.md` frontmatter、`scripts/<primary>.mjs` 版本串、本文件顶层条目。
 
+## v0.2.0 — 2026-11-06（cycle-108）
+
+**新增参考**：`references/runtime-registration.md` —— 运行时注册面（工具 / 技能 / 路由三面 +
+官方 skill 链路 + 本仓四处缺口）。
+
+- 官方 seam 锚点：`ctx.tools`（`kb/site/reference/capability-seams.md` 的 `svc_tools` 节点、
+  `cookbook/adding-a-tool.md:18-25`）、`ctx.skills`（`capability-seams.md:683`）、`ctx.webServer`。
+- 官方 skill 注册链路完整数据流（register → skills/change → snapshot{complete} →
+  tool-skill 注入 → 每步 digest → skill() 载入前 isModelInvocable 拒绝）。
+- **校正**：`availability: 'resident'|'discoverable'` **不是**官方字段（dsh-ops 私有），
+  本仓不得给 `ToolRegistration` 加该字段。
+- 本仓四处缺口（invocation 丢弃 / 不回读 snapshot / 不订阅 skills/change / 不用
+  registerProvider）与修法，进 cycle-109 裁决表。
+
 ## v0.1.0 — 2026-11-05
 
 **新增**：从零创建 `dsh-native-api` 叶技能（`assets/skills/dsh-native-api/`）。

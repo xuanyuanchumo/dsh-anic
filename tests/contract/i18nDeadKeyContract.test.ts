@@ -184,8 +184,15 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   抬到 593 —— cycle-101 实测值（`flows.readout.*` 7 键：total/kept/dropped/floor/
      *   failureRate/avgDuration/ariaLabel —— 全部由 renderFlowViewReadout 消费，非孤儿键）。
      *   **零余量**：下轮再加键这条立即红，逼人事先判断「这键真的需要吗」——余量是放水的入口。
+     *
+     *   cycle-108：593 → 601。循环坐标漂移读数新增 8 键（`org.cycleDrift*`：
+     *   标题 / 一致 / 建议下一循环 / 四源超前·状态机落后·状态机超前·状态缺失·归档超前）。
+     *   8 条全部由 `renderOrgCycles.ts` 消费（`REASON_KEYS` 逐码映射 + 标题/一致/建议三处
+     *   直接 `t()`），且每一条对应一个**可独立出现的判据码**——合并任何两条都会让
+     *   面板把"状态机落后"和"HEAD 超前"显示成同一句话，白盒区分度归零。
+     *   实测 601 = 上限（继续零余量纪律）。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(593);
+    expect(zhKeys.length).toBeLessThanOrEqual(601);
   });
 });

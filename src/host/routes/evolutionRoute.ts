@@ -22,7 +22,10 @@ import { generateTechDebt, type EvalResult } from '../evolution/patchEngine.ts';
 import { runAutonomyFallback } from '../evolution/autonomyActions.ts';
 import { listTechDebt, markTechDebtConsumed } from '../evolution/techDebtQueue.ts';
 // cycle-89：技术债**生命周期**分诊（stale 自动关闭）—— 债务必须有终态，否则只增不减。
+// cycle-108：分诊新增**评估维度**判据（doc 26 §3 B1）—— 维度债务的裁决者是评估报告本身；
+// 无这份事实时旧行为不变（保持 unverifiable，不猜）。
 import { triageTechDebt, applyTriage } from '../evolution/techDebtTriage.ts';
+import { readDebtFacts } from '../evolution/debtFacts.ts';
 import { analyzeSkillHealth } from '../runtime/continuousLearning.ts';
 import { loadFlowTracker } from '../runtime/flowTracker.ts';
 import { newRequestId } from '../logger.ts';
@@ -146,7 +149,10 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
     const listing = listTechDebt(cyclesDir);
     const trackerState = loadFlowTracker(cyclesDir);
     const health = analyzeSkillHealth(trackerState);
-    const decisions = triageTechDebt(listing.open, health);
+    // cycle-108：读当前评估事实（最新活跃循环的报告 + 账本门裁决）。读不到 ⇒ 维度债务
+    // 仍 unverifiable，旧判据照常生效——事实缺失不得让分诊器"猜通过"。
+    const facts = readDebtFacts(cyclesDir);
+    const decisions = triageTechDebt(listing.open, health, facts);
     const apply = parsed.apply !== false; // 默认**执行**分诊（否则端点是空壳）
     const result = apply
       ? applyTriage(cyclesDir, decisions, typeof parsed.actor === 'string' ? parsed.actor : 'anic:tech-debt-triage')
@@ -157,6 +163,16 @@ export function registerEvolutionRoute(ctx: SnapshotCtx, send: SendFn): Array<((
       total: decisions.length,
       marked: result.marked,
       errors: result.errors,
+      // cycle-108：把"维度判据用了哪份事实"一并回给调用方——只说结论不说依据，
+      // 复核者无法判断"这条关闭是不是读了另一轮的旧报告"。
+      facts: {
+        cycle: facts.cycle,
+        reportPath: facts.reportPath,
+        digest: facts.digest,
+        dimensions: facts.dimensions,
+        gates: facts.gates,
+        gatesAllPass: facts.gatesAllPass,
+      },
       decisions: decisions.map((d) => ({ id: d.id, verdict: d.verdict, evidence: d.evidence })),
       byVerdict: {
         stale: decisions.filter((d) => d.verdict === 'stale').length,

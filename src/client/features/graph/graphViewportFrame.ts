@@ -116,7 +116,10 @@ export function renderViewportFrame(input: FrameInput): ReactElement {
       onPointerMove: gestures.onPointerMove as (ev: unknown) => void,
       onPointerUp: gestures.onPointerUp,
       onPointerLeave: gestures.onPointerUp,
-      onDoubleClick: gestures.doFit,
+      // 双击适配**不在视口容器**上：节点双击的事件会冒泡到容器，容器再适配一次
+      // ——两个动作互相打断（实测：双击节点既进追溯、又把视口弹回全局适配）。
+      // 空白双击的判定归 stage（它认得 data-anic-node 与 minimap 边界）；
+      // 容器只负责手势通道。
       // 拖拽时不能选中文字（否则拖一次图整片高亮，看起来像 bug）。
       onDragStart: (ev: { preventDefault: () => void }) => { ev.preventDefault(); },
       style: {

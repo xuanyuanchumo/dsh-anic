@@ -84,11 +84,12 @@ describe('cycle-75 词表证据锚点（definedAt 不许误报）', () => {
     // cycle-80（WS-2）：org.* 新增 14 个构建/重载键（在 gate 段之前）⇒ gate.pending 216→228。
     // cycle-96：`diag.controlBand*` 3 键 + `diag.controlBandStatus.*` 3 键 + `flows.macroPhase*`
     // 7 键（均在 gate 段之前）⇒ gate.pending 228→242。前两个 pin 在 org 段之前，故不受影响。
+    // cycle-108：`org.cycleDrift*` 8 键（org 段内，位于 gate 段之前）⇒ 242→251→259。
     // 钉的仍是**磁盘真值**（精度未放宽）：
     // locale 在当前键之前增删键时，本行必须同步（这也是本契约唯一的维护负担）。
     expect(lineOfKey(INDEX, 'trace.statusDone')).toBe(101);
     expect(lineOfKey(INDEX, 'state.loading')).toBe(50);
-    expect(lineOfKey(INDEX, 'gate.pending')).toBe(251); // cycle-101：flows.readout.* 7 键在前，228→242→251
+    expect(lineOfKey(INDEX, 'gate.pending')).toBe(259); // cycle-108：org.cycleDrift.* 8 键在前，242→251→259
     // 且 keyAnchor 的对外形态与索引同源
     expect(keyAnchor(RAW, 'trace.statusDone')).toBe('locale/zh.json:101');
   });

@@ -239,3 +239,22 @@ zustand v5「actions live in the store」的手写等价物——`src/client/com
 
 - §1 矩阵：每新增/删除分区时更新（feature 模块数 14 是装配面事实）。
 - §3 排期：每轮 cycle 挑任务时刷新状态列。
+
+## 6. cycle-108 图区交互修正（四个实证缺陷）
+
+研究输入 J（`.cycles/research-inputs/J-graph-interaction-gap-2026-11-06.md`）实测出 32 项交互与
+4 个真缺陷，本轮全部修掉：
+
+| # | 缺陷 | 根因 | 修法 |
+|---|---|---|---|
+| D1 | **时间轴回放零入口**（268 行死代码） | 渲染条件 `index >= 0`，初值 `-1`，而把 index 推上去的 seek/togglePlay 只由这条永不渲染的条调用 | 入口改由"有链"给出：`steps.length > 0` 即渲染（index=-1 读数 `0/N`） |
+| D2 | 双击节点**同时**触发全局适配 | 视口容器 `onDoubleClick: doFit`；节点 dblclick 冒泡到容器，stage 的"空白才适配"守卫挡不住 | 删除容器级 dblclick（空白判定归 stage） |
+| D3 | D2 的契约**恒真** | 断言在"刚适配过"的视口取值，而 fit 幂等 | 断言前先 `+` 两档（实测：回退修复后该用例真红） |
+| D4 | **Esc 退不出路径模式** | `clearFilter` 只调 `timeline.exit()` | 补 `path.exit()`（Esc = 退出所有观察模式） |
+
+**工具栏行预算提醒**（新增控件前必读）：`TOOLBAR_ROW_BUDGET = 2`，当前 7 组已占 2 行；
+**+1 组仍 2 行，+2 组必红**（`graphUxContract.test.ts`）。下一轮的多选/对比（U1/U3）
+必须**零新分组**（并入既有组或进节点详情）。
+
+**行数余量**（改图区前必看）：`graphToolbarRender 249` / `renderGraph 247` /
+`graphExtras 249` / `graphExportSvg 245` —— 新逻辑必须进**新文件**。

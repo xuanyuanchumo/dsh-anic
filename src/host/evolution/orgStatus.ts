@@ -14,6 +14,7 @@ import { collectBreakerSignals } from './breakerSignals.ts';
 import { readHistory, summarizeHistory } from './autonomyHistory.ts';
 import { reloadSummary } from '../runtime/hotReload.ts';
 import { resolvePluginRoot } from '../pluginRoot.ts';
+import { readCycleDrift, type CycleDrift } from './cycleDrift.ts';
 
 /**
  * 给读者的**诚实提示**：hmr 可用性无法在只读快照里断言（headless/SDK profile 没有
@@ -23,7 +24,12 @@ import { resolvePluginRoot } from '../pluginRoot.ts';
 const HMR_PROBE_HINT = 'hmr availability is probed at request time by anic_reload_self; org-status is read-only';
 
 export interface OrgStatus {
-  cycles: { total: number; latest: string | null; converged: number; failed: number };
+  /**
+   * cycle-108：`drift` 是**只增字段**——「HEAD/状态机/目录」三个循环坐标是否互相矛盾。
+   * 缺陷实证：HEAD 已 cycle-107 而状态机停在 cycle-105，106/107 两轮测试报告
+   * 全写进 cycle-105（无一步报错）。面板必须能看见"坐标错了"，否则证据与轮次错配。
+   */
+  cycles: { total: number; latest: string | null; converged: number; failed: number; drift: CycleDrift };
   ledger: { entries: number; valid: boolean };
   trust: { scores: Record<string, { score: number; approve: number; total: number }>; recommendedBand: string };
   autonomy: {
@@ -154,7 +160,7 @@ export function runOrgStatus(workspaceRoot: string, options: {
   const reloadRead = reloadSummary(cyclesDir, resolvePluginRoot());
 
   return {
-    cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed },
+    cycles: { total: cycleDirs.length, latest: latestCycle, converged, failed, drift: readCycleDrift(workspaceRoot) },
     ledger: { entries: ledgerEntries, valid: ledgerValid },
     trust: { scores: trustScores, recommendedBand },
     autonomy: {

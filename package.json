@@ -1,6 +1,6 @@
 {
   "name": "dsh-anic",
-  "version": "0.57.0",
+  "version": "0.58.0",
   "private": false,
   "description": "ANIC — AI-Native Iteration Cycle as a standalone DSH plugin (general-purpose workflow visualizer; this repo is only its first verification ground). Docs: docs/anic/",
   "type": "module",
@@ -24,20 +24,29 @@
     "iteration",
     "workflow",
     "workflow-visualizer",
+    "workflow-graph",
     "evaluation",
     "convergence-gate",
+    "gate",
+    "hitl",
+    "autonomy",
     "sdlc",
     "agent",
+    "agentic-workflow",
+    "skill",
+    "mcp",
+    "mcp-server",
     "plugin"
   ],
   "bin": {
-    "anic-init": "./bin/anic-init.mjs"
+    "anic-init": "bin/anic-init.mjs"
   },
   "files": [
     "dist/",
     "assets/skill/",
     "assets/skills/",
     "assets/index/",
+    "assets/icon-180.png",
     "bin/",
     "locale/",
     "icon.svg",

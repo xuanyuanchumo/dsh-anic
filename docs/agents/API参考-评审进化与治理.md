@@ -377,3 +377,25 @@ const passed = chain.ok && missing.length === 0;
 - 周期面 → [API参考-周期面.md](API参考-周期面.md)
 - 自举 / 技能 / 安装 / 双自举面 → [API参考-自举与技能.md](API参考-自举与技能.md)
 - 轨迹可见性与 invocationFeed 接线 → [可观测性与轨迹可见性.md](可观测性与轨迹可见性.md)
+
+## cycle-108 增量：`POST /anic/api/tech-debt/triage` 的维度判据
+
+请求体：`{ apply?: boolean, actor?: string }`（形状不变）。
+
+响应新增 `facts` 段（**只增字段**）：
+
+| 字段 | 语义 |
+|---|---|
+| `facts.cycle` | 提供评估事实的活跃循环名（无报告 → `null`） |
+| `facts.reportPath` | 相对工作区路径 `.cycles/cycles/<cycle>/项目评估报告.md` |
+| `facts.digest` | 报告内容 `sha256` 前 8 位（证据可复算） |
+| `facts.dimensions` | 该报告里 16 维度的当前裁决（同维度取最后一条行） |
+| `facts.gates` / `facts.gatesAllPass` | 账本里 G0-G3 最后一次裁决 + 是否全 PASS（仅作佐证） |
+
+裁决语义扩展：`debt-<E|Q>[1-8]-*` 类提案此前恒 `unverifiable`，现在按当前评估裁决三态化
+（`PASS→stale` / `FAIL→reproduced` / `SKIP·缺行·无报告→unverifiable`）。
+**不要求四门全绿**——维度债务的裁决者是该维度自己的读数；四门全绿只写进证据串作佐证
+（要求全绿会让一个无关的 G3 红把"E4 已修好"这个事实藏起来，正是旧缺陷的镜像）。
+
+消费点：`src/host/routes/evolutionRoute.ts`（读 `debtFacts.ts`）→ `techDebtTriage.ts`。
+契约：`tests/unit/debtFacts.test.ts`（6）+ `tests/unit/techDebtTriage.test.ts`（维度 4 用例）。

@@ -3,6 +3,18 @@
 本文件记录 `assets/skills/ci-cd-release/` 叶技能的变更。版本锚点三处一致：
 `SKILL.md` frontmatter、`scripts/<primary>.mjs` 版本串、本文件顶层条目。
 
+## v0.2.0 — 2026-11-06（cycle-108）
+
+**新增参考**：`references/actions-authoring.md` —— GitHub Actions **编写面**（此前本技能只有
+发布流程与排障，没有"怎么写对 workflow"的一篇）。
+
+- 12 节：触发面 / 并发 / 权限 / 依赖与缓存 / 作业内定序 / 自审计开关 / artifacts /
+  reusable 的取舍 / action 版本钉法 / tarball 稳定名 / 可选步骤的正确形态 / 自检清单。
+- 每条结论以本仓 `.github/workflows/{ci,release}.yml` 实测为锚，含三条**反直觉**定序结论
+  （Build 最早 / 播种顺序敏感 / 播种后必须再 Build）。
+- 明确两条**不做**：单仓不抽 reusable workflow（没有第二个消费者）；不用 `continue-on-error`
+  吞发布失败。
+
 ## v0.1.0 — 2026-11-05
 
 **新增**：从零创建 `ci-cd-release` 叶技能（`assets/skills/ci-cd-release/`）。
