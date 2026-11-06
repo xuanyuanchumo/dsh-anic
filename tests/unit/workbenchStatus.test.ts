@@ -36,7 +36,7 @@ function closure(ghost: number): ClosureView {
       dynamicClaimed: 0, channelOnly: 0, channelDeclared: 0,
     },
     clusters: [], unconsumed: [], ghost: [], notes: [],
-    truncation: { applied: false, limit: 0, viewItems: 0, totalItems: 0 },
+    truncation: { unconsumed: { shown: 0, total: 0, truncated: false } },
   };
 }
 const domainOf = (id: string) => {
@@ -60,7 +60,7 @@ describe('diagnostics（自检 → fail/idle/ok）', () => {
 describe('health（critical 债 > 漂移/退化 > ok/idle）', () => {
   it('critical 技术债 ⇒ fail（优先于 warn）', () => {
     const s = base();
-    s.techDebt = { open: [{ file: 'f', entry: { id: 'd1', title: 't', severity: 'critical', kind: 'perf', detail: '', createdAt: '' } }], openCount: 1, resolvedCount: 0, skipped: [] };
+    s.techDebt = { open: [{ file: 'f', entry: { id: 'd1', dimension: 'eval', severity: 'critical', description: 'd', proposedAction: 'a', createdAt: '', resolved: false } }], openCount: 1, resolvedCount: 0, skipped: [] };
     expect(classifyDomainStatus(s, domainOf('health'))).toBe('fail');
   });
   it('技能退化（degraded）⇒ warn', () => {
