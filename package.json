@@ -1,6 +1,6 @@
 {
   "name": "dsh-anic",
-  "version": "0.56.0",
+  "version": "0.57.0",
   "private": false,
   "description": "ANIC — AI-Native Iteration Cycle as a standalone DSH plugin (general-purpose workflow visualizer; this repo is only its first verification ground). Docs: docs/anic/",
   "type": "module",
@@ -47,11 +47,11 @@
   ],
   "engines": {
     "node": ">=22.19",
-    "dsh": ">=0.2.0-rc.2 <0.4.0-0"
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh": ">=0.2.0-rc.2 <0.4.0-0"
+    "@deepseek-ai/dsh": ">=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {

@@ -268,11 +268,16 @@ describe('兼容门双锚契约（package.json engines.dsh ⇄ peerDependencies�
     expect(DSH_RANGE.length).toBeGreaterThan(0);
   });
 
-  it('两处范围逐字相等（-0 上界形态；改一处不改另一处 = 静默漂移）', () => {
+  it('两处范围逐字相等（双分支形态；改一处不改另一处 = 静默漂移）', () => {
     expect(DSH_RANGE).toBe(PEER_RANGE);
     // cycle-40 勘误的形态钉：上界必须是 <0.4.0-0（显式排除 0.4.0 预发布）
     expect(DSH_RANGE).toContain('<0.4.0-0');
     expect(DSH_RANGE).toContain('0.2.0-rc.2');
+    // cycle-107 预发布分支钉：0.3.x 预发布宿主（0.3.0-rc.1+）必须显式放行——
+    // node-semver 只放行与比较符同元组且带预发布标签的版本，单一 `>=0.2.0-rc.2 <0.4.0-0`
+    // 会静默排除 0.2.1+/0.3.x 预发布构建（awesome-dsh-plugin 收录规范研究实锤）。
+    expect(DSH_RANGE).toContain('>=0.3.0-rc.1 <0.4.0-0');
+    expect(DSH_RANGE).toContain('<0.3.0-0');
   });
 
   it('两处均不得含 workspace: 协议（engines.dsh 里出现即判不兼容；peer 里仅本地开发可解析）', () => {
@@ -281,12 +286,20 @@ describe('兼容门双锚契约（package.json engines.dsh ⇄ peerDependencies�
   });
 
   it('反向自检：真范围解析正确，坏范围被识破（守卫可失败）', () => {
-    // 正例：本仓范围形状
-    expect(DSH_RANGE).toMatch(/^>=0\.2\.0-rc\.2 <0\.4\.0-0$/);
+    // 正例：本仓范围形状（cycle-107 双分支：0.2.x 段 + 0.3.x 预发布段）
+    const SHAPE = /^>=0\.2\.0-rc\.2 <0\.3\.0-0 \|\| >=0\.3\.0-rc\.1 <0\.4\.0-0$/;
+    expect(DSH_RANGE).toMatch(SHAPE);
     // 负例：拼错的形状不得被上面的正则接受——证明 matcher 不是恒真
-    const badRanges = ['>=0.2.0', 'workspace:^', '>=0.2.0-rc.2 <0.4.0', ''];
+    const badRanges = [
+      '>=0.2.0',
+      'workspace:^',
+      '>=0.2.0-rc.2 <0.4.0-0', // 旧单分支形状（会静默排除 0.3.x 预发布宿主）
+      '>=0.2.0-rc.2 <0.3.0-0 | >=0.3.0-rc.1 <0.4.0-0', // 单竖线（非法 SemVer range）
+      '>=0.2.0-rc.2 <0.3.0-0||>=0.3.0-rc.1 <0.4.0-0', // 缺空格
+      '',
+    ];
     for (const bad of badRanges) {
-      expect(bad, `坏范围 ${JSON.stringify(bad)} 不应通过形状检查`).not.toMatch(/^>=0\.2\.0-rc\.2 <0\.4\.0-0$/);
+      expect(bad, `坏范围 ${JSON.stringify(bad)} 不应通过形状检查`).not.toMatch(SHAPE);
     }
   });
 });

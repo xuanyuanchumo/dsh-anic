@@ -94,9 +94,15 @@ export function integrateToolView(ctx: unknown): Array<() => void> | null {
     // 席位未声明（无会话面板）——静默降级，不崩
   }
 
-  // 暴露注册计数供调试（J0 探针可查）
+  // 暴露注册计数供调试（J0 探针可查）。
+  // cycle-107 真机修正：inject 回调是宿主在 ToolCallTree 挂载时才调用的（延迟），
+  // apply() 返回时 registered 仍是 0——静态快照 `{ count: registered }` 永远停在 0，
+  // 与 DOM 实际渲染的卡片数脱钩（沙箱真机实测 5 卡片 vs count=0）。改为 getter：
+  // 读取时求值，永远反映真实注册数。
   try {
-    (globalThis as { __ANIC_TOOLVIEW__?: { count: number } }).__ANIC_TOOLVIEW__ = { count: registered };
+    (globalThis as { __ANIC_TOOLVIEW__?: { count: number } }).__ANIC_TOOLVIEW__ = {
+      get count() { return registered; },
+    };
   } catch { /* 无 globalThis 可写（旧宿主）——忽略 */ }
 
   const cleanups = disposers.filter((d): d is () => void => typeof d === 'function');

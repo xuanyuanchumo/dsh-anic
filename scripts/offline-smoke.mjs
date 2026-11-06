@@ -10,7 +10,9 @@
  * 断言（21）：
  *   1. exports 形状（name='dsh-anic-client'/inject=['slots']/apply）
  *   2. factory require 解析 react
- *   3. 默认 → register 恰一次，def {conversation.view / anic-workflow-tab / order 101 / label 'ANIC'}
+ *   3. 默认 → tab 注册恰一次，def {conversation.view / anic-workflow-tab / order 101 / label 'ANIC'}
+ *      （cycle-107：apply 还会经 toolview 集成注册 24 个 anic_* 终端卡片——
+ *       `tool.call.toolview` keyed slot 每工具名一条，与 tab 注册分开断言）
  *   4. render() 元素树含 数据驱动圆点/边线计数（快照一致）—— **函数组件必须展开**（首轮 13/15 的
  *      2 个 FAIL 即树遍历没展开函数组件，circle/line 计 0）
  *   5. telemetry nodes/edges/autonomy 与快照一致
@@ -27,6 +29,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pluginDir = join(here, '..');
 const bundle = readFileSync(join(pluginDir, 'dist', 'client.js'), 'utf8');
 const snapshot = JSON.parse(readFileSync(join(pluginDir, 'artifacts', 'workflow-snapshot.json'), 'utf8'));
+/** 期望 toolview 注册数 = 共享清单 ANIC_TOOL_IDS 的字面量数（注册代码是真相，本处只投影）。 */
+const snapshotToolCount = (readFileSync(join(pluginDir, 'src', 'shared', 'anicToolIds.ts'), 'utf8')
+  .match(/'anic_[a-z0-9_]+'/g) ?? []).length;
 
 /** 在受控全局环境里执行 bundle，抓取 factory 与 exports */
 function loadBundle({ storageValue = null } = {}) {
@@ -131,15 +136,27 @@ check('telemetry 暴露且数据面与快照一致', !!t
   && t.edges === snapshot.counts.edges
   && t.autonomy === snapshot.autonomy,
 t ? `nodes=${t.nodes} edges=${t.edges} autonomy=${t.autonomy}` : 'missing');
-check('register 恰一次（inject 回调后）', registrations.length === 1, `got ${registrations.length}`);
-const def = registrations[0]?.def;
+/**
+ * cycle-107：apply 现在有两条注册路径——
+ *   ① toolview 集成：`tool.call.toolview` keyed slot，每个 anic_* 工具名一条（24 个）；
+ *   ② workflow tab：`conversation.view`，恰一次。
+ * 各自独立断言（混在一起数会随工具增减而抖动）。
+ */
+const tabRegs = () => registrations.filter((r) => r.def?.name === 'conversation.view');
+const toolviewRegs = () => registrations.filter((r) => r.def?.name === 'tool.call.toolview');
+const toolviewKeys = () => new Set(toolviewRegs().map((r) => r.def.key));
+check('toolview 注册数 === 快照工具数（每个 anic_* 一条）',
+  toolviewRegs().length === snapshotToolCount
+  && toolviewKeys().size === snapshotToolCount,
+  `got ${toolviewRegs().length} (keys=${toolviewKeys().size}) expect ${snapshotToolCount}`);
+const def = tabRegs()[0]?.def;
 check('def.name === conversation.view', def?.name === 'conversation.view');
 check('def.id === anic-workflow-tab', def?.id === 'anic-workflow-tab', String(def?.id));
 check('def.order === 101', def?.order === 101);
 check("label() === 'ANIC'", typeof def?.label === 'function' && def.label() === 'ANIC');
 check('registered === true', t.registered === true);
 
-const tree = registrations[0].render();
+const tree = tabRegs()[0].render();
 const circles = countType(tree, 'circle').n;
 /**
  * 边计数改为「**锚点计数**」而非「`<line>` 标签计数」（cycle-83）。
@@ -238,13 +255,14 @@ check('svg 根存在（renderGraph 纯渲染路径）', svgs === 1, `svgs=${svgs
 t.unregister();
 check('unregister 调用 disposer 且 registered=false', t.unregisterCount === 1 && t.registered === false && disposerCalls.n >= 1);
 t.reregister();
-check('reregister 第二次注册（dispose 后可重进）', registrations.length === 2 && t.registered === true);
+check('reregister 第二次注册（dispose 后可重进）', tabRegs().length === 2 && t.registered === true);
 
 // ── 场景 2：kill-switch ──
 const run2 = loadBundle({ storageValue: 'off' });
 const reg2 = [];
 run2.exports.apply({ slots: { inject: (_s, cb) => { cb(); return () => {}; }, register: (d) => { reg2.push(d); return () => {}; } } });
-check('flag-off → skipped 且零注册', run2.window.__ANIC_TAB_SPIKE__.skipped === 'flag-off' && reg2.length === 0);
+check('flag-off → skipped 且零注册', run2.window.__ANIC_TAB_SPIKE__.skipped === 'flag-off'
+  && reg2.filter((d) => d.name === 'conversation.view').length === 0);
 
 // ── 汇总 ──
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);

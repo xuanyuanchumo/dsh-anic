@@ -9,6 +9,7 @@
  *   J0-4  数据来源如实标注（live 或 嵌入快照，二者必居其一）
  *   J0-5  运行时热卸载：unregister() → 标签消失 → reregister() → 恢复
  *   J0-6  kill-switch：localStorage['anic-workflow-tab']='off' + reload → skipped='flag-off'
+ *   J0-7  toolview 席位注册：__ANIC_TOOLVIEW__.count === 共享清单工具数（cycle-107）
  *
  * 前置：node scripts/start-dsh-test.mjs start   （本探针绝不启动/杀死宿主进程）
  * 用法：node scripts/j0-probe.mjs [--keep-switch]   （--keep-switch 不恢复 kill-switch）
@@ -207,7 +208,24 @@ try {
   record('J0-5 热卸载/恢复', false, String(e).slice(0, 160));
 }
 
-// J0-6 kill-switch（写入 → reload → skipped='flag-off' → 恢复）
+// J0-7 toolview 席位真机注册（cycle-107 命令窗口显示修复的真机判据）：
+//   client 半部经 tool.call.toolview keyed slot 注册 anic_* 工具终端卡片。
+//   判据：window.__ANIC_TOOLVIEW__.count === 共享清单工具数（24）。
+//   这是「卡片真的被宿主 UI 采纳」的最低门槛——count=0 说明注册失败或席位名漂移。
+try {
+  const tv = await page.evaluate(() => {
+    const v = window.__ANIC_TOOLVIEW__ ?? null;
+    return { count: v?.count ?? null };
+  });
+  record('J0-7 toolview 注册', tv.count !== null && tv.count >= 20,
+    `__ANIC_TOOLVIEW__.count=${tv.count}（期望 ≥20，共享清单 24 个 anic_* 工具名）`);
+} catch (e) {
+  record('J0-7 toolview 注册', false, String(e).slice(0, 160));
+}
+
+// ── J0-6 kill-switch（写入 → reload → skipped='flag-off' → 恢复）─────────────
+// 注意顺序：J0-6 会 reload 页面，必须放在 J0-7 之后（reload 会重建 client 应用，
+// __ANIC_TOOLVIEW__ 计数在 reload 后仍应恢复——J0-7b 在恢复后复查）。
 try {
   await page.evaluate(() => window.localStorage.setItem('anic-workflow-tab', 'off'));
   await page.reload({ waitUntil: 'domcontentloaded' });

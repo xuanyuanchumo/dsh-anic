@@ -91,23 +91,41 @@ npm publish --access public   # 经 vault_run npm 执行
 
 发布前核对（contributing.md 硬性要求）：
 - `package.json.repository` 必须指回被收录的 GitHub 仓库（npm ↔ GitHub 关联靠它，cycle-104 已补）；
-- `files` 字段已含 `dist/ assets/skill/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE`；
-- `engines.dsh` / peerDependencies 的预发布分支写法已是 explicit `||` 形态。
+- `files` 字段已含 `dist/ assets/skill/ assets/skills/ assets/index/ bin/ locale/ icon.svg cordis.patch.yml README.md LICENSE`；
+- `engines.dsh` / peerDependencies 的预发布分支写法已是 explicit `||` 双分支形态（cycle-107）。
 
 ## 7. marketplace 收录（awesome-dsh-plugin）
 
-规则来源：awesome-dsh-plugin contributing.md。要点：
+规则来源：awesome-dsh-plugin contributing.md（cycle-107 全文核验，研究输入 I）。
+要点：
 - fork 后新增**一个文件** `data/plugins/xuanyuanchumo__dsh-anic.yml`（一个 PR 最多 3 条）；
-- `url` 必须与仓库完全一致；`category: workflow`；
-- **描述数字必须与代码核实一致**（夸大是唯一会被打回的原因）：
+- `url` 必须与仓库完全一致；`category: workflow`（合法 25 类之一）；
+- **描述数字必须与代码核实一致**（夸大是唯一会被打回的原因——描述被视为声明并与源码核对）：
 
 ```sh
 grep -rho "name: 'anic_[a-z_]*'" src/host/tools*.ts | sort -u | wc -l   # → 24（工具数）
 ```
 
-- 含 `: ` 的英文描述必须整体加引号；
+- 含 `: ` 的英文描述必须整体加引号（否则 YAML 解析炸）；
+- yml **手写 `npm:` 字段会被拒**——npm↔仓库关联从 registry 自动采集；
 - 仓库需满 1 天 + topic `dsh-plugin`（本仓 2026-11-04 建仓 + 已加 topic）；
-- CI 绿是前置条件不是结论，维护者会读源码核对描述。
+- CI 绿是前置条件不是结论，维护者会读源码核对描述；
+- gate 显示 `—` = Submission gate 未跑（几乎总是分支与 main 冲突）——**只能等维护者
+  rebase**，推空提交/自己重新生成 README 都无效；
+- 被打 `held: author` 标签时：同分支推修复 + **只留一条**评论；"Held PRs" 跟踪 issue
+  每日 06:19 UTC 刷新可自查；
+- **engines.dsh 预发布陷阱**（cycle-107 修复）：node-semver 只放行与比较符同元组且带
+  预发布标签的版本——`>=0.2.0-rc.2 <0.4.0-0` 单分支会**静默排除 0.2.1+/0.3.x 预发布
+  宿主**，必须显式 `||` 双分支：`">=0.2.0-rc.2 <0.3.0-0 || >=0.3.0-rc.1 <0.4.0-0"`
+  （engines.dsh 与 peerDependencies 两处逐字相等，`dshConformance` 契约钉住形状）；
+- 每个新 release 必须附稳定名 `dsh-anic.tgz`（release.yml 已保证——`latest/download/`
+  链接 404 会让收录条目失效）；
+- 工具/路由数变化时**只改自己的 yml** 条目描述。
+
+**PR #12071 现状**（2026-11-06 核验）：七字段齐全、category/workflow、tarball 稳定名、
+dsh.bundle.patch 已声明、仓库满 1 天、topic 已加、npm 0.56.0 已发布且 repository 指回、
+24 工具/77 路由数字已附核验方式——全部合规；head commit 0 statuses（gate 未跑），
+属维护者 rebase 范畴，作者侧无解，只需在 Checks 页与 Held issue 跟踪。
 
 ## 8. 回滚
 

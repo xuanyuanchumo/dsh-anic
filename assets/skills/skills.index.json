@@ -1,9 +1,9 @@
 {
   "$schema": "./skills.schema.json",
   "library": "dsh-anic-internal-skills",
-  "version": "0.1.0",
-  "updatedAt": "2026-11-05",
-  "description": "dsh-anic 内部技能库注册表（唯一事实源）：主干技能 + 8 叶技能 + 1 元技能。叶技能只提供操作知识与确定性脚本，不互相 import；主干技能（ai-native-iteration-cycle）充当流程脊柱。自进化由 _meta/skill-library-evolution 承载。",
+  "version": "0.2.0",
+  "updatedAt": "2026-11-06",
+  "description": "dsh-anic 内部技能库注册表（唯一事实源）：主干技能 + 9 叶技能 + 1 元技能。叶技能只提供操作知识与确定性脚本，不互相 import；主干技能（ai-native-iteration-cycle）充当流程脊柱。自进化由 _meta/skill-library-evolution 承载。",
   "spine": {
     "name": "ai-native-iteration-cycle",
     "role": "flow-spine",
@@ -110,6 +110,17 @@
       "anchors": ["SKILL.md", "scripts/superagent-status-probe.mjs", "CHANGELOG.md"],
       "gates": [],
       "evidenceSink": ".cycles/"
+    },
+    {
+      "name": "dsh-plugin-patterns",
+      "version": "0.1.0",
+      "tier": "leaf",
+      "summary": "DSH 插件工程模式（P01-P14）：工具注册面/toolview 席位/client UI 纪律/safeDispose/失败为值/分层持久化，沉淀自 dsh-ops 与 dsh-context 源码研究",
+      "triggers": ["工具注册", "toolview", "slots", "生命周期", "拆卸", "防御式", "失败为值", "持久化", "可观测", "插件模式"],
+      "dependsOn": ["dsh-native-api"],
+      "anchors": ["SKILL.md", "scripts/toolview-check.mjs", "CHANGELOG.md"],
+      "gates": ["G0"],
+      "evidenceSink": ".cycles/tech-debt/"
     }
   ],
   "contracts": {

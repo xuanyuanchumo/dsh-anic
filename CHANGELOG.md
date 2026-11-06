@@ -1,5 +1,57 @@
 # dsh-anic CHANGELOG
 
+## v0.57.0 — 2026-11-06（cycle-107：命令窗口显示修复落地收口 · 内部技能库 v0.2.0 · 沙箱用户旅程全 PASS）
+
+> 起点：commit `3c752b9`（v0.56.0 后 toolview 接线闭环 WIP）。
+> 本轮：L4 全自主自举循环驱动——修复半成品语法缺陷、toolview 契约三方钉死、
+> G0-G3+HITL 全绿收敛、沙箱真机用户旅程（24 工具注册/卡片渲染/图谱交互/多项目
+> 隔离）全部 PASS、热重载桌面端。
+> 终点：**四层 ALL GREEN**（validate + vitest 3639+ + smoke 21 + trigger）。
+
+### ① 命令窗口显示修复（toolview 席位注册收口）
+
+- **根因**（官方契约，kb adding-a-tool.md:95）：内置 Web Client **不消费** `presentCall`/
+  `presentResult`——host 侧 TerminalCallView 永不被渲染，anic_* 调用落 generic 行。
+- **修复链三方钉死**：共享清单 `src/shared/anicToolIds.ts`（唯一真相源，host 再导出）⇄
+  `ToolViewIntegration`（keyed slot 注册 + 幂等守卫 + disposer 回滚）⇄ `AnicToolCard`
+  （稳定组件 + wire 防御式派生 + 主题令牌）；`toolview-check.mjs` 机械守卫全链。
+- **白盒计数修正**：`__ANIC_TOOLVIEW__.count` 改 getter——inject 回调宿主延迟调用，
+  静态快照永远停在 0（沙箱真机实测 7 卡片 vs count=0 的脱钩实锤）。
+
+### ② 工程缺陷修复（本轮实测抓出）
+
+- `toolIds.ts` 块注释含 glob `src/shared/**/*.ts`——`*/` 提前终止注释引发 14 个连环
+  解析错误（注释措辞改为「目录下全部 TS 文件」）。
+- `tsconfig.client.json` 缺 `"jsx": "react-jsx"`——首个 .tsx 文件无法编译。
+- 冒烟契约演进：tab/toolview **分桶断言**，期望数从共享清单投影（架构演进后
+  「总数恰一次」型断言从守卫退化为抖动源）。
+- `engines.dsh` 预发布陷阱：`>=0.2.0-rc.2 <0.4.0-0` 单分支静默排除 0.3.x 预发布宿主
+  （node-semver 同元组规则，awesome-dsh-plugin 规范研究实锤）→ 显式 `||` 双分支，
+  `dshConformance` 契约同步钉形状（含旧形状进负例清单）。
+
+### ③ 内部技能库 v0.2.0（自进化吸收）
+
+- 新叶技能 `dsh-plugin-patterns`：dsh-ops/dsh-context 源码研究沉淀 14 条工程模式
+  （P01-P14：能力目录表/toolview 席位/safeDispose/失败为值/分层持久化…）+
+  cycle-107 实战锚点 + 排错速查（含沙箱 pipe EPERM 边界、块注释 glob 陷阱）。
+- 注册表 skills.index.json 0.1.0→0.2.0（9 叶技能）；研究输入 H/I 落盘 research-inputs/。
+
+### ④ 沙箱用户旅程（sb-anic-c107，dsh 0.2.2-rc.1 真机）
+
+- **全部 PASS**：插件加载（技能注册 + tool disclosure wiring）、toolview count=24、
+  DOM 卡片 7 张真实渲染（JSON 输出+退出状态）、CSS 挂载、图谱 41 节点/80 边 +
+  适配视图/节点点击交互、**多项目隔离**（工作区徽标如实归因 codegraph-visualizer）。
+- 探针升级：J0-7 toolview 真机判据（≥20 注册数）进 `j0-probe.mjs`。
+- 排障沉淀：自定义 profile 缺 `@deepseek-ai/dsh-headless`/`dsh-web-app` bundle 会
+  静默挂起（headless 等待 app、web 报 unknown option）——三锚对比法定位。
+
+### ⑤ 文档与治理
+
+- 工具面参考新增 §6 呈现层（toolview 契约链 + 沙箱取证）；CI-CD 手册 §7 补
+  marketplace 全规则（held: author 协议、gate `—` 处置、PR #12071 现状核验）。
+- 治理：旧周期 101/103/104 归档（manifest 84 条）、tmp 脚本清理、G1 任务清单
+  真实填写解除 H3 熔断、G0-G3 全绿 + HITL 四检查全过。
+
 ## v0.56.0 — 2026-11-04（cycle-104：技能自收敛 · 图谱视口重适配 · GitHub CI/CD · npm/GitHub 发布面）
 
 > 起点：commit `fdc42a2`（v0.55.2 cycle-103），278 文件 / 3622 用例全绿。
