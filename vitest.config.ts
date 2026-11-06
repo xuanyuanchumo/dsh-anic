@@ -55,6 +55,22 @@ export default defineConfig({
           'tests/unit/graphLayout.test.ts',
           'tests/unit/graphModernization.test.ts',
           'tests/unit/graphFilter.test.ts',
+          // ★cycle-109：三个**新增**图谱契约与上面五族**同根同因** —— 它们都
+          // `readFileSync(artifacts/workflow-snapshot.json)`。而 `artifacts/` 是
+          // **gitignore 的生成物**（generate-snapshot 的产物），CI 全新检出时不存在；
+          // 播种顺序又是「coverage 先跑、snapshot 后生成」⇒ 三条在 CI 必 ENOENT
+          // （release run 42188789565 / CI run 42188781170 的 Seed 步骤即此）。
+          //
+          // 为什么选择「排除」而不是「把 snapshot 生成提到 coverage 之前」：
+          // 提前生成只能得到**种子数据面**（cycle-1，~25 节点），而这三位断言的是
+          // **真实图谱交互语义**（钉住后读数仍在 / 多选矩阵 diff / 反向可达），
+          // 种子图不满足其判据 —— 结果是「不 ENOENT 了但换成断言红」，更糟。
+          // 本仓既有先例（上面五族）就是同一条裁决：真实数据面契约由本地全量
+          // （ANIC_SELF_AUDIT=1）作为授权门禁，CI 是快速回归面。
+          // ⇒ 本地这三条仍**必须**绿（cycle-109 实测 461 用例全绿）。
+          'tests/contract/graphFocusPinContract.test.ts',
+          'tests/contract/graphMultiSelectContract.test.ts',
+          'tests/contract/graphPathModeUxContract.test.ts',
           'tests/manual/**',
         ]
       : ['tests/**/node_modules/**'],
