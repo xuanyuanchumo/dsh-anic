@@ -1,5 +1,31 @@
 # dsh-anic CHANGELOG
 
+## v0.60.0 — 2026-11-07（cycle-110：前端工作台重构 · 六域信息架构 · 响应式网格）
+
+> 起点：commit `4b49e41`（v0.59.0）。用户目标：「重构前端为现代化工作台（功能不清晰）」。
+> 终点：**四层 ALL GREEN**（295 files / 3810 tests）+ G0-G3 全 PASS + 沙箱真机旅程。
+> 设计文档：`docs/agents/工作台重构设计.md`。
+
+### ① 六域信息架构（修「功能不清晰」）
+- 16 分区纵向长卷 → 六域卡片网格：总览(通栏)/健康与自主/流程与治理/步骤与诊断/闭环与自举/配置(通栏收尾)。
+- `workbenchModel.ts` 域表是唯一事实源：分桶/导航/状态分类/测试对账全部由它派生。
+- 装配层 keyed() 打 SECTION_KEY_PROP 标记；漏配落 unassigned 桶**显式渲染 fail 卡**（漂移必须可见）。
+
+### ② 域健康导航（状态从折叠内走到视口第一层）
+- `workbenchStatus.ts`：六域 classifyDomainStatus，判据逐条对齐渲染层消费字段（零第二套判定）。
+- sticky chips + 状态点（字形+色双通道）+ scrollIntoView；不进工具栏语义区（smoke 3 按钮契约不破）。
+
+### ③ 响应式卡片网格
+- 容器查询三档（单列 / ≥560px 两列 / ≥900px 三列）；卡圆角 8、hover 抬起；
+  `prefers-reduced-motion` 全关；颜色全经 v() 零字面量；空域零占位。
+
+### ④ 契约与证据
+- `workbenchContract` 四腿（源码覆盖/DOM 骨架/CSS 判据/nav 边界）+ 反向自检；
+  workbenchModel(6)/workbenchStatus(12)/workbenchContract(14) 新增 32 用例。
+- 全量 295 files / 3810 tests ALL GREEN；G0-G3 PASS；死导出 P1=8 持平；T3 全 ≤250。
+- 沙箱真机：6 chips/6 cards/三列网格/chip 滚动 76px/窄 500px 折 1 列/工具栏 3 按钮不变。
+
+
 ## v0.59.0 — 2026-11-06（cycle-109：运行时取证 · 技能库消费 · 图谱交互三件套）
 
 > 起点：commit `8d57068`（v0.58.0，cycle-108 收口）。
