@@ -58,6 +58,22 @@
   （度 0 集合 ≡ orphan 集合）——一旦 `.cycles/incidents/` 出现 incident，快照会生成
   `inc → aux:auto` 边，钉具体 id 就会把正常数据当成缺陷。
 
+### ⑥ 真机验收与发布（不是本地绿灯）
+
+- **沙箱**（`sb-anic-c107` @3081，link: 挂载本仓）：`org-status` 返回
+  `latest=cycle-108 / drift=false`；`tech-debt/triage` 把 `debt-E4` 由 `unverifiable`
+  变 `stale`（证据 sha256 `bc7edc28`）且二次调用 `marked=0`；`self/evaluate`
+  `exit=0 / 16 维度全过 / 78.5s`；`self/gate-check` **G0-G3 全 PASS**。
+- **真机抓出的第五个缺陷**：`POST /anic/self/evaluate` 修复前恰在 60.03s 被掐断
+  （`exit=-1 / outcome=not-run`）——`bootstrapTrackedRunners` 把 `60000` 当**位置参数**，
+  `bootstrapBudget` 的静态守卫（扫 `timeoutMs = 60000`）扫不到 ⇒ P0 在路由路径静默复发。
+  已改为引用 `BOOTSTRAP_STEP_TIMEOUT_MS` 并补位置参数守卫。
+- **桌面端**：`anic_reload_self` 热重载 `d5fc4f92 → 04af3149`，`GET /anic/org-status`
+  首行即新 revision（`stale=false`）。
+- **发布**：npm `dsh-anic@latest = 0.58.0`（official registry 实测，B4 关闭）；
+  CI run `42155783365` 与 Release run `42155819302` 均 `success`，
+  Release `v0.58.0` 附件 `dsh-anic.tgz`（923229B + sha256）。
+
 ## v0.57.0 — 2026-11-06（cycle-107：命令窗口显示修复落地收口 · 内部技能库 v0.2.0 · 沙箱用户旅程全 PASS）
 
 > 起点：commit `3c752b9`（v0.56.0 后 toolview 接线闭环 WIP）。

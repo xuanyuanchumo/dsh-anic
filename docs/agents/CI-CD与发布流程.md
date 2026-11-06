@@ -147,11 +147,14 @@ dsh.bundle.patch 已声明、仓库满 1 天、topic 已加、npm 0.56.0 已发�
 
 | 项 | 状态 |
 |---|---|
-| 远端 PR（awesome-dsh-plugin #12071） | **已提交**，`state: OPEN`，`mergeable_state: clean`，Submission gate `success @2026-11-06T00:58:55Z` |
-| GitHub Release `v0.57.0` + 稳定名 `dsh-anic.tgz` | ✅ 已发布（`releases/latest/download/dsh-anic.tgz` HTTP 200） |
-| npm registry `dsh-anic@latest` | ⚠️ 曾滞后于 0.56.0（B4 缺口）；cycle-108 收口时随 0.58.0 同步，发布后必核 |
+| 远端 PR（awesome-dsh-plugin #12071） | **已提交**，`state: OPEN`，`mergeable_state: clean`，Submission gate `success @2026-11-06T00:58:55Z`；cycle-108 追加 `icon:` 提交 `4a2dd3a`，正文同步 npm/icon 状态 |
+| GitHub Release `v0.57.0` | ✅ 已发布（历史） |
+| **GitHub Release `v0.58.0`** | ✅ **2026-11-06 实测**：Release workflow `success`（run 42155819302），附件 `dsh-anic.tgz`（923229B，sha256 `533dfc44…`）+ `dsh-anic.tgz.sha256` |
+| npm registry `dsh-anic@latest` | ✅ **0.58.0**（`https://registry.npmjs.org/dsh-anic/latest` 实测）；B4「registry 滞后」缺口关闭 |
 | `engines.dsh` 双分支 | ✅ `package.json` 与 README 均已为 `>=0.2.0-rc.2 <0.3.0-0 \|\| >=0.3.0-rc.1 <0.4.0-0` |
-| 市场条目 `icon:` | ✅ `assets/icon-180.png`（列表只收位图，SVG 会被拒收） |
+| 市场条目 `icon:` | ✅ `assets/icon-180.png`（列表只收位图，SVG 会被拒收）；PR 分支已引用 |
+| GitHub topics | ✅ 14 个（补 convergence-gate / hitl / autonomy / workflow-visualizer / sdlc / mcp-server） |
+| `keywords` | ✅ 20 条（`package.json`） |
 
 **数字同步纪律**：工具的 24 / 路由的 77 只有 README 侧有契约守卫
 （`tests/contract/readmeNumbers.test.ts`）；列表条目 yml、PR 正文、本文档**无守卫**，
