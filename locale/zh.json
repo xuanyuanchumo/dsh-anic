@@ -696,5 +696,17 @@
     "crossProject": "跨项目",
     "crossProjectLine": " · {source} → {target}",
     "crossProjectCount": " · {count} 次"
+  },
+  "wb": {
+    "navLabel": "工作域导航",
+    "domain": {
+      "overview": "总览",
+      "health": "健康与自主",
+      "flows": "流程与治理",
+      "diagnostics": "步骤与诊断",
+      "quality": "闭环与自举",
+      "settings": "配置"
+    },
+    "cardCount": "{count} 个分区"
   }
 }

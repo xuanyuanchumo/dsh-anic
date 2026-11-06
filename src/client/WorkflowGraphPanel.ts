@@ -5,10 +5,8 @@
  * 分区订阅薄组件在 components/panelSections.ts（cycle-42 Top2 拆分）。
  * 本文件只剩：外部 store 的创建/接线 + 交互态 + 工具栏/抽屉 + 编排。
  *
- * cycle-42（Top2 债务收口）：数据面（原 ~15 个数据 useState）全部搬入
- * panelState 外部 store；usePanelFetch/useInvocations 的 apply 回调改写 store；
- * 各分区由薄组件按切片订阅——2s/4s tick 的重渲范围收敛到对应分区，
- * 根组件不再因数据 tick 重渲（store/回调引用恒定，React.memo 拦截级联）。
+ * cycle-42（Top2 债务收口）：数据面全部搬入 panelState 外部 store，各分区按
+ * 切片订阅（2s/4s tick 重渲收敛到对应分区；详见 components/panelStore.ts 头注）。
  *
  * 数据热更新（三层，全部安全降级）：
  *   1. 嵌入快照（构建期生成，永远可用 —— 多代宿主安全底线）；
@@ -16,6 +14,11 @@
  *   3. 路由缺失/404/5xx/无 fetch → 回退嵌入快照，底行如实显示来源。
  *
  * 主题 hooks 在 components/panelTheme.ts（cycle-18 T3 拆分）。
+ *
+ * cycle-110（工作台重构）：16 分区的纵向长卷 → 六域卡片网格 + sticky 域导航。
+ * 「功能不清晰」的根因是信息架构缺失（无分组/无导航/健康信号藏在折叠内部），
+ * 不是数据缺失——故本轮只动呈现层：域表在 workbench/workbenchModel.ts，
+ * 状态分类在 workbenchStatus.ts，网格/导航/CSS 在 workbench/ 与 shared/workbenchCss。
  */
 import { createElement, useCallback, useRef, useState, type ReactElement } from 'react';
 import { createPanelStore } from './components/panelStore.ts';
@@ -28,7 +31,10 @@ import { closureTarget } from './features/closure/closureTarget.ts';
 // cycle-82：配置与路径分区（唯一可写面）+ 其 4s 档数据腿。
 import { ConfigSection, CONFIG_PANEL_ID } from './features/config/ConfigSection.ts';
 // cycle-95：分区编排（旅程排序）已拆出，本文件只保留编排的**调用**（守 T3 ≤250 行）。
-import { renderPanelSections } from './panelSectionOrder.ts';
+// cycle-110：呈现层重构为工作台（六域卡片网格 + 域导航 + 域健康状态点）。
+// 数据管线（store / 轮询 / 隔离守卫）、分区组件、门控与锚点**零改动**——
+// renderWorkbench 内部仍调 renderPanelSections（同参透传），只重组呈现序。
+import { renderWorkbench } from './workbench/workbenchGrid.ts';
 import { configTarget } from './features/config/configTarget.ts';
 import { renderPrefsDrawer, readPrefsRaw, PREFS_PANEL_ID_BASE } from './features/prefs/prefsDrawer.ts';
 import { useInvocations } from './features/live/useInvocations.ts';
@@ -231,7 +237,7 @@ export function WorkflowGraphPanel(): ReactElement {
     // 分区编排（旅程排序）已拆至 panelSectionOrder.ts（cycle-95 · 守 T3 ≤250 行）：
     // 「先看到什么、后看到什么」属编排职责，与根组件的「数据从哪来、点了发生什么」
     // 是两件事。排序理由（工作区徽标为何在图区之前、配置为何刻意最后）写在彼文件头注。
-    ...renderPanelSections({
+    ...renderWorkbench({
       store, gates: { stepTraceOn, diagnosticsOn, flowsViewOn, approvalsOn },
       onNodeClick, onShowMore, autoRefreshOn, configPanelId, selectedNode, onCloseNodeDetail: closeNodeDetail,
       // cycle-95：工作区分键视图态的分键键源。null = 尚未学到 ⇒ 图区不记忆

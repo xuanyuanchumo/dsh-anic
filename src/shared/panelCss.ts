@@ -24,6 +24,9 @@
  */
 import { SEMANTIC, type TokenName } from './tokens.ts';
 import { GRAPH_CSS } from './graphCss.ts';
+// cycle-110：工作台布局子系统（网格/卡片/导航）——独立域独立文件，
+// 注入仍走本数组（单一注入点，styles 块数量不增）。
+import { WORKBENCH_CSS } from './workbenchCss.ts';
 
 /** 令牌引用（与组件侧 token() 同形，但用于 CSS 文本——不能走 token() 因为那是给 style 对象的）。 */
 function v(name: TokenName): string {
@@ -232,4 +235,6 @@ export const PANEL_CSS: string = [
   // cycle-90 新增的图区样式（视图组 / 泳道表头）——独立文件，见 graphCss.ts 头注。
   // 为什么放最后：追加块不改既有条目的顺序，审阅时只看这一段就是"本轮新增"。
   GRAPH_CSS,
+  // cycle-110：工作台结构样式（追加在末尾——同面板作用域，晚出现覆盖早出现仅限同特异性）。
+  WORKBENCH_CSS,
 ].join('\n');

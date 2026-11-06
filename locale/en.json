@@ -696,5 +696,17 @@
     "crossProject": "Cross-project",
     "crossProjectLine": " · {source} → {target}",
     "crossProjectCount": " · {count} runs"
+  },
+  "wb": {
+    "navLabel": "Workbench domains",
+    "domain": {
+      "overview": "Overview",
+      "health": "Health & Autonomy",
+      "flows": "Flows & Governance",
+      "diagnostics": "Steps & Diagnostics",
+      "quality": "Closure & Bootstrap",
+      "settings": "Configuration"
+    },
+    "cardCount": "{count} section(s)"
   }
 }

@@ -30,7 +30,7 @@
  * 分区 props 全部引用稳定（store 实例 / 布尔 / useCallback 回调），这样 `memo`
  * 才能真正拦截"2s 调用流 tick 让整棵树重渲"的级联。
  */
-import { createElement, type ReactElement } from 'react';
+import { createElement, type ReactElement, type ReactNode } from 'react';
 import type { PanelDataStore } from './panelState.ts';
 import {
   GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection,
@@ -41,6 +41,10 @@ import {
 // 配置分区不在 panelSections 门面里（它是唯一可写面，独立 import 路径），
 // 与 WorkflowGraphPanel 原装配点保持同一来源（路径零变更）。
 import { ConfigSection } from './features/config/ConfigSection.ts';
+// cycle-110：装配时给每个分区元素打分区 key 标记（SECTION_KEY_PROP）——工作台
+// 网格按标记分桶（查表 O(n)），不 import 16 个组件、不数下标；漏配会被
+// workbenchGrid 的 unassigned 卡显式暴露（域表漂移必须可见）。
+import { SECTION_KEY_PROP } from './workbench/workbenchModel.ts';
 import { renderNodeDetail, type NodeDetail } from './features/graph/gateColors.ts';
 import type { WorkflowNode } from './workflowGraphData.ts';
 
@@ -78,6 +82,14 @@ export interface PanelSectionsInput {
  *
  * @returns 分区元素数组，可直接展开进 `children` 数组。
  */
+
+/** cycle-110：给分区元素打 key 标记（原 props 全保留；见文件尾 SECTION_KEY_PROP 注释）。 */
+function keyed(el: ReactElement, sectionKey: string): ReactElement {
+  const props = (el.props ?? {}) as Record<string, unknown>;
+  const children = props.children as ReactNode;
+  return createElement(el.type, { ...props, [SECTION_KEY_PROP]: sectionKey }, children);
+}
+
 export function renderPanelSections(input: PanelSectionsInput): Array<ReactElement | null> {
   const { store, gates, onNodeClick, onShowMore, autoRefreshOn, configPanelId, selectedNode, onCloseNodeDetail, workspace } = input;
   return [
@@ -85,25 +97,25 @@ export function renderPanelSections(input: PanelSectionsInput): Array<ReactEleme
     createElement(WorkspaceBadge, { store, key: 'workspace-badge' }),
     // 图区：订阅 graph+trace 两切片（verdicts 由 trace 派生）。
     // `workspace` 只喂分键视图态；缺省 undefined ⇒ 图区不记忆缩放/筛选。
-    createElement(GraphSection, { store, onNodeClick, key: 'graph', ...(workspace === undefined ? {} : { workspace }) }),
+    keyed(createElement(GraphSection, { store, onNodeClick, key: 'graph', ...(workspace === undefined ? {} : { workspace }) }), 'graph'),
     // 实时调用流：动态白盒主叙事。
-    createElement(LiveInvocationsSection, { store, autoRefreshOn, key: 'live' }),
+    keyed(createElement(LiveInvocationsSection, { store, autoRefreshOn, key: 'live' }), 'live'),
     // 周期时间线：宏观节奏条。
-    createElement(CyclesSection, { store, key: 'cycles' }),
-    createElement(StepTraceSection, { store, enabled: gates.stepTraceOn, key: 'steptrace' }),
-    createElement(DiagnosticsSection, { store, enabled: gates.diagnosticsOn, key: 'diagnostics' }),
-    createElement(OrgSection, { store, key: 'org' }),
-    createElement(SkillHealthSection, { store, key: 'skillhealth' }),
+    keyed(createElement(CyclesSection, { store, key: 'cycles' }), 'cycles'),
+    keyed(createElement(StepTraceSection, { store, enabled: gates.stepTraceOn, key: 'steptrace' }), 'stepTrace'),
+    keyed(createElement(DiagnosticsSection, { store, enabled: gates.diagnosticsOn, key: 'diagnostics' }), 'diagnostics'),
+    keyed(createElement(OrgSection, { store, key: 'org' }), 'org'),
+    keyed(createElement(SkillHealthSection, { store, key: 'skillhealth' }), 'skillHealth'),
     // 技术债队列：技能健康之后呈现「欠了什么债」。
-    createElement(TechDebtSection, { store, key: 'techdebt' }),
-    createElement(FlowsSection, { store, enabled: gates.flowsViewOn, key: 'flows' }),
-    createElement(LedgerSection, { store, onShowMore, key: 'ledger' }),
-    createElement(HitlSection, { store, enabled: gates.approvalsOn, key: 'hitl' }),
-    createElement(BudgetSection, { store, key: 'budget' }),
-    createElement(ClosureSection, { store, key: 'closure' }),
-    createElement(BootstrapSection, { store, key: 'bootstrap' }),
+    keyed(createElement(TechDebtSection, { store, key: 'techdebt' }), 'techDebt'),
+    keyed(createElement(FlowsSection, { store, enabled: gates.flowsViewOn, key: 'flows' }), 'flows'),
+    keyed(createElement(LedgerSection, { store, onShowMore, key: 'ledger' }), 'ledger'),
+    keyed(createElement(HitlSection, { store, enabled: gates.approvalsOn, key: 'hitl' }), 'hitl'),
+    keyed(createElement(BudgetSection, { store, key: 'budget' }), 'budget'),
+    keyed(createElement(ClosureSection, { store, key: 'closure' }), 'closure'),
+    keyed(createElement(BootstrapSection, { store, key: 'bootstrap' }), 'bootstrap'),
     // 配置（唯一可写面）刻意最后：观测面先于可写面。
-    createElement(ConfigSection, { store, panelId: configPanelId, key: 'config' }),
+    keyed(createElement(ConfigSection, { store, panelId: configPanelId, key: 'config' }), 'config'),
     renderNodeDetail(selectedNode, selectedNode === null
       ? undefined
       : { detailId: `${configPanelId}-node-detail`, onClose: onCloseNodeDetail }),

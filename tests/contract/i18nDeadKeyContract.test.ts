@@ -216,6 +216,14 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
      *   交互比不提示更糟（本仓"静默失约"同族纪律）。
      */
     expect(zhKeys.length).toBeGreaterThanOrEqual(250);
-    expect(zhKeys.length).toBeLessThanOrEqual(610);
+    //   cycle-110：610 → 618。工作台（W 战线）新增 8 键，全部由
+    //   `src/client/workbench/*` 消费：
+    //     - `wb.navLabel`：nav 的 aria-label（WorkbenchNav.ts，AT 播报导航边界）；
+    //     - `wb.domain.overview/health/flows/diagnostics/quality/settings`：六域标签，
+    //       **六键不可合并**——域卡头与 nav chip 各渲染一次，合并成单键会让
+    //       「健康与自主」「流程与治理」这类语义分组退化为不可读的代号；
+    //     - `wb.cardCount`：卡头「n 个分区」计数行（workbenchGrid.ts 卡头）。
+    //   实测 618 = 上限（继续零余量纪律）。
+    expect(zhKeys.length).toBeLessThanOrEqual(618);
   });
 });
