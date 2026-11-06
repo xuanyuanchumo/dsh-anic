@@ -10,8 +10,10 @@
 | 项 | 状态 |
 |---|---|
 | PR #12071 | OPEN / CLEAN / 1 file（**无需改动**——工具数 24 与路由数 77 本轮均未变） |
-| npm `dsh-anic@latest` | 0.58.0 → 本轮发 0.59.0 后需复核（见 §6 用户动作项） |
+| npm `dsh-anic@latest` | ✅ **0.59.0**（`npm view dsh-anic version --registry https://registry.npmjs.org` 实测） |
+| GitHub Release | ✅ **v0.59.0**（资产 `dsh-anic.tgz` 968,245 B + `dsh-anic.tgz.sha256`；`releases/latest/download/dsh-anic.tgz` HTTP 200） |
 | 条目描述里的 24/77 | 仍与源码一致（`tests/contract/readmeNumbers.test.ts` 机器复算） |
+| CI | ✅ run `42191384145` success（含 cycle-109 新增三条图谱契约的 CI 排除族修复） |
 
 本轮新增能力**不改变**条目里的数字契约：`disclosureVerdict` / `skillVisibility` /
 `skillLibrary` 三个读数是**既有路由与既有工具的字段扩展**，没有新增工具或路由。
