@@ -36,7 +36,7 @@ import {
   GraphSection, LiveInvocationsSection, CyclesSection, StepTraceSection,
   DiagnosticsSection, OrgSection, SkillHealthSection, TechDebtSection, FlowsSection,
   LedgerSection, HitlSection, BudgetSection, ClosureSection, BootstrapSection,
-  WorkspaceBadge,
+  WorkspaceBadge, PluginInfoSection,
 } from './components/panelSections.ts';
 // 配置分区不在 panelSections 门面里（它是唯一可写面，独立 import 路径），
 // 与 WorkflowGraphPanel 原装配点保持同一来源（路径零变更）。
@@ -116,6 +116,9 @@ export function renderPanelSections(input: PanelSectionsInput): Array<ReactEleme
     keyed(createElement(BootstrapSection, { store, key: 'bootstrap' }), 'bootstrap'),
     // 配置（唯一可写面）刻意最后：观测面先于可写面。
     keyed(createElement(ConfigSection, { store, panelId: configPanelId, key: 'config' }), 'config'),
+    // cycle-111 插件信息（关于/反馈）：settings 域的收尾分区——读完可写面后
+    // 告诉用户「这个插件是谁、版本多少、去哪反馈」。静态元信息，零 store 订阅。
+    keyed(createElement(PluginInfoSection, { key: 'pluginInfo' }), 'pluginInfo'),
     renderNodeDetail(selectedNode, selectedNode === null
       ? undefined
       : { detailId: `${configPanelId}-node-detail`, onClose: onCloseNodeDetail }),

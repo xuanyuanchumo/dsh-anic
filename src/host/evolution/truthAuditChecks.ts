@@ -19,8 +19,12 @@ function collectTsFiles(dir: string, base: string = ''): { path: string; lines: 
     try { isDir = statSync(full).isDirectory(); } catch { continue; }
     if (isDir) files.push(...collectTsFiles(full, rel));
     else if (entry.endsWith('.ts')) {
-      const lines = readFileSync(full, 'utf8').split('\n').length;
-      files.push({ path: rel, lines });
+      // 行数口径：split('\n') 会给"以换行结尾的文件"多算 1 行（251 for a
+      // 250-line file）——cycle-111 实测踩到：wc -l 250 / split 251，硬限 250
+      // 的判定被尾换行摆动。pop 掉末尾空串（与 wc -l / 编辑器状态栏同口径）。
+      const raw = readFileSync(full, 'utf8').split('\n');
+      if (raw.length > 0 && raw[raw.length - 1] === '') raw.pop();
+      files.push({ path: rel, lines: raw.length });
     }
   }
   return files;

@@ -100,8 +100,16 @@ describe('腿② DOM：真 store 渲染出工作台骨架', () => {
       configPanelId: 't2', selectedNode: null, onCloseNodeDetail: () => undefined,
     });
     const html2 = renderToStaticMarkup(createElement('div', null, ...el2));
-    // stepTrace 关闭 ⇒ diagnostics 域卡 count 从 2 → 1
-    expect(html2).toContain('data-anic-wb-card-count="1"');
+    // ⚠️ cycle-111 修正：这条断言原是 `html2 含 count="1"`——**假阳性**。INV-30
+    // 的关闭形态是「分区渲染一行『已按开关关闭』说明」而不是从装配中消失
+    // （关闭形态可观测纪律），所以 diagnostics 域 count 保持 2。旧断言绿是因为
+    // settings 域恰好也是 1 个分区，泛匹配误命中了它（cycle-111 settings 1→2
+    // 后假阳性暴露，同时暴露了测试意图与机制语义脱节）。正确断言：
+    //   ① diagnostics 卡仍渲染（关闭≠消失）且 count 不变（关闭形态仍占装配位）；
+    //   ② 关闭形态行真的出现（steptrace-disabled 锚点）；
+    //   ③ 反向：域表清空才是减员（下一个用例钉）。
+    expect(html2).toMatch(/id="anic-wb-card-diagnostics"[^>]*data-anic-wb-card-count="2"/);
+    expect(html2).toContain('data-anic-steptrace-disabled="true"');
   });
   it('workspaceBadge 在网格之外（先于 nav 渲染——全局上下文不属任何域）', () => {
     expect(html.indexOf('data-anic-workspace-badge')).toBeGreaterThan(-1);

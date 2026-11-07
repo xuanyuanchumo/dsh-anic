@@ -224,6 +224,16 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
     //       「健康与自主」「流程与治理」这类语义分组退化为不可读的代号；
     //     - `wb.cardCount`：卡头「n 个分区」计数行（workbenchGrid.ts 卡头）。
     //   实测 618 = 上限（继续零余量纪律）。
-    expect(zhKeys.length).toBeLessThanOrEqual(618);
+    //
+    //   cycle-111：618 → 628。插件信息与反馈面板新增 10 键，全部由
+    //   `src/client/features/info/PluginInfoSection.ts` 消费：
+    //     - `fold.pluginInfo`：分区标题（settings 域折叠壳）；
+    //     - `wb.info.name/version/builtAt`：信息行行名（插件名/版本/构建时间）；
+    //     - `wb.info.links`：反馈链接行行名；
+    //     - `wb.info.issues/repo/npm/docs`：四个外链文案（问题反馈/仓库主页/npm
+    //       包页/开发文档）。四键不可合并——每条对应一个独立跳转目标，合并会让
+    //       用户无法区分「报 Issue」与「看文档」（静默失约同族纪律）。
+    //   实测 628 = 上限（继续零余量纪律）。
+    expect(zhKeys.length).toBeLessThanOrEqual(628);
   });
 });

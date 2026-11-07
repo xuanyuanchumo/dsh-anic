@@ -109,4 +109,9 @@ export const WORKBENCH_CSS: string = [
   `@media (prefers-reduced-motion: reduce) {`,
   `  button[data-anic-wb-nav-chip] { transition: none; }`,
   `}`,
+
+  // ── 插件信息面板（cycle-111 · settings 域「关于/反馈」）────────────────
+  // 行排版由组件内联 style 承担（与 renderOrgStatus 同范式）；这里只给链接
+  // 一个统一的 hover 下划线（内联 style 表达不了 :hover 伪类）。
+  `a[data-anic-info-link]:hover { text-decoration: underline; }`,
 ].join('\n');

@@ -45,6 +45,8 @@ import { ClosureSection } from '../../src/client/features/closure/ClosureSection
 import { ConfigSection } from '../../src/client/features/config/ConfigSection.ts';
 // cycle-89：自举分区（事实基线/陈旧判据/重启入口）。同款拆分：特性域持有，装配层再导出。
 import { BootstrapSection } from '../../src/client/features/bootstrap/BootstrapSection.ts';
+// cycle-111：插件信息分区（关于/反馈）。同款拆分：特性域持有，装配层再导出。
+import { PluginInfoSection } from '../../src/client/features/info/PluginInfoSection.ts';
 import type { PanelDataStore } from '../../src/client/panelState.ts';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -179,6 +181,8 @@ describe('cycle-69 T-6901 面板分区装配契约', () => {
       createElement(ConfigSection, { store, panelId: 'probe-config' }),
       // cycle-89：自举分区（初始态 bootstrap=null ⇒ 只剩折叠壳；锚点仍必须在）。
       createElement(BootstrapSection, { store }),
+      // cycle-111：插件信息分区（静态元信息，零 store 依赖；锚点仍必须在）。
+      createElement(PluginInfoSection, {}),
     ));
     for (const id of sectionIds) {
       expect(html).toContain(`data-anic-fold="${id}"`);

@@ -328,7 +328,8 @@
     "techdebt": "Tech debt",
     "closure": "Closure audit",
     "config": "Configuration & paths",
-    "bootstrap": "Self-bootstrap (facts baseline & restart)"
+    "bootstrap": "Self-bootstrap (facts baseline & restart)",
+    "pluginInfo": "Plugin Info & Feedback"
   },
   "techdebt": {
     "summary": "open {open} · resolved {resolved} · skipped {skipped}",
@@ -707,6 +708,17 @@
       "quality": "Closure & Bootstrap",
       "settings": "Configuration"
     },
-    "cardCount": "{count} section(s)"
+    "cardCount": "{count} section(s)",
+    "info": {
+      "name": "Plugin",
+      "version": "Version",
+      "builtAt": "Built at",
+      "links": "Feedback & links",
+      "issues": "Report an issue",
+      "repo": "Repository",
+      "npm": "npm package",
+      "docs": "Documentation",
+      "checkUpdate": "Check for updates (open npm page to compare)"
+    }
   }
 }

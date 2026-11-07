@@ -9,6 +9,7 @@
  * `workbenchGrid` 按它分桶、`WorkbenchNav` 按它出导航 chips、
  * `workbenchStatus` 按它的域 id 分类健康态——三处消费同一张表，
  * 新增/移动分区只改这里（漏配/重复配由 workbenchModel.test 的多重集断言红）。
+ * cycle-111：settings 域收入 pluginInfo（插件信息/反馈面板）——16 分区。
  *
  * ## 域表条目形状
  *
@@ -72,7 +73,7 @@ export const WORKBENCH_DOMAINS: readonly WorkbenchDomain[] = [
   { id: 'flows', labelKey: 'wb.domain.flows', span: 'auto', sections: ['flows', 'ledger', 'hitl', 'budget'] },
   { id: 'diagnostics', labelKey: 'wb.domain.diagnostics', span: 'auto', sections: ['stepTrace', 'diagnostics'] },
   { id: 'quality', labelKey: 'wb.domain.quality', span: 'auto', sections: ['closure', 'bootstrap'] },
-  { id: 'settings', labelKey: 'wb.domain.settings', span: 'full', sections: ['config'] },
+  { id: 'settings', labelKey: 'wb.domain.settings', span: 'full', sections: ['config', 'pluginInfo'] },
 ];
 
 /**

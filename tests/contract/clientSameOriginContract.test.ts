@@ -66,6 +66,12 @@ describe('客户端同源契约（cycle-71：asar dsh-app 代理 Origin 白名�
     for (const f of CLIENT_FILES) {
       const text = readFileSync(f, 'utf8');
       text.split(/\r?\n/).forEach((line, i) => {
+        // cycle-111 豁免：`anic-url-data` 行内标记 = **跳转目标数据**（<a href> 的
+        // 用户点击外链，如 PluginInfoPanel 的 GitHub issues/npm 页），不是 fetch
+        // 目标——同源守卫管的是"运行时自动请求会被 Origin 白名单 403"，点击跳转
+        // 由系统浏览器接管，不经代理。豁免必须逐行显式标记（不是整文件跳过），
+        // 且 PLUGIN_INFO 生成文件由 build-plugin-info.mjs 模板逐行打标。
+        if (line.includes('anic-url-data')) return;
         if (ABSOLUTE_URL_RE.test(line)) offenders.push(`${f.slice(PLUGIN_ROOT.length + 1)}:${String(i + 1)}: ${line.trim()}`);
       });
     }

@@ -3,7 +3,7 @@
  *
  * 域表是分桶/渲染/状态分类的唯一事实源——它错一格，某个分区就从面板上消失
  * （且因为分区组件本身仍在装配数组里，旧行为测试不红）。所以本文件钉三条：
- * ① 15 个分区恰好归一次（无遗漏无重复）；② 分桶保持域表序与装配序；
+ * ① 16 个分区恰好归一次（无遗漏无重复）；② 分桶保持域表序与装配序；
  * ③ 反向自检——域表漏一项时 unassigned 必须接住（漂移可见）。
  */
 import { describe, it, expect } from 'vitest';
@@ -16,6 +16,7 @@ import {
 const ALL_SECTIONS = [
   'graph', 'live', 'cycles', 'stepTrace', 'diagnostics', 'org', 'skillHealth',
   'techDebt', 'flows', 'ledger', 'hitl', 'budget', 'closure', 'bootstrap', 'config',
+  'pluginInfo',
 ] as const;
 
 /** 造一个带 key 标记的假装配元素。 */
@@ -25,7 +26,7 @@ function el(sectionKey: string): ReturnType<typeof createElement> {
 const assembled = ALL_SECTIONS.map((k) => el(k));
 
 describe('域表完整性（唯一事实源的三条不变量）', () => {
-  it('15 个分区恰好归一次：无遗漏、无重复、无未知键', () => {
+  it('16 个分区恰好归一次：无遗漏、无重复、无未知键', () => {
     const flat = WORKBENCH_DOMAINS.flatMap((d) => [...d.sections]);
     expect([...flat].sort()).toEqual([...ALL_SECTIONS].sort());
     expect(new Set(flat).size).toBe(flat.length);

@@ -206,10 +206,14 @@ describe('目标一致性契约（注册·生产·消费 + 连通性逻辑性 + 
 
   it('⑪ 模块化生产级架构：无超 250 行文件 + 无运行时 import 环', async () => {
     // (a) 单文件上限（与 truthAudit T3 同口径，此处独立复算）
+    // cycle-111：行数口径与 truthAuditChecks.ts 同步修正——split('\n') 会给
+    // "以换行结尾的文件"多算 1 行（pop 掉末尾空串，与 wc -l 同口径）。
     const oversized: string[] = [];
     for (const [rel, raw] of FILES) {
       if (!rel.startsWith('src/')) continue;
-      const n = raw.split('\n').length;
+      const lines = raw.split('\n');
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      const n = lines.length;
       if (n > 250) oversized.push(rel + '=' + String(n));
     }
     expect(oversized, '超 250 行：' + oversized.join(', ')).toEqual([]);

@@ -328,7 +328,8 @@
     "techdebt": "技术债务",
     "closure": "闭环体检",
     "config": "配置与路径",
-    "bootstrap": "自举循环（事实基线与重启）"
+    "bootstrap": "自举循环（事实基线与重启）",
+    "pluginInfo": "插件信息与反馈"
   },
   "techdebt": {
     "summary": "待处理 {open} · 已消费 {resolved} · 跳过 {skipped}",
@@ -707,6 +708,17 @@
       "quality": "闭环与自举",
       "settings": "配置"
     },
-    "cardCount": "{count} 个分区"
+    "cardCount": "{count} 个分区",
+    "info": {
+      "name": "插件名",
+      "version": "版本",
+      "builtAt": "构建时间",
+      "links": "反馈与链接",
+      "issues": "问题反馈",
+      "repo": "仓库主页",
+      "npm": "npm 包页",
+      "docs": "开发文档",
+      "checkUpdate": "检查更新（打开 npm 包页比对最新版本）"
+    }
   }
 }

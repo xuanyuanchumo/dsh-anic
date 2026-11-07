@@ -190,6 +190,10 @@ export { ClosureSection } from '../features/closure/ClosureSection.ts';
 // cycle-89 自举分区：答「上次自举的结论是否还基于当前项目事实」（默认收纳）。
 export { BootstrapSection } from '../features/bootstrap/BootstrapSection.ts';
 
+// cycle-111 插件信息分区（settings 域「关于/反馈」）：静态元信息，不订阅 store——
+// 详见 features/info/PluginInfoSection.ts 头注（数据面为构建期常量 PLUGIN_INFO）。
+export { PluginInfoSection } from '../features/info/PluginInfoSection.ts';
+
 // cycle-95 WS-D：当前工作区徽标（项目名 + 跨项目标注）。
 // 为什么走本文件再导出而不是让装配层直接 import：`WorkflowGraphPanel.ts` 已 249 行、
 // T3 上限 250 —— 加一行 import 就顶线。本文件是"分区订阅薄层的聚合面"，
