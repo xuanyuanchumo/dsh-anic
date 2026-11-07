@@ -3,7 +3,10 @@
 > cycle-38 产出（T-3809），cycle-42 增补（T-4207：数据面 store 化，见 §2.4）。研究方法：context7 MCP（TanStack Query 轮询纪律 + WAI-ARIA APG live region 模式 + cycle-42 增补 /react/react useSyncExternalStore 与 /pmndrs/zustand v5 selector 纪律）+ 14 个 feature 模块逐个盘点。
 > 本文回答三个问题：现在有什么（§1）、数据面如何演进（§2）、缺口按什么顺序补（§3）。
 
-## 1. 功能域现状矩阵（14 分区 + 壳层）
+## 1. 功能域现状矩阵（14 分区 + 壳层 → cycle-111 起六域工作台 16 分区）
+
+> **cycle-111 更新**：cycle-110 六域工作台重构后，分区装配在 `panelSectionOrder.ts`（keyed 标记）→ `workbench/workbenchGrid.ts`（域表分桶）；下表 #1–#12 是分区语义，物理挂点已按六域重组（总览/健康与自主/流程与治理/步骤与诊断/闭环与自举/配置）。
+> **cycle-111 新增 #16 插件信息与反馈**：settings 域收尾分区——静态元信息（构建期常量 `src/client/info/pluginInfo.ts`，package.json 单一事实源投影），零 store 订阅零轮询；四个反馈外链（问题反馈/仓库主页/npm 包页/开发文档，`data-anic-info-link` 锚点 + `_blank noreferrer`）。契约守卫 `tests/contract/pluginInfoContract.test.ts` 三腿（版本同步/面板形状/locale 对齐）；数据面由 `scripts/build-plugin-info.mjs` 构建期生成，发版漏跑必被版本同步腿拦红。
 
 面板装配在 `src/client/WorkflowGraphPanel.ts`（229 行，纯编排——cycle-42 起只持 UI 态，数据态全数入 store）；每分区一个 feature 模块（T3 纪律：全部 ≤250 行）。分区经 `panelSections.ts` 订阅薄组件装配（§2.4）。
 
