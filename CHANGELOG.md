@@ -1,5 +1,31 @@
 # dsh-anic CHANGELOG
 
+## v0.61.0 — 2026-11-07（cycle-111：插件信息面板与反馈入口）
+
+> 起点：commit `1526636`（v0.60.0）。用户验收项：「要有插件信息面板且包含反馈入口如跳转到对应的 github 链接」。
+> 终点：**四层 ALL GREEN**（296 files / 3819 tests）+ 沙箱真机旅程验证（3093 沙箱，六域工作台 + 信息面板 + 四外链 DOM 断言全过）。
+
+### ① 插件信息面板（settings 域收尾分区）
+- 数据面：`src/client/info/pluginInfo.ts`——构建期生成（`scripts/build-plugin-info.mjs`），package.json 单一事实源投影；builtAt 锚定 mtime 保证生成器幂等。
+- 组件：`src/client/features/info/PluginInfoSection.ts`——fold id=`pluginInfo`，静态元信息零 store 订阅；四个外链（问题反馈/仓库主页/npm 包页/开发文档）全部 `target=_blank + noreferrer`，SPA 拦截时 `window.open` 兜底。
+- 装配：settings 域 sections `[config, pluginInfo]`（16 分区）；locale `fold.pluginInfo` + `wb.info.*` 10 键（zh/en 对齐）。
+
+### ② 契约守卫（pluginInfoContract 三腿）
+- 版本同步：PLUGIN_INFO 逐字段 == package.json 投影（发版漏跑生成器必红，面板永不显示陈旧版本）。
+- 面板形状：信息锚点 + 四外链 href/target/rel 端到端断言。
+- locale 对齐：wb.info 键集 zh/en 双向相等。
+
+### ③ 同轮修复（迭代实测暴露的既有缺陷）
+- **workbenchContract 反向自检假阳性**：`count="1"` 泛匹配恰好命中旧 settings 卡；INV-30 关闭形态语义下门控关分区不减员——改精确锚点 + 关闭形态行断言。
+- **T3 行数口径**：`split('\n')` 给尾换行文件多算 1 行（wc 250 / split 251）——pop 末尾空串对齐 wc -l（truthAuditChecks + objectiveConformance ⑪ 双处同口径）。
+- **自指陷阱第二例**：注释里 `renderFoldableSection({ id: '...'` 字面量被装配契约扫描器当真 id——注释改写并留教训。
+- **同源契约豁免机制**：`anic-url-data` 行级标记（跳转目标数据 ≠ fetch 目标）。
+- **i18n 棘轮**：618 → 628（wb.info 10 键认领，零余量纪律续期）；closureAuditTruth 前缀登记 `wb.info.` 族。
+
+### ④ 验证
+- typecheck ✅ / 四层金字塔 ALL GREEN / build ✅。
+- 沙箱真机：sb-anic-c107（link: junction）3093 端口，Playwright DOM 断言：六域卡 ×6 / nav ✅ / 信息面板 v0.60.0 / 四链接 href 逐一正确。
+
 ## v0.60.0 — 2026-11-07（cycle-110：前端工作台重构 · 六域信息架构 · 响应式网格）
 
 > 起点：commit `4b49e41`（v0.59.0）。用户目标：「重构前端为现代化工作台（功能不清晰）」。
