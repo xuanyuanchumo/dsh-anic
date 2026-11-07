@@ -5,7 +5,16 @@
 > cycle-109 实取复核：`gh pr view 12071`）。
 > 规则来源：`awesome-dsh-plugin/awesome-dsh-plugin` 的 `contributing.md`（cycle-108 实取原文核对）。
 
-## 0. cycle-109 复核结论（数字未变）
+## 0. cycle-111 复核（2026-11-07 实测）
+
+| 项 | 状态 |
+|---|---|
+| PR #12071 | OPEN / CLEAN / 1 file——**条目里的数字契约（24 工具 / 77 路由）本轮均未变**（cycle-111 只加了面板分区与构建脚本，不加工具/路由），无需改动 |
+| npm `dsh-anic@latest` | ✅ **0.61.0**（`npm view dsh-anic version` 实测；tarball `dsh-anic-0.61.0.tgz` 978.9 kB / 153 files） |
+| GitHub Release | ✅ **v0.61.0**（资产 `dsh-anic.tgz` + `dsh-anic.tgz.sha256`；`releases/latest/download/dsh-anic.tgz` HTTP 302→资产） |
+| CI | ✅ run `42348900826` success；Release run `42348906710` success |
+
+## 0.1 cycle-109 复核结论（历史记录，数字未变）
 
 | 项 | 状态 |
 |---|---|
