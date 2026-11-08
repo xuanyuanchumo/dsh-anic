@@ -42,7 +42,6 @@ const RECENT_WINDOW = 8;
 const RECENT_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 
 // ── 类型定义 ──
-
 export type HealthLevel = 'healthy' | 'degraded' | 'slow' | 'expensive' | 'insufficient' | 'unused';
 
 export interface ScriptHealth {
@@ -74,6 +73,17 @@ export interface ScriptHealth {
   effectiveSuccessRate: number;
   /** 近期窗口的有效成功率（无近期样本时 undefined，与 recentSuccessRate 同窗）。 */
   recentEffectiveRate?: number;
+  /**
+   * 近期窗口超时率（cycle-112 · 与 recentSuccessRate 同窗：最近 N 条且 7 天内）。
+   *
+   * 为什么新增：分级里的 `slow` 此前读**全史** `timeoutRate`，而 degraded 读近期窗口
+   * ——两套时间口径。真机实证：auto-fix-loop 5/6 次调用在 `durationMs=240020` 被
+   * 调用方预算掐断（根因是工具默认超时 240s < 脚本合法上限，cycle-112 已修），
+   * 但即便修复后连续成功，全史 5/6=83% 仍让它**永久 slow**——正是 cycle-57 修过的
+   * 「旧失败永不出窗」同根模式，只是超时维度漏了。现在分级读近期超时率，
+   * `timeoutRate` 保留全史口径供白盒对照（两个数都在 payload 里，不藏历史）。
+   */
+  recentTimeoutRate?: number;
   /** 最近一次调用时间。 */
   lastInvoked?: string;
 }
@@ -158,16 +168,21 @@ function computeScriptHealth(script: string, flows: FlowRecord[], nowMs: number)
   const recentDone = recentFlows.filter((f) => f.status === 'DONE').length;
   const recentVerdicts = recentFlows.filter((f) => classifyFlowOutcome(f) === 'verdict').length;
   const recentUsage = recentFlows.filter((f) => classifyFlowOutcome(f) === 'usage').length;
+  const recentTimeouts = recentFlows.filter((f) => f.status === 'TIMEOUT').length;
   const recentMeasured = recentFlows.length - recentUsage;
   const recentSuccessRate = recentMeasured > 0 ? recentDone / recentMeasured : undefined;
   const recentEffectiveRate = recentMeasured > 0
     ? (recentDone + recentVerdicts) / recentMeasured
     : undefined;
+  // cycle-112：近期超时率与成功率同窗（分级用；全史 timeoutRate 仅作白盒对照）。
+  const recentTimeoutRate = recentMeasured > 0 ? recentTimeouts / recentMeasured : undefined;
   const lastInvoked = flows[flows.length - 1]?.startedAt;
 
   let level: HealthLevel;
   if (total < MIN_SAMPLE) level = 'insufficient';
-  else if (timeoutRate > SLOW_TIMEOUT_RATE) level = 'slow';
+  // cycle-112：slow 判定改用**近期窗口**超时率（与 degraded 同口径）。全史口径
+  // 会让「预算不足被掐断」的旧记录永久压顶——修复后无法被承认（cycle-57 同根）。
+  else if (recentTimeoutRate !== undefined && recentTimeoutRate > SLOW_TIMEOUT_RATE) level = 'slow';
   // cycle-53 T-5301：分级看近期窗口——修复后的连续成功应恢复 healthy。
   // cycle-57 T-5702：时间窗空 → insufficient（当前状态不可判定）。
   // cycle-85 · O-84-01：分级改用 **有效成功率**（DONE + 有效负裁决）。
@@ -180,6 +195,7 @@ function computeScriptHealth(script: string, flows: FlowRecord[], nowMs: number)
   return {
     script, level, total, successRate, timeoutRate, avgDurationMs, lastInvoked,
     recentSuccessRate, validVerdicts, usageErrors, effectiveSuccessRate, recentEffectiveRate,
+    recentTimeoutRate,
   };
 }
 

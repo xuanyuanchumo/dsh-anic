@@ -73,7 +73,43 @@ describe('continuousLearning', () => {
       const report = analyzeSkillHealth(makeState(flows), T57_NOW);
       expect(report.scripts[0].level).toBe('slow');
       expect(report.scripts[0].timeoutRate).toBe(1 / 3);
+      expect(report.scripts[0].recentTimeoutRate).toBe(1 / 3);
       expect(report.suggestions[0].id).toBe('speed-auto-fix-loop');
+    });
+
+    it('cycle-112：旧超时出近期窗口后 slow 恢复（修复必须被健康面承认）', () => {
+      /*
+       * 被修缺陷：`slow` 判据此前读**全史** timeoutRate。auto-fix-loop 真机 5/6 次
+       * 超时（durationMs=240020，调用方预算杀死），即便根因修复、之后每次成功，
+       * 全史 5/6=83% 仍让它永久 slow——正是 cycle-57 修过的「旧失败永不出窗」
+       * 同根模式。现在分级读近期窗口超时率。
+       *
+       * 夹具：2 次旧超时（10-01/10-02，7 天前）+ 8 次近期成功（01-17..01-24 之前
+       * 用 T53_OCT 时钟对齐）——近期窗口 8 条全 DONE ⇒ 不 slow、healthy。
+       */
+      const oldTimeouts = Array.from({ length: 2 }, (_, i) =>
+        makeFlow({ script: 'auto-fix-loop', status: 'TIMEOUT', exitCode: -1, startedAt: `2026-10-0${String(i + 1)}T00:00:00.000Z` }));
+      const recentOk = Array.from({ length: 8 }, () =>
+        makeFlow({ script: 'auto-fix-loop', status: 'DONE', startedAt: '2026-10-20T00:00:00.000Z' }));
+      const report = analyzeSkillHealth(makeState([...oldTimeouts, ...recentOk]), T53_OCT);
+      const af = report.scripts.find((s) => s.script === 'auto-fix-loop');
+      expect(af?.level, '旧超时已出近期窗口，修复后不得继续 slow').toBe('healthy');
+      // 全史口径仍如实保留（白盒：历史不隐藏）。
+      expect(af?.timeoutRate).toBeCloseTo(2 / 10, 5);
+      expect(af?.recentTimeoutRate).toBe(0);
+      expect(report.suggestions.find((s) => s.id === 'speed-auto-fix-loop')).toBeUndefined();
+    });
+
+    it('cycle-112：近期窗口内仍有超时 ⇒ 仍判 slow（修复论不掩护当前问题）', () => {
+      // 反向自检：不能因为"见过成功"就无视窗内占 25% 的超时。
+      const flows = [
+        ...Array.from({ length: 6 }, () => makeFlow({ script: 'auto-fix-loop', status: 'DONE', startedAt: '2026-10-20T00:00:00.000Z' })),
+        ...Array.from({ length: 2 }, () => makeFlow({ script: 'auto-fix-loop', status: 'TIMEOUT', exitCode: -1, startedAt: '2026-10-20T00:01:00.000Z' })),
+      ];
+      const report = analyzeSkillHealth(makeState(flows), T53_OCT);
+      const af = report.scripts.find((s) => s.script === 'auto-fix-loop');
+      expect(af?.level).toBe('slow');
+      expect(af?.recentTimeoutRate).toBe(0.25);
     });
 
     it('expensive 脚本：平均耗时>30s 生成 info 建议', () => {

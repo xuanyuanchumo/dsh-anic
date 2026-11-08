@@ -22,13 +22,13 @@ import {
   validateWorkspace,
   isAllowedScript,
   listSkillScripts,
-  resolveQuickValidateSkillDir,
-} from './skillInvoker.ts';
+  } from './skillInvoker.ts';
+import { normalizeQuickValidateArgs } from './skillQuickValidateArgs.ts';
 import { loadFlowTracker, startFlow, markRunning, finishFlow } from './runtime/flowTracker.ts';
 // cycle-99c：anic_skill 超时预算接单一事实源 bootstrapBudget——旧自写 `?? 60000`
 // 对实测 74–93s 的 eval-runner 必 TIMEOUT（flow #158/#159），且 Infinity/NaN 无收口
 // （Node 把 Infinity 视为 1ms → 子进程秒杀）。
-import { BOOTSTRAP_STEP_TIMEOUT_MS, resolveSkillInvokeTimeout } from './runtime/bootstrapBudget.ts';
+import { defaultSkillTimeout, resolveSkillInvokeTimeout, skillTimeoutCap, BOOTSTRAP_STEP_TIMEOUT_MS, LONG_SCRIPT_TIMEOUT_MS } from './runtime/bootstrapBudget.ts';
 import { skillPresentCall, skillPresentResult, terminalResult, genericCall, skillResultWithMeta } from './presentation.ts';
 
 /** 注册技能域 DSH 工具（anic_skill 网关；安装域在 toolsSkillInstall.ts）。 */
@@ -67,7 +67,7 @@ export function registerSkillGatewayTools(
             + 'NOTICE: quick-validate is the one script whose first positional is the SKILL DIR '
             + '(e.g. "assets/skill" — the gateway resolves it to the installed copy), not the project dir.',
         },
-        timeout: { type: 'number', description: `Timeout ms (default ${BOOTSTRAP_STEP_TIMEOUT_MS}; cap = self-bootstrap step budget)` },
+        timeout: { type: 'number', description: `Timeout ms (default per-script: long-running scripts (auto-fix-loop) get ${LONG_SCRIPT_TIMEOUT_MS}; others ${BOOTSTRAP_STEP_TIMEOUT_MS}; cap = the script's own budget)` },
       },
       required: ['script'],
     },
@@ -92,7 +92,11 @@ export function registerSkillGatewayTools(
       // 唯一例外（cycle-31 契约 + cycle-39 T-3902 修正）：quick-validate 的
       // 第一个位置参数**本来就是 SKILL DIR**（任何形态——"assets/skill" 相对 /
       // 绝对路径），绝不是工作区——不参与重定向判定。
-      const isQuickValidate = script === 'quick-validate' && rawArgs.length > 0;
+      // cycle-112：判定不再要求 rawArgs 非空——**无参调用**此前把项目根当技能目录
+      // 校验（真机实证 2026-11-02 flow：「Directory: D:\...\dsh-anic Total files:
+      // 10226 ... 65 errors」⇒ 必 FAIL），被健康模型记成脚本失败（7/14）。
+      // 现在无参 / 首参是旗标时自动补省缺技能根，首参是技能相对形态时照旧解析。
+      const isQuickValidate = script === 'quick-validate';
       let effectiveWs = ws;
       let extraArgs = rawArgs;
       let workspaceRedirect: string | undefined;
@@ -110,8 +114,11 @@ export function registerSkillGatewayTools(
         }
       }
       // cycle-99c：默认与上限同源 bootstrapBudget（与同步/异步入口、bootstrap 网关一致）。
+      // cycle-112：默认/上限按脚本分档——auto-fix-loop 的合法上限 = 长跑预算
+      // （旧实现统一 240000 ⇒ 5/6 次真机 TIMEOUT，实测 durationMs=240020）。
       const timeout = resolveSkillInvokeTimeout(
-        typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : BOOTSTRAP_STEP_TIMEOUT_MS,
+        typeof args.timeout === 'number' && args.timeout > 0 ? args.timeout : defaultSkillTimeout(script),
+        skillTimeoutCap(script),
       );
 
       // cycle-39 T-3902（flow #29 实证）：quick-validate 的 skill-dir 相对形态
@@ -120,9 +127,10 @@ export function registerSkillGatewayTools(
       // 处置：网关把相对 skill-dir 解析为**目标工作区已装技能根**的绝对路径再传
       // （语义：校验那份副本；未装则回退内联根——永远存在）。绝对形态原样透传。
       // 解析逻辑提取至 skillInvoker.resolveQuickValidateSkillDir（T3 行数纪律）。
+      // cycle-112：规范化收进纯函数 normalizeQuickValidateArgs（可单测；无参调用
+      // 不再把项目根当技能目录校验——真机"65 errors"假失败的根因）。
       if (isQuickValidate) {
-        const resolved = resolveQuickValidateSkillDir(effectiveWs, extraArgs[0] ?? '');
-        if (resolved !== null) extraArgs = [resolved, ...extraArgs.slice(1)];
+        extraArgs = normalizeQuickValidateArgs(effectiveWs, extraArgs);
       }
 
       // M10-a：每流程状态跟踪——为每次调用创建独立 FlowRecord，

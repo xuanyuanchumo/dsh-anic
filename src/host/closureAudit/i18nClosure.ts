@@ -32,10 +32,11 @@
 import type { ClusterAudit, ClosureItem } from './scanPrimitives.ts';
 import { assertScanNonEmpty, collectRefs, kindOf, quoteClasses, stripComments, tallyProduced } from './scanPrimitives.ts';
 // cycle-75：键 → 真实行号索引（修叶子名全文匹配导致的 definedAt 误报）。
-import { buildKeyLineIndex, lineOfKey } from './localeKeyAnchors.ts';
+import { buildKeyLineIndex, flattenKeys, keyAnchor } from './localeKeyAnchors.ts';
 // cycle-76：倒排索引证据查询（O(1) 查表替代逐项全仓扫描）。
 import type { EvidenceIndex } from './evidenceIndex.ts';
 import { evidenceFor } from './evidenceIndex.ts';
+import { isPropertyPathKey, propertyPathMatch } from './propertyPathEvidence.ts';
 
 function escapeDots(key: string): string {
   return key.split('.').join('\\.');
@@ -47,6 +48,7 @@ function quotedLiteralMatch(line: string, token: string): boolean {
   const re = new RegExp('[' + q + ']' + escapeDots(token) + '(?![A-Za-z0-9_/.-])');
   return re.test(line);
 }
+
 
 const SQ = String.fromCharCode(39);
 const DQ = String.fromCharCode(34);
@@ -132,33 +134,10 @@ export function dynamicKeyPrefixes(files: Map<string, string>, allowFiles: (rel:
   return out;
 }
 
-/** locale 嵌套对象 → 打点扁平键（closure.title 这种命名空间路径必须展开）。 */
-export function flattenKeys(obj: Record<string, unknown>, prefix = ''): string[] {
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(obj)) {
-    const key = prefix === '' ? k : prefix + '.' + k;
-    if (v !== null && typeof v === 'object') out.push(...flattenKeys(v as Record<string, unknown>, key));
-    else out.push(key);
-  }
-  return out;
-}
+// cycle-112：flattenKeys / keyAnchor 迁至 localeKeyAnchors.ts（T3 行数纪律），
+// 再导出保持既有 import 面（tests 与 assetClosure 从本文件取）。
+export { flattenKeys, keyAnchor };
 
-/**
- * 词表定义锚点：`locale/zh.json` 里该键的**真实行号**。
- *
- * cycle-75 修复（T2 实测、Lead 复核）：旧实现用 `key.split('.').pop()` 取叶子名全文
- * 找第一处匹配，短叶子名会命中**别的键**——实测 `trace.statusDone` 报 :79（实为
- * `live.statusDone`），`state.loading` 报 :24，`gate.pending` 报 :75，三例全错。
- *
- * 现在走 `localeKeyAnchors.buildKeyLineIndex`（完整路径 → 行号）。未定位时返回
- * `locale/zh.json:0` —— **显式的「未定位」**，比猜一个错行诚实（错行是可见性伪证）。
- *
- * @param index 可复用索引（批量调用时传，避免逐键重扫）；缺省则按需建一次。
- */
-export function keyAnchor(raw: string, key: string, index?: ReadonlyMap<string, number>): string {
-  const table = index ?? buildKeyLineIndex(raw);
-  return 'locale/zh.json:' + String(lineOfKey(table, key));
-}
 
 /**
  * 词表消费面：真正读得到该键的代码面。
@@ -198,6 +177,17 @@ export function i18nClosure(files: Map<string, string>, index?: EvidenceIndex): 
     let evidence = index !== undefined
       ? evidenceFor(index.literal, key, i18nConsumerUniverse)
       : collectRefs(literal as Map<string, string>, (line) => quotedLiteralMatch(line, key), i18nConsumerUniverse);
+    // cycle-112：结构化元数据键的属性路径证据（`d.meta.description` 形态）。
+    // 倒排索引只收引号字面量 ⇒ 索引路径下本条需回落到逐文件扫；只对 meta.* 族
+    // 触发，代价 = 一遍文件读（该族键数 ≤3，审计总耗时实测无感）。
+    if (evidence.length === 0 && isPropertyPathKey(key)) {
+      const literalFallback = literal ?? (() => {
+        const m = new Map<string, string>();
+        for (const [rel, raw] of files) m.set(rel, stripComments(raw));
+        return m;
+      })();
+      evidence = collectRefs(literalFallback, (line) => propertyPathMatch(line, key), i18nConsumerUniverse);
+    }
     let dynamic = false;
     if (evidence.length === 0) {
       // 计算键：命中的前缀全部取自 src/ 生产代码（模板在渲染器里）

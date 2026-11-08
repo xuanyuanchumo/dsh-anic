@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "commit": "6c15b96",
+  "commit": "5a93b53",
   "tools": [
     [
       "anic_evaluate",
@@ -75,16 +75,16 @@
       "取某工具的完整参数 schema（必需）"
     ],
     [
+      "anic_skill",
+      "按白名单直调技能脚本（唯一全通道）"
+    ],
+    [
       "anic_install",
       "把技能安装到目标工作区"
     ],
     [
       "anic_skill_repair",
       "修复技能安装副本与内联版本差异"
-    ],
-    [
-      "anic_skill",
-      "按白名单直调技能脚本（唯一全通道）"
     ],
     [
       "anic_bootstrap_cycle",

@@ -21,7 +21,7 @@ import type { HealthLevel, ImprovementSuggestion, ScriptHealth } from './continu
 export type SuggestableHealth = Pick<
   ScriptHealth,
   'script' | 'level' | 'total' | 'successRate' | 'timeoutRate' | 'avgDurationMs' | 'validVerdicts'
-> & Pick<ScriptHealth, 'recentSuccessRate' | 'recentEffectiveRate'>;
+> & Pick<ScriptHealth, 'recentSuccessRate' | 'recentEffectiveRate' | 'recentTimeoutRate'>;
 
 /** 「近期成功率展示串」：undefined=近 7 天无调用。 */
 export function recentView(h: SuggestableHealth): string {
@@ -48,11 +48,16 @@ export function suggestFromHealth(h: SuggestableHealth & { level: HealthLevel })
     };
   }
   if (h.level === 'slow') {
+    // cycle-112：分级已改读**近期**超时率（见 continuousLearning 头注），建议描述
+    // 同步给双口径——只报全史会让读者看到 83% 却不知道近 8 条已全部恢复；
+    // 只报近期则藏了历史。两个数都在，读者自己判断（白盒纪律）。
+    const recent = h.recentTimeoutRate;
+    const recentPart = recent === undefined ? '近 7 天无调用' : `近期超时率 ${(recent * 100).toFixed(0)}%`;
     return {
       id: `speed-${h.script}`,
       severity: 'warn',
       script: h.script,
-      description: `${h.script} 超时率 ${(h.timeoutRate * 100).toFixed(0)}%（${String(h.total)} 次调用）`,
+      description: `${h.script} ${recentPart}（全史 ${(h.timeoutRate * 100).toFixed(0)}%，${String(h.total)} 次调用）`,
       action: '考虑增加 timeout 或优化脚本执行效率',
     };
   }

@@ -80,14 +80,56 @@ export const BOOTSTRAP_STEP_TIMEOUT_MS = 240_000;
 export const MAX_SKILL_INVOKE_TIMEOUT_MS = BOOTSTRAP_STEP_TIMEOUT_MS;
 
 /**
+ * 长跑脚本默认超时（cycle-112 · 实测根因）——auto-fix-loop 的合法上限。
+ *
+ * 被守卫缺陷：auto-fix-loop 在 runner 配置里允许 `test_timeout_ms`（本仓 240000）
+ * × maxRetries（默认 3）次重试，**整次调用**的合法上限因此远超「自举每步预算」。
+ * 而 anic_skill 网关此前把默认超时与硬上限都钉在 240000 ⇒ 真机 flow-tracker
+ * 实测 5/6 次 auto-fix-loop 在 `durationMs=240020` 被 SIGTERM 掐断（status=TIMEOUT，
+ * exitCode=-1）——**不是脚本慢，是调用预算比脚本预算还小**。健康模型据此把它
+ * 长期判为 slow（同族：预算不足被伪装成质量结论）。
+ *
+ * 数值推导（可复算）：单次全量测试金字塔实测 ~57s（BOOTSTRAP_PYRAMID_BUDGET_MS），
+ * 冷启动/并发争用按 2× 记 ≈ 120s；3 次重试 × 120s = 360s；加报告写盘与 Node
+ * 冷启动 ≈ 420s。取 900000ms（15 min）给足余量且保持有界——上限仍是保护而非
+ * 「永不超时」（Infinity/NaN 由 resolveSkillInvokeTimeout 拦在门外）。
+ */
+export const LONG_SCRIPT_TIMEOUT_MS = 900_000;
+
+/** 需要长预算的脚本（白名单；新增成员必须在此登记并说明推导）。 */
+const LONG_SCRIPT_BUDGET: Readonly<Record<string, number>> = {
+  'auto-fix-loop': LONG_SCRIPT_TIMEOUT_MS,
+};
+
+/**
+ * 一次技能脚本调用的**默认**超时（调用方未显式传参时）。
+ * 长跑脚本取 LONG_SCRIPT_TIMEOUT_MS，其余取自举每步预算（默认值单一事实源）。
+ */
+export function defaultSkillTimeout(script: string): number {
+  return LONG_SCRIPT_BUDGET[script] ?? BOOTSTRAP_STEP_TIMEOUT_MS;
+}
+
+/**
+ * 一次技能脚本调用的**硬上限**（显式传参也越不过去）。
+ * 长跑脚本的上限 = 它自己的预算；其余 = 自举每步预算（cycle-78 语义不变）。
+ */
+export function skillTimeoutCap(script: string): number {
+  return LONG_SCRIPT_BUDGET[script] ?? MAX_SKILL_INVOKE_TIMEOUT_MS;
+}
+
+/**
  * 收口一次技能脚本调用的超时值（纯函数，无副作用——便于真断言而非静态字符串匹配）。
  *
- * 语义：合法正数 → min(请求值, MAX_SKILL_INVOKE_TIMEOUT_MS)；非法值（NaN/Infinity/
- * 非正）→ 直接取上限（**不猜**调用方意图：宁可给足预算，也不给出「永不超时」）。
+ * 语义：合法正数 → min(请求值, capMs)；非法值（NaN/Infinity/非正）→ 直接取上限
+ * （**不猜**调用方意图：宁可给足预算，也不给出「永不超时」）。
+ *
+ * cycle-112：`capMs` 参数化——长跑脚本（auto-fix-loop）的合法上限大于自举每步
+ * 预算，调用方按 `skillTimeoutCap(script)` 传入；缺省仍是 MAX_SKILL_INVOKE_TIMEOUT_MS
+ * （短脚本语义零变更）。
  */
-export function resolveSkillInvokeTimeout(requestedMs: number): number {
-  if (!Number.isFinite(requestedMs) || requestedMs <= 0) return MAX_SKILL_INVOKE_TIMEOUT_MS;
-  return Math.min(requestedMs, MAX_SKILL_INVOKE_TIMEOUT_MS);
+export function resolveSkillInvokeTimeout(requestedMs: number, capMs: number = MAX_SKILL_INVOKE_TIMEOUT_MS): number {
+  if (!Number.isFinite(requestedMs) || requestedMs <= 0) return capMs;
+  return Math.min(requestedMs, capMs);
 }
 
 /**

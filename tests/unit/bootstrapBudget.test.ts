@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BOOTSTRAP_STEP_TIMEOUT_MS, resolveBootstrapStepTimeout } from '../../src/host/runtime/bootstrapBudget.ts';
+import { BOOTSTRAP_STEP_TIMEOUT_MS, defaultSkillTimeout, resolveBootstrapStepTimeout, resolveSkillInvokeTimeout, skillTimeoutCap } from '../../src/host/runtime/bootstrapBudget.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -56,6 +56,30 @@ describe('默认值数值契约', () => {
     expect(resolveBootstrapStepTimeout(12_345)).toBe(12_345);
     expect(resolveBootstrapStepTimeout(0)).toBe(BOOTSTRAP_STEP_TIMEOUT_MS);
     expect(resolveBootstrapStepTimeout('90000')).toBe(BOOTSTRAP_STEP_TIMEOUT_MS);
+  });
+
+  describe('cycle-112：长跑脚本预算分档（auto-fix-loop 超时根因）', () => {
+    /**
+     * 被修缺陷（真机取证）：auto-fix-loop 5/6 次调用在 `durationMs=240020` 被
+     * SIGTERM 掐断（status=TIMEOUT）——调用方预算 = 工具默认 240000，而脚本
+     * 合法上限 = test_timeout_ms(240000) × maxRetries(3) + 开销 ≈ 420s+。
+     * 预算比脚本周期的合法上限还小 ⇒ 把「预算不足」伪装成「脚本慢」。
+     */
+    it('长跑脚本默认预算 900000；短脚本仍是 240000（分档而非全局放宽）', () => {
+      expect(defaultSkillTimeout('auto-fix-loop')).toBe(900_000);
+      expect(defaultSkillTimeout('gate-check')).toBe(BOOTSTRAP_STEP_TIMEOUT_MS);
+      // 反向前提：旧实现里两者相等（全局 240000）⇒ 这条断言当时必红。
+      expect(defaultSkillTimeout('auto-fix-loop')).not.toBe(defaultSkillTimeout('gate-check'));
+    });
+    it('长跑脚本的硬上限随默认值上抬；短脚本 cap 不变', () => {
+      expect(skillTimeoutCap('auto-fix-loop')).toBe(900_000);
+      expect(skillTimeoutCap('eval-runner')).toBe(BOOTSTRAP_STEP_TIMEOUT_MS);
+      // 显式传参仍受各自档位 cap 约束（不能把短脚本变成永不超时）。
+      expect(resolveSkillInvokeTimeout(10_000_000, skillTimeoutCap('gate-check'))).toBe(BOOTSTRAP_STEP_TIMEOUT_MS);
+      expect(resolveSkillInvokeTimeout(10_000_000, skillTimeoutCap('auto-fix-loop'))).toBe(900_000);
+      // 非法值仍落 cap（不猜调用方意图），长跑档也同理。
+      expect(resolveSkillInvokeTimeout(Number.NaN, skillTimeoutCap('auto-fix-loop'))).toBe(900_000);
+    });
   });
 });
 

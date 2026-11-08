@@ -62,7 +62,7 @@ export function registerCrossBootstrapRoute(
         // 源工作区 = 宿主当前工作区（我们要证明「它没被写」）。
         let sourceRoot: string | null = null;
         try {
-          sourceRoot = resolveWorkspaceRoots(ctx);
+          sourceRoot = resolveWorkspaceRoots(ctx, req);
         } catch {
           // 解析不到源 ⇒ 指纹与断言退化为 null（如实降级，不伪造 true）。
           sourceRoot = null;

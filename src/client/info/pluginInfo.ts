@@ -38,11 +38,11 @@ export interface PluginInfo {
 
 export const PLUGIN_INFO: PluginInfo = {
   "name": "dsh-anic",
-  "version": "0.61.0",
+  "version": "0.62.0",
   "homepage": "https://github.com/xuanyuanchumo/dsh-anic#readme", // anic-url-data（跳转目标，非 fetch）
   "repository": "https://github.com/xuanyuanchumo/dsh-anic", // anic-url-data（跳转目标，非 fetch）
   "issues": "https://github.com/xuanyuanchumo/dsh-anic/issues", // anic-url-data（跳转目标，非 fetch）
   "npm": "https://www.npmjs.com/package/dsh-anic", // anic-url-data（跳转目标，非 fetch）
   "docs": "https://github.com/xuanyuanchumo/dsh-anic/tree/main/docs/anic", // anic-url-data（跳转目标，非 fetch）
-  "builtAt": "2026-11-07T06:46:55.137Z"
+  "builtAt": "2026-11-08T12:22:01.665Z"
 };

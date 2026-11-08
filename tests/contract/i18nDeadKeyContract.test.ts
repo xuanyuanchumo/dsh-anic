@@ -55,11 +55,15 @@ const k = (...parts: string[]): string => parts.join('.');
  * 或该键根本不是 t() 词条（类元数据）。
  */
 const RESERVED: ReadonlyArray<{ key: string; reason: string }> = [
-  {
-    key: k('meta', 'description'),
-    reason: '类元数据：scripts/validate-dsh.mjs:75 要求非空、dshConformance 断言其真值、宿主按属性路径读插件描述——'
-      + '不是 t() 查找，故扫描器（只认引号字面量）看不见它。删了会直接打穿 lint 与 conformance 契约。',
-  },
+  // cycle-112：`meta.description` **已接线**，从 RESERVED 移出。
+  //
+  // 接线落点（判据升级而非伪造消费）：`src/host/closureAudit/i18nClosure.ts` 的
+  // `isPropertyPathKey` / `propertyPathMatch` —— 结构化元数据族（`meta.*`）按
+  // **属性路径**消费（`scripts/validate-dsh.mjs:75` 的 `d.meta.description`），
+  // 与引号字面量同等视为消费证据。此前只认引号字面量 ⇒ 该键被判死键 + 闭环
+  // producedGap=1（面板「闭环与自举」域长期误报）；口径边界限定 meta.* 前缀，
+  // 防 `obj.state.loading` 这类同名属性访问被冒充成词表消费。
+  //
   // cycle-90：`panel.selfInitOff` / `panel.selfInitOffTitle` **已接线**，
   // 从 RESERVED 移出（零死键棘轮 ① 要求未消费键集 ⇄ RESERVED 双向相等）。
   //
@@ -107,7 +111,11 @@ describe('cycle-79 零死键棘轮（词表卫生）', () => {
   });
 
   it('② RESERVED 每条仍在真实 locale 且 reason 非空（防"保留条目指向已删键"）', () => {
-    expect(RESERVED.length).toBeGreaterThanOrEqual(1);
+    // cycle-112：RESERVED 允许为空——零死键目标达成后它本来就该空
+    // （`meta.description` 随属性路径消费判据上线移出）。表为空时本用例自然通过；
+    // 扫描器**有牙**由 ③ 反向自检独立保证（注入假死键必须被报出，加一条 t() 引用
+    // 必须归零），不靠"保留表非空"来证明——那会把「表非空」与「扫描器有效」两件
+    // 不同的事混成一条断言（本轮修的就是这类混钉）。
     for (const r of RESERVED) {
       expect(zhKeys, r.key + ' 已从 zh.json 消失却仍登记为保留').toContain(r.key);
       expect(enKeys, r.key + ' 已从 en.json 消失却仍登记为保留').toContain(r.key);

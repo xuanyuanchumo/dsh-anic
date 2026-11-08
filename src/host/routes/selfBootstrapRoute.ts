@@ -63,8 +63,8 @@ export function registerSelfBootstrapRoutes(
 
   return [
     // POST /anic/self/evaluate — run eval-runner on dsh-anic itself
-    reg('/anic/self/evaluate', (_req, res) => {
-      const target = resolveSelfTarget(ctx, send, res);
+    reg('/anic/self/evaluate', (req, res) => {
+      const target = resolveSelfTarget(ctx, send, res, req);
       if (!target) return;
       if (!guardPreconditions(target, send, res)) return;
 
@@ -88,8 +88,8 @@ export function registerSelfBootstrapRoutes(
     }),
 
     // POST /anic/self/gate-check — run gate-check on dsh-anic itself
-    reg('/anic/self/gate-check', (_req, res) => {
-      const target = resolveSelfTarget(ctx, send, res);
+    reg('/anic/self/gate-check', (req, res) => {
+      const target = resolveSelfTarget(ctx, send, res, req);
       if (!target) return;
       if (!guardPreconditions(target, send, res)) return;
 
@@ -115,7 +115,7 @@ export function registerSelfBootstrapRoutes(
       void readBody(req).then((body) => {
         const maxRounds = typeof body.maxRounds === 'number' ? body.maxRounds : 3;
 
-        const target = resolveSelfTarget(ctx, send, res);
+        const target = resolveSelfTarget(ctx, send, res, req);
         if (!target) return;
         if (!guardPreconditions(target, send, res)) return;
 
@@ -133,8 +133,8 @@ export function registerSelfBootstrapRoutes(
     // 状态文件保留历史结论（这是审计轨迹），而 `facts/stale` 如实标注它是否还作数。
     // 复用 resolveSelfTarget 给出的 `roots`：workspace 解析全插件只有一条口径
     // （多会话/请求头纠偏都在那里），此处另算一遍会绕过它。
-    reg('/anic/self/status', (_req, res) => {
-      const target = resolveSelfTarget(ctx, send, res);
+    reg('/anic/self/status', (req, res) => {
+      const target = resolveSelfTarget(ctx, send, res, req);
       if (!target) return;
       const state = loadBootstrapState(target.cyclesDir);
       const current = collectProjectFacts(target.roots);
@@ -168,7 +168,7 @@ export function registerSelfBootstrapRoutes(
     // 经状态机 `reset` 触发词回 IDLE（不丢 history），写入新 facts，restartCount++。
     reg('/anic/self/restart', (req, res) => {
       void readBody(req).then((body) => {
-        const target = resolveSelfTarget(ctx, send, res);
+        const target = resolveSelfTarget(ctx, send, res, req);
         if (!target) return;
         if (!guardPreconditions(target, send, res)) return;
 

@@ -17,20 +17,21 @@ import {
 } from '../skillInvoker.ts';
 import { parseEvalScore, parseGateVerdict } from '../runtime/scriptParsers.ts';
 import { appendCrossProjectHistory } from '../crossProjectHistory.ts';
-import { resolveSkillInvokeTimeout, resolveBootstrapStepTimeout } from '../runtime/bootstrapBudget.ts';
+import { defaultSkillTimeout, resolveSkillInvokeTimeout, resolveBootstrapStepTimeout, skillTimeoutCap } from '../runtime/bootstrapBudget.ts';
 
 type SendFn = (res: unknown, code: number, body: unknown, requestId?: string) => void;
 
 /** 跨项目结果回写插件工作区自举历史（G-C5；失败响亮降级不阻断主结果）。 */
 function syncCrossProjectHistory(
   ctx: SnapshotCtx,
+  req: unknown,
   kind: 'evaluate' | 'iterate',
   targetWorkspace: string,
   evalScore: number | null,
   gateVerdict: string | null,
 ): { bootstrapSync: 'ok' } | { bootstrapSync: 'failed'; bootstrapSyncReason: string } {
   try {
-    const ownRoots = resolveWorkspaceRoots(ctx);
+    const ownRoots = resolveWorkspaceRoots(ctx, req);
     if (!ownRoots) return { bootstrapSync: 'failed', bootstrapSyncReason: 'own workspace unresolvable' };
     const r = appendCrossProjectHistory(join(ownRoots, '.cycles'), {
       timestamp: new Date().toISOString(),
@@ -70,13 +71,14 @@ export function registerSkillRoutes(
       void readBody(req).then((body) => {
       const script = typeof body.script === 'string' ? body.script : '';
       const args: string[] = Array.isArray(body.args) ? (body.args as string[]) : [];
-      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
+      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx, req);
       // cycle-99c：默认 30s 与上限同源 bootstrapBudget（旧字面量 120000 是第四份
       // 分叉默认——工具网关 60s / bootstrap 240s / HTTP 120s 各说各话）。
       // 同步入口 invokeSkillScript 内部还会再过 resolveSkillInvokeTimeout 收口。
+      // cycle-112：默认/上限按脚本分档（auto-fix-loop 长跑预算；其余不变）。
       const timeout = typeof body.timeout === 'number' && body.timeout > 0
-        ? body.timeout
-        : resolveSkillInvokeTimeout(0);
+        ? resolveSkillInvokeTimeout(body.timeout, skillTimeoutCap(script))
+        : resolveSkillInvokeTimeout(defaultSkillTimeout(script), skillTimeoutCap(script));
       if (!script || !isAllowedScript(script)) {
         sendAnicError(send, res, 'ANIC_SKILL_UNKNOWN_SCRIPT', `Unknown script: ${script}. Allowed: ${listSkillScripts().join(', ')}`);
         return;
@@ -109,7 +111,7 @@ export function registerSkillRoutes(
     // POST /anic/evaluate — cross-project evaluation
     reg('/anic/evaluate', (req, res) => {
       void readBody(req).then((body) => {
-      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
+      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx, req);
       const dimensions = typeof body.dimensions === 'string' ? body.dimensions : undefined;
 
       const wsCheck = validateWorkspace(workspace);
@@ -123,7 +125,7 @@ export function registerSkillRoutes(
       const result = invokeSkillScript(scriptsDir, 'eval-runner', args, workspace, resolveBootstrapStepTimeout());
 
       // G-C5：跨项目评估摘要回写插件自身 self-bootstrap.json（增强非依赖）
-      const sync = syncCrossProjectHistory(ctx, 'evaluate', workspace, parseEvalScore(result), null);
+      const sync = syncCrossProjectHistory(ctx, req, 'evaluate', workspace, parseEvalScore(result), null);
 
       send(res, 200, {
         workspace,
@@ -140,7 +142,7 @@ export function registerSkillRoutes(
     // POST /anic/iterate — cross-project iteration
     reg('/anic/iterate', (req, res) => {
       void readBody(req).then((body) => {
-      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx);
+      const workspace = typeof body.workspace === 'string' ? body.workspace : resolveWorkspaceRoots(ctx, req);
 
       const wsCheck = validateWorkspace(workspace);
       if (!wsCheck.ok) { sendAnicError(send, res, 'ANIC_ROUTE_NO_WORKSPACE', wsCheck.error ?? 'workspace validation failed'); return; }
@@ -158,7 +160,7 @@ export function registerSkillRoutes(
 
       // G-C5：跨项目迭代摘要回写（eval 分数 + 门禁裁决）
       const sync = syncCrossProjectHistory(
-        ctx, 'iterate', workspace,
+        ctx, req, 'iterate', workspace,
         parseEvalScore(evalResult),
         parseGateVerdict(gateResult),
       );

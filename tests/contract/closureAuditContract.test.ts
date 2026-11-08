@@ -95,16 +95,16 @@ describe('cycle-72 T-7207 闭环体检契约（注册↔生产↔消费）', () 
     const baseline = [
       // cycle-79（WS-3 死键清理）：i18n 侧 4 条基线（state.retry / techdebt.title /
       // panel.refreshing / gate.PASS）已按"多余键"删除 ⇒ 从基线移除（收紧）。
-      // meta.description 是 RESERVED（类元数据，非 t() 键），仍必须被报为未消费；
-      // i18n 族的零死键由 tests/contract/i18nDeadKeyContract.test.ts 以**集合相等**独立钉住。
-      'i18n|' + gk('meta', 'description'),
+      // cycle-112：`meta.description` 基线移除——属性路径消费判据上线后它**已消费**
+      // （闭环 producedGap 1→0）；i18n 族零死键由 i18nDeadKeyContract 集合相等独立钉住。
+      // 剩余 4 条基线全是路由族通道独占项（声明 ≠ 消费，仍必须被报为未消费）。
       'routes|' + gr('/anic', 'flows', 'gate-check', 'run'),
       'routes|' + gr('/anic', 'self', 'gate-check'),
       'routes|' + gr('/anic', 'api', 'trust'),
       'routes|' + gr('/anic', 'cycle', 'init'),
     ];
     const reported = baseline.filter((k) => ids.has(k));
-    expect(reported.length, '报告器失效：基线缺口一个都没报出').toBeGreaterThanOrEqual(5);
+    expect(reported.length, '报告器失效：基线缺口一个都没报出').toBeGreaterThanOrEqual(4);
     // 棘轮：这些缺口当前必须仍然未消费——修好后把它们从基线移到「已消费」断言
     expect(baseline.filter((k) => !ids.has(k)), '这些缺口已修复——请更新棘轮基线（收紧而非放宽）').toEqual([]);
   });

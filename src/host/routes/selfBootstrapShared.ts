@@ -25,12 +25,24 @@ export interface SelfTarget {
 /**
  * 解析靶标；任一步失败即**自行**发送错误响应并返回 null（调用方直接 return）。
  *
+ * ## cycle-112 修复：`req` 必须透传（跨项目污染实测）
+ *
+ * 被守卫缺陷：本函数此前只收 `(ctx, send, res)`，内部调
+ * `resolveWorkspaceRoots(ctx)` **不带请求** ⇒ 头/查询/会话三种工作区选择器
+ * （快照路由头注钉死的优先级链）全部失效，回落 registry/sessions/cwd 的第一个
+ * 工作区。真机实证：`GET /anic/self/status?workspace=<本仓>` 返回 `cycle-9 /
+ * archived 7 / stale=true`——那是**另一个项目**的自举状态；面板「闭环与自举」
+ * 域因此长期误报，且属于用户明令禁止的「不同项目隔离显示不能污染」形态。
+ *
+ * 修法：`req` 作为可选第四参透传（旧调用面零变更），由调用方把请求对象递进来。
+ * 头/查询/会话链**只保留一份实现**（resolveWorkspaceRoots），本层不另算。
+ *
  * 技能目录缺失在本层就报 404（而非留给前置守卫报 412）：它是**安装问题**，
  * 与「装了但缺 .cycles 配置」是两类不同修复动作，混在同一个码里会让调用方
  * 分不清该去装技能还是该去跑 init-workflow。
  */
-export function resolveSelfTarget(ctx: SnapshotCtx, send: SendFn, res: unknown): SelfTarget | null {
-  const roots = resolveWorkspaceRoots(ctx);
+export function resolveSelfTarget(ctx: SnapshotCtx, send: SendFn, res: unknown, req?: unknown): SelfTarget | null {
+  const roots = resolveWorkspaceRoots(ctx, req);
   if (!roots) {
     send(res, 500, anicError('ANIC_ROUTE_NO_WORKSPACE', 'no workspace'));
     return null;

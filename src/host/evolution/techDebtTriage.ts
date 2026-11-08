@@ -105,7 +105,11 @@ export function triageOne(
     return h.level === 'degraded' ? 'reproduced' : 'unverifiable';
   }
   if (entry.id.startsWith('health-speed-')) {
-    return h.timeoutRate <= SLOW_TIMEOUT_RATE && h.level !== 'slow' ? 'stale' : 'reproduced';
+    // cycle-112：与健康分档**同口径**——用近期窗口超时率（无近期样本回落全史）。
+    // 旧实现读全史 timeoutRate：预算不足被掐断的旧记录会让提案永久 reproduced，
+    // 即便根因已修、近期全绿（与 continuousLearning 的 slow 判据同一族缺陷）。
+    const rate = h.recentTimeoutRate ?? h.timeoutRate;
+    return rate <= SLOW_TIMEOUT_RATE && h.level !== 'slow' ? 'stale' : 'reproduced';
   }
   if (entry.id.startsWith('health-perf-')) {
     return h.avgDurationMs < EXPENSIVE_DURATION_MS ? 'stale' : 'reproduced';
@@ -116,7 +120,9 @@ export function triageOne(
 /** 证据串（stale 与 reproduced 都要能回答"凭什么"）。 */
 function evidenceOf(h: ScriptHealth): string {
   const eff = h.recentEffectiveRate === undefined ? '无近期数据' : `${Math.round(h.recentEffectiveRate * 100)}%`;
-  return `当前 level=${h.level}，有效成功率 ${eff}，超时率 ${Math.round(h.timeoutRate * 100)}%，`
+  // cycle-112：超时率给双口径（近期分级用它，全史是历史事实）——只报一个数都白盒不足。
+  const recentTo = h.recentTimeoutRate === undefined ? '无近期数据' : `${Math.round(h.recentTimeoutRate * 100)}%`;
+  return `当前 level=${h.level}，有效成功率 ${eff}，超时率 近期 ${recentTo} / 全史 ${Math.round(h.timeoutRate * 100)}%，`
     + `平均耗时 ${String(h.avgDurationMs)}ms，有效负裁决 ${String(h.validVerdicts)}，用法错误 ${String(h.usageErrors)}`;
 }
 

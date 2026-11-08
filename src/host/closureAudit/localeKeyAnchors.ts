@@ -90,3 +90,31 @@ export function buildKeyLineIndex(raw: string): Map<string, number> {
 export function lineOfKey(index: ReadonlyMap<string, number>, key: string): number {
   return index.get(key) ?? 0;
 }
+
+/** locale 嵌套对象 → 打点扁平键（closure.title 这种命名空间路径必须展开）。 */
+export function flattenKeys(obj: Record<string, unknown>, prefix = ''): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix === '' ? k : prefix + '.' + k;
+    if (v !== null && typeof v === 'object') out.push(...flattenKeys(v as Record<string, unknown>, key));
+    else out.push(key);
+  }
+  return out;
+}
+
+/**
+ * 词表定义锚点：`locale/zh.json` 里该键的**真实行号**。
+ *
+ * cycle-75 修复（T2 实测、Lead 复核）：旧实现用 `key.split('.').pop()` 取叶子名全文
+ * 找第一处匹配，短叶子名会命中**别的键**——实测 `trace.statusDone` 报 :79（实为
+ * `live.statusDone`），`state.loading` 报 :24，`gate.pending` 报 :75，三例全错。
+ *
+ * 现在走 `localeKeyAnchors.buildKeyLineIndex`（完整路径 → 行号）。未定位时返回
+ * `locale/zh.json:0` —— **显式的「未定位」**，比猜一个错行诚实（错行是可见性伪证）。
+ *
+ * @param index 可复用索引（批量调用时传，避免逐键重扫）；缺省则按需建一次。
+ */
+export function keyAnchor(raw: string, key: string, index?: ReadonlyMap<string, number>): string {
+  const table = index ?? buildKeyLineIndex(raw);
+  return 'locale/zh.json:' + String(lineOfKey(table, key));
+}

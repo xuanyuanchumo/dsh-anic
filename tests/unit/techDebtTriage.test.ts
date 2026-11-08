@@ -64,6 +64,29 @@ describe('triageOne：三态判定', () => {
     expect(t2).toBe<TriageVerdict>('stale');
   });
 
+  it('cycle-112：speed-* 与健康分档同口径——旧超时出近期窗口后判 stale', () => {
+    /*
+     * 被修缺陷：speed-* 此前读全史 timeoutRate。auto-fix-loop 真机 5/6 超时
+     * （调用方预算杀死，根因已修）后即便近期全绿，提案仍被永久 reproduced。
+     * 夹具：2 次旧超时（出 7 天窗）+ 8 次近期成功（近期窗口内）⇒ speed 提案 stale。
+     */
+    const f = (over: Partial<FlowRecord>): FlowRecord => ({
+      flowId: 'x-' + String(Math.random()).slice(2), script: over.script ?? 'auto-fix-loop',
+      workspace: 'D:/ws', args: [], status: 'DONE', startedAt: iso(1), exitCode: 0, durationMs: 80_000, ...over,
+    } as FlowRecord);
+    const flows: FlowRecord[] = [
+      f({ status: 'TIMEOUT', startedAt: new Date(NOW - 10 * 864e5).toISOString(), exitCode: -1 }),
+      f({ status: 'TIMEOUT', startedAt: new Date(NOW - 9 * 864e5).toISOString(), exitCode: -1 }),
+      ...Array.from({ length: 8 }, () => f({})),
+    ];
+    const recentHealth = analyzeSkillHealth({ version: 1, flows } as unknown as FlowTrackerState, NOW);
+    const af = recentHealth.scripts.find((s) => s.script === 'auto-fix-loop');
+    expect(af?.timeoutRate, '全史仍含旧超时（白盒不隐藏）').toBeCloseTo(2 / 10, 5);
+    expect(af?.recentTimeoutRate).toBe(0);
+    const verdict = triageTechDebt([{ file: 'a.json', entry: entry('health-speed-auto-fix-loop-2026-10-21', 'skill:auto-fix-loop') }], recentHealth)[0]?.verdict;
+    expect(verdict, '修复后速度类提案必须可关闭').toBe<TriageVerdict>('stale');
+  });
+
   it('fix-*：脚本贵（expensive）但成功率已恢复 → 仍是 stale（成本问题归 perf-* 管）', () => {
     expect(triageTechDebt([{ file: 'a.json', entry: entry('health-fix-eval-runner-2026-10-29', 'skill:eval-runner') }], health)[0]?.verdict)
       .toBe<TriageVerdict>('stale');

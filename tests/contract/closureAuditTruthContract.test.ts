@@ -37,9 +37,11 @@ import {
   bucketOf,
   bucketsOf,
   isProduced,
+  orderUnconsumed,
   runClosureAudit,
   toClosureView,
 } from '../../src/host/closureAudit/registryClosure.ts';
+import type { ClosureItem } from '../../src/host/closureAudit/closureModel.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BS = String.fromCharCode(92);
@@ -538,21 +540,47 @@ describe('cycle-75 T5 投影截断与排序（总数永不截断，真缺口排�
   });
 
   it('截断时真缺口一条不落：全部 consumedGap/producedGap 必须在明细里（排序判据的实证）', () => {
-    const view = toClosureView(SUMMARY);
     /*
-     * ★cycle-78 语义升级：本仓的 consumedGap 现为 **0**——那 46 条「生产了没人读」的
-     * 路由已被通道声明认领为 declaredChannel（声明 ≠ 豁免：它们仍是未消费，只是
-     * 不再是「未知缺口」）。故基线改用**两缺口之和**（producedGap=39 词表键仍非零），
-     * 断言本体不变：截断只许丢已声明通道，不许丢任何待办缺口。
+     * ★cycle-112 重构：旧版以「本仓必须有待办缺口」作非空下限
+     * （`expect(gapKeys.length).toBeGreaterThan(0)`）。属性路径消费判据上线后
+     * 本仓真实缺口 = 0（这正是闭环体检的目标态），于是这条守卫**因环境变好而假红**，
+     * 且它本来把「投影排序逻辑」的可判性与「仓库当前有没有缺陷」绑在一起
+     * ——两种事实混在一条断言里。
+     *
+     * 现在拆成两半：
+     *   ① 排序/截断逻辑用**合成夹具**钉死（90 条：2 真缺口 + 88 已声明通道 ⇒ 必截断）；
+     *   ② 实仓现状如实断言：若存在真缺口则必须一条不落（0 缺口时该分支自然为真，
+     *     不制造假基线）。
      */
-    const gapKeys = SUMMARY.unconsumed
+    const gap = (cluster: string, id: string, kind: 'consumedGap' | 'producedGap'): ClosureItem => ({
+      cluster, id, definedAt: `${cluster}/fixture:1`, producedAt: kind === 'consumedGap' ? 'src/x.ts:9' : null,
+      producedKind: kind === 'consumedGap' ? 'handler-in-file' : 'declaration-only',
+      producedEvidence: kind === 'consumedGap' ? ['src/x.ts:9'] : [],
+      consumed: false, evidenceKind: 'none', dynamic: false, evidence: [],
+    });
+    const declared = (i: number): ClosureItem => ({
+      cluster: 'routes', id: `/anic/fixture/${String(i)}`, definedAt: 'src/routes/fixture.ts:1',
+      producedAt: 'src/routes/fixture.ts:1', producedKind: 'register-call', producedEvidence: [],
+      consumed: false, evidenceKind: 'none', dynamic: false, evidence: [],
+      declaredChannel: { owner: 'fixture', docRef: 'docs/agents/API参考.md#/anic/fixture', reason: 'fixture' },
+    });
+    const synth = orderUnconsumed([
+      ...Array.from({ length: 88 }, (_, i) => declared(i)),
+      gap('i18n', 'probe.gap', 'producedGap'),
+      gap('tools', 'probe.tool', 'consumedGap'),
+    ]);
+    const shownIds = synth.slice(0, UNCONSUMED_VIEW_LIMIT).map((i) => i.cluster + '|' + i.id);
+    expect(synth.length, '夹具必须真的触发截断（否则排序断言空转）').toBeGreaterThan(UNCONSUMED_VIEW_LIMIT);
+    const hiddenGaps = ['i18n|probe.gap', 'tools|probe.tool'].filter((k) => !shownIds.includes(k));
+    expect(hiddenGaps, '真缺口被截断藏起来了：\n' + hiddenGaps.join('\n')).toEqual([]);
+
+    // ② 实仓现状：真缺口若存在必须全部在明细里（0 缺口 ⇒ 不空转、不造基线）。
+    const view = toClosureView(SUMMARY);
+    const realGaps = SUMMARY.unconsumed
       .filter((i) => bucketOf(i) === 'consumedGap' || bucketOf(i) === 'producedGap')
       .map((i) => i.cluster + '|' + i.id);
-    expect(gapKeys.length, '本仓无待办缺口 —— 排序断言空转').toBeGreaterThan(0);
-    if (!view.truncation.unconsumed.truncated) return;
-    const shown = new Set(view.unconsumed.map((i) => i.cluster + '|' + i.id));
-    const hiddenGaps = gapKeys.filter((k) => !shown.has(k));
-    expect(hiddenGaps, '真缺口被截断藏起来了：\n' + hiddenGaps.join('\n')).toEqual([]);
+    const realShown = new Set(view.unconsumed.map((i) => i.cluster + '|' + i.id));
+    expect(realGaps.filter((k) => !realShown.has(k))).toEqual([]);
   });
 
   it('明细排序非降（真缺口在前）+ 只含未消费项 + 两次投影确定性相等', () => {

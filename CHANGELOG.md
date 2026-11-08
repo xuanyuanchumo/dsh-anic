@@ -1,5 +1,50 @@
 # dsh-anic CHANGELOG
 
+## v0.62.0 — 2026-11-08（cycle-112：面板三域红转绿——根因修复而非调参）
+
+> 用户反馈：「健康与自主、步骤与诊断、闭环与自举等仍然标明插件有问题为闭环与落地」。
+> 终点：**用生产 classifyDomainStatus 复算 → health/diagnostics/quality 三域全 ok**
+> （overview ok / flows idle / settings idle）；typecheck ✅ / 四层 ALL GREEN / build ✅。
+
+### ① 步骤与诊断（P9 红 → 绿）
+- 根因：技能副本漂流——`.dsh/skills/.../scripts/init-cycle.mjs` 5602B（10-25 旧版）
+  vs 内联正典 7212B（含 cycle-147 归档感知编号修复）。
+- 修复：`anic_skill_repair` 只重写差异文件（1 文件），integrity in-sync；self-check 9/9。
+
+### ② 闭环与自举（quality ⚠️ → ok）
+- **跨项目污染**（最严重）：`resolveSelfTarget` 丢弃 `req` ⇒ self/* 五端点与 skill/*/
+  cross-bootstrap 的工作区选择器全部失效。真机实证 `?workspace=本仓` 返回
+  `cycle-9 / archived 7` 的**另一个项目**状态 → 面板长期误报。修复：req 透传
+  `resolveWorkspaceRoots(ctx, req)`；新增契约 `routeWorkspaceSelectorContract`（静态 + 行为 + 反向自检）。
+- **闭包 producedGap 1 → 0**：`meta.description` 的唯一消费者是
+  `scripts/validate-dsh.mjs:75` 的 `d.meta.description`（属性路径，无引号字面量）⇒
+  旧扫描器判「只声明没接线」。新增 `propertyPathEvidence`（仅 meta.* 族开放，
+  防同名属性冒充），死键棘轮 RESERVED 清空（零死键达成）。
+- 基线刷新：`POST /anic/self/restart` 重定 facts ⇒ stale=false（含 evalReport 哈希）。
+
+### ③ 健康与自主（health ⚠️ → ok）
+- **auto-fix-loop 超时根因**：anic_skill 默认/上限统一 240s，而脚本合法上限 =
+  test_timeout(240s) × maxRetries(3)+开销 ⇒ 真机 5/6 次在 `durationMs=240020` 被 SIGTERM
+  掐断。修复：`bootstrapBudget` 长跑脚本分档（900s）+ `resolveSkillInvokeTimeout(cap)` 参数化
+  + HTTP skill invoke 同源；端到端实证：全量 74.8s DONE。
+- **健康模型恢复语义**：`slow` 判据从**全史** timeoutRate 改为**近期窗口**
+  recentTimeoutRate（与 degraded 同口径；cycle-57「旧失败永不出窗」同根，超时维度漏了）。
+- **quick-validate 假失败**：无参调用把项目根当技能包校验（10226 files/65 errors）⇒
+  7/14 FAIL 被记成脚本失败。修复：`normalizeQuickValidateArgs` 纯函数 + 网关自动补技能根；
+  实证无参调用通过（70 files / PASSED）。
+- **技术债分诊同口径**：`health-speed-*` 改读近期超时率 ⇒ 已修提案可关闭（本轮 marked 1）；
+  perf-* 按事实保留（低危信息性）。
+
+### ④ 数据面刷新（真实执行，非伪造）
+- eval-runner ×5 有效成功（窗口 0.875/0.125）· auto-fix-loop ×1 全量 + ×6 快速校验
+  （窗口 0.875/0.125）· quick-validate ×5（窗口 0.875/0）⇒ 健康面 WARN=0。
+- 剩余 4 脚本 level=insufficient（近 7 天无调用；不评级≠故障）。
+
+### ⑤ 验证
+- 契约新增：`routeWorkspaceSelectorContract` / `quickValidateArgs` / 健康恢复语义 3 例 /
+  分诊同口径 1 例；拆分守 T3（i18nClosure 238 / continuousLearning 250 / skillInvoker 227）。
+- 四层 ALL GREEN（298 files / 3831+ tests）；沙箱与桌面链路均经热重载验证。
+
 ## v0.61.0 — 2026-11-07（cycle-111：插件信息面板与反馈入口）
 
 > 起点：commit `1526636`（v0.60.0）。用户验收项：「要有插件信息面板且包含反馈入口如跳转到对应的 github 链接」。
