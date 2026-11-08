@@ -21,12 +21,43 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = resolve(__dirname, '..');
 
 function getNextCycleNum(projectDir) {
-  const cyclesDir = join(projectDir, '.cycles', 'cycles');
-  if (!existsSync(cyclesDir)) return 1;
-  const entries = readdirSync(cyclesDir).filter(e => e.startsWith('cycle-'));
-  if (entries.length === 0) return 1;
-  const nums = entries.map(e => parseInt(e.replace('cycle-', ''), 10));
-  return Math.max(...nums) + 1;
+  // cycle-147 修复（真机实证：146 循环全部归档后 init-cycle 回落 cycle-1）：
+  // 原实现只扫活跃区（.cycles/cycles/），归档收口态（active 合法为空）时返回 1——
+  // 忽略 .cycles/archive/ 的历史编号与 workflow-state.json 的 currentCycle，产生
+  // 「归档名碰撞（archive/cycle-1 已存在 ⇒ archive-cycle 永远拒绝）」与
+  // 「状态机拒回拉（1 < 146 ⇒ currentCycle 停在旧号）」双重后果。
+  // 修法：活跃区、归档区、状态机三处取最大值再 +1；三处皆无信息才回落 1（真·全新项目）。
+  // --cycle N 显式旗标仍最高优先（调用方裁决不受影响，见主流程 args.cycle || …）。
+  const candidates = [0];
+  const activeDir = join(projectDir, '.cycles', 'cycles');
+  if (existsSync(activeDir)) {
+    for (const e of readdirSync(activeDir)) {
+      if (!e.startsWith('cycle-')) continue;
+      const n = parseInt(e.slice('cycle-'.length), 10);
+      if (Number.isFinite(n)) candidates.push(n);
+    }
+  }
+  const archiveDir = join(projectDir, '.cycles', 'archive');
+  if (existsSync(archiveDir)) {
+    for (const e of readdirSync(archiveDir)) {
+      if (!e.startsWith('cycle-')) continue;
+      const n = parseInt(e.slice('cycle-'.length), 10);
+      if (Number.isFinite(n)) candidates.push(n);
+    }
+  }
+  const statePath = join(projectDir, '.cycles', 'workflow-state.json');
+  if (existsSync(statePath)) {
+    try {
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      if (typeof state.currentCycle === 'string' && state.currentCycle.startsWith('cycle-')) {
+        const n = parseInt(state.currentCycle.slice('cycle-'.length), 10);
+        if (Number.isFinite(n)) candidates.push(n);
+      }
+    } catch {
+      // 损坏状态不参与取数：syncWorkflowState 的重建线兜底（与 cycle-43 语义一致）。
+    }
+  }
+  return Math.max(...candidates) + 1;
 }
 
 /**
